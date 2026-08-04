@@ -1,0 +1,42 @@
+Subject: [PATCH] dkms: honor KERNELVER so the module builds against the target kernel
+
+The lisuangpu-dkms Makefile decided its build kernel from KERNEL_VERSION
+(defaulting to `uname -r`), while dkms.conf passes the target kernel as
+KERNELVER. Because the two variable names differ, DKMS's requested kernel was
+silently ignored: the module was always built against the kernel that merely
+happened to be running at build time, yet filed under the *target* kernel's
+module tree.
+
+On a machine where a newer kernel is installed while an older one is still
+running (the normal `apt upgrade` case), this produces a module with the
+wrong vermagic / symbol CRCs. It then refuses to load, e.g.:
+
+    gf: disagrees about version of symbol drm_crtc_vblank_on
+    gf: Unknown symbol kmalloc_large (err -2)
+
+and the GPU ends up with no kernel driver bound (black screen / no display).
+
+Fix: honor KERNELVER (the DKMS convention) and fall back to `uname -r` only
+for a plain manual `make`. This is a one-line, behavior-preserving change for
+manual builds and makes every future `dkms autoinstall` on a kernel upgrade
+build against the correct headers.
+
+Apply from the DKMS source root (/usr/src/lisuangpu-dkms-<version>/):
+    patch -p1 < 0001-dkms-makefile-honor-KERNELVER.patch
+or:
+    git apply 0001-dkms-makefile-honor-KERNELVER.patch
+---
+ Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ DRM_DRIVER_NAME := gf
+ 
+ ifndef KERNEL_VERSION
+-KERNEL_VERSION := $(shell uname -r)
++KERNEL_VERSION := $(if $(KERNELVER),$(KERNELVER),$(shell uname -r))
+ endif
+ LINUXDIR ?= /lib/modules/$(KERNEL_VERSION)/build
+ KERNEL_GF_DIR := $(shell \

@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: ""
+title: Lisuan GPU DKMS 驱动与用户态库打包
+scope:
+    - lisuangpu-dkms-262.2.0.56_amd64.deb
+    - lisuangpu-lib-262.2.0.56_amd64.deb
+source_files: []
+depends_on: []
+related_to: []

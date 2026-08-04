@@ -1,0 +1,146 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: Q0DeR-MaG1C-BrAnCh-Fo2-NoN-GiT-Or-No-C0MmIt
+nodes_managed: true
+exported_at: "2026-07-31T07:02:10Z"
+modules:
+    "":
+        dir_name: Lisuan GPU DKMS 驱动与用户态库打包
+        title: Lisuan GPU DKMS 驱动与用户态库打包
+        scope:
+            - lisuangpu-dkms-262.2.0.56_amd64.deb
+            - lisuangpu-lib-262.2.0.56_amd64.deb
+        source_files: []
+        children:
+            - dkms_source
+        depends_on: []
+        related_to: []
+    dkms_source:
+        dir_name: Lisuan GPU DKMS 驱动包（单模块多子系统）
+        title: Lisuan GPU DKMS 驱动包（单模块多子系统）
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/
+        source_files: []
+        children:
+            - dkms_source/core_driver
+            - dkms_source/display_pipeline
+            - dkms_source/include_headers
+            - dkms_source/kms_layer
+            - dkms_source/video_codec
+        depends_on: []
+        related_to: []
+    dkms_source/core_driver:
+        dir_name: Lisuan GPU DKMS 核心驱动（DRM_KMS_GEM_调度与硬件抽象层）
+        title: Lisuan GPU DKMS 核心驱动（DRM/KMS/GEM/调度与硬件抽象层）
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf*.c
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_*.c
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/log_control.c
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: dkms_source/include_headers
+            - path: dkms_source/video_codec
+    dkms_source/display_pipeline:
+        dir_name: Lisuan GPU DKMS 显示管线核心驱动
+        title: Lisuan GPU DKMS 显示管线核心驱动
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/
+        source_files: []
+        children:
+            - dkms_source/display_pipeline/connector
+            - dkms_source/display_pipeline/core
+            - dkms_source/display_pipeline/crtc
+            - dkms_source/display_pipeline/encoder
+            - dkms_source/display_pipeline/register
+        depends_on: []
+        related_to: []
+    dkms_source/display_pipeline/connector:
+        dir_name: 显示连接器子系统（HDMI_DP_eDP_DVO 及 EDID_DisplayID_模式_PWM）
+        title: 显示连接器子系统（HDMI/DP/eDP/DVO 及 EDID/DisplayID/模式/PWM）
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: dkms_source/display_pipeline/register
+    dkms_source/display_pipeline/core:
+        dir_name: 显示管线核心抽象与设备初始化层
+        title: 显示管线核心抽象与设备初始化层
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/display.c
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/display.h
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/disp_device.c
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/disp_device.h
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/disp_callback.c
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/disp_callback.h
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: dkms_source/kms_layer
+    dkms_source/display_pipeline/crtc:
+        dir_name: 显示 CRTC 管道与平面驱动层
+        title: 显示 CRTC 管道与平面驱动层
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/crtc/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: dkms_source/display_pipeline/encoder
+    dkms_source/display_pipeline/encoder:
+        dir_name: 显示输出编码器子系统（HDMI_DP_DVO）
+        title: 显示输出编码器子系统（HDMI/DP/DVO）
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/encoder/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: dkms_source/display_pipeline/crtc
+    dkms_source/display_pipeline/register:
+        dir_name: 显示子系统寄存器定义与访问宏
+        title: 显示子系统寄存器定义与访问宏
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/register/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: dkms_source/display_pipeline/connector
+    dkms_source/include_headers:
+        dir_name: Lisuan GPU DKMS 头文件与用户态-内核态共享接口
+        title: Lisuan GPU DKMS 头文件与用户态-内核态共享接口
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/include/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: dkms_source/core_driver
+            - path: dkms_source/video_codec
+    dkms_source/kms_layer:
+        dir_name: Lisuan GPU KMS 显示管理层
+        title: Lisuan GPU KMS 显示管理层
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/kms/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: dkms_source/display_pipeline/core
+    dkms_source/video_codec:
+        dir_name: 立昇 GPU 视频编解码 DKMS 驱动（VC9000D_VC9000E）
+        title: 立昇 GPU 视频编解码 DKMS 驱动（VC9000D/VC9000E）
+        scope:
+            - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: dkms_source/core_driver
+            - path: dkms_source/include_headers

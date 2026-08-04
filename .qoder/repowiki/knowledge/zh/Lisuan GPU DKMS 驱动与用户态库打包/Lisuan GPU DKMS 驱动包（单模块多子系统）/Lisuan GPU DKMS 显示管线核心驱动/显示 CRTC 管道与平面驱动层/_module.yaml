@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: dkms_source/display_pipeline/crtc
+title: 显示 CRTC 管道与平面驱动层
+scope:
+    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/crtc/
+source_files: []
+depends_on: []
+related_to:
+    - path: dkms_source/display_pipeline/encoder

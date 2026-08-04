@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: dkms_source/video_codec
+title: 立昇 GPU 视频编解码 DKMS 驱动（VC9000D/VC9000E）
+scope:
+    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/
+source_files: []
+depends_on: []
+related_to:
+    - path: dkms_source/core_driver
+    - path: dkms_source/include_headers

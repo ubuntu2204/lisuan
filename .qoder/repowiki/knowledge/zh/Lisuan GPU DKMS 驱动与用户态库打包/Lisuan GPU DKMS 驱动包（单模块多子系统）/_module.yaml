@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: dkms_source
+title: Lisuan GPU DKMS 驱动包（单模块多子系统）
+scope:
+    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/
+source_files: []
+depends_on: []
+related_to: []

@@ -1,0 +1,26 @@
+# Gitee Go pipeline: run the offline test suite on every push / PR.
+#
+# The tests need no GPU, no root, no dkms — only bash, patch, make, perl.
+# See README.md -> 自动化测试 for what each test unit covers.
+name: lisuan-test-suite
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+
+stages:
+  - name: test
+    jobs:
+      - name: run-tests
+        steps:
+          - name: 检出代码
+            uses: actions/checkout@v1
+
+          - name: 运行测试套件
+            shell: bash
+            run: |
+              set -euo pipefail
+              bash tests/run-tests.sh

@@ -1,0 +1,81 @@
+Prepare other component...
+make -j8 -C /lib/modules/6.8.0-31-generic/build M=`pwd` modules
+make[1]: 警告: 子 make 中强制 -j8: 重置 jobserver 模式。
+make[1]: 进入目录“/usr/src/linux-headers-6.8.0-31-generic”
+warning: the compiler differs from the one used to build the kernel
+  The kernel was built by: x86_64-linux-gnu-gcc-13 (Ubuntu 13.2.0-23ubuntu4) 13.2.0
+  You are using:           gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_vm.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_sync.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_gem.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_context.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_drv.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_device.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_mailbox.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_procid.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_sched_entity.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_sched_fence.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_sched_main.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_trace_points.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_ring.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_fb.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_vm_gpu.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_vm_cpu.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_p2pdma.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf_os_interface.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf_debugfs.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf_irq.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf_job.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf_ringbuffer.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf_trans.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf_kmd_event.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/kms/gf_kms.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/kms/gf_kms_virt.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/kms/gf_kms_dm.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/kms/gf_kms_pipe_crc.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/kms/gf_kms_hdr.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/bidirect_list.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/vcmdswhwregisters.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/VC9000E/vcx_abnormal_irq.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/VC9000E/vcx_axife.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/VC9000E/vcx_normal_driver.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/VC9000E/vcx_vcmd_driver.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/VC9000D/hantro_axife.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/VC9000D/hantro_dec.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/VC9000D/hantro_vcmd.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/video_codec/VC9000D/subsys.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/display.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/disp_device.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/disp_callback.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/crtc/disp_plane.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/crtc/disp_dhi.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/crtc/disp_pipe.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/crtc/disp_crtc.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/crtc/disp_pll.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/crtc/disp_hdr.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/encoder/disp_dvo_encoder.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/encoder/disp_dp_encoder.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/encoder/disp_hdmi_encoder.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/encoder/disp_encoder.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/disp_dvo_connector.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/disp_dp_connector.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/disp_hdmi_connector.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/disp_pwm.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/disp_displayid.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/disp_connector.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/disp_edid.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/disp_mode.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/hdaudio/disp_codec.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/intr/disp_intr.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/vbt/disp_vbt.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/common/disp_hw_common.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/disp_dp_aux.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/encoder/disp_dp_phy.o
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/encoder/disp_dsc.o
+  LD [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf.o
+  MODPOST /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/Module.symvers
+  CC [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf.mod.o
+  LD [M]  /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf.ko
+  BTF [M] /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf.ko
+Skipping BTF generation for /home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf.ko due to unavailability of vmlinux
+make[1]: 离开目录“/usr/src/linux-headers-6.8.0-31-generic”

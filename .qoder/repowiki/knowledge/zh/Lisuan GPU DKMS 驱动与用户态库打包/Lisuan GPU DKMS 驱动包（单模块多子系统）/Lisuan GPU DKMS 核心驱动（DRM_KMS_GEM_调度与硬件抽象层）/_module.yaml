@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: dkms_source/core_driver
+title: Lisuan GPU DKMS 核心驱动（DRM/KMS/GEM/调度与硬件抽象层）
+scope:
+    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/gf*.c
+    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/lisuan_*.c
+    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/log_control.c
+source_files: []
+depends_on: []
+related_to:
+    - path: dkms_source/include_headers
+    - path: dkms_source/video_codec

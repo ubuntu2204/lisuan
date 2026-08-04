@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: dkms_source/display_pipeline/register
+title: 显示子系统寄存器定义与访问宏
+scope:
+    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/register/
+source_files: []
+depends_on: []
+related_to:
+    - path: dkms_source/display_pipeline/connector

@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: dkms_source/display_pipeline
+title: Lisuan GPU DKMS 显示管线核心驱动
+scope:
+    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/
+source_files: []
+depends_on: []
+related_to: []

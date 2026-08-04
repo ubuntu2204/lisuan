@@ -1,0 +1,160 @@
+Prepare other component...
+make -j8 -C /lib/modules/7.0.0-28-generic/build M=`pwd` modules
+make[1]: 警告: 子 make 中强制 -j8: 重置 jobserver 模式。
+make[1]: 进入目录“/usr/src/linux-headers-7.0.0-28-generic”
+make[2]: 进入目录“/home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56”
+warning: the compiler differs from the one used to build the kernel
+  The kernel was built by: x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+  You are using:           gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+warning: pahole version differs from the one used to build the kernel
+  The kernel was built with: 125
+  You are using:             0
+  CC [M]  lisuan_vm.o
+  CC [M]  lisuan_sync.o
+  CC [M]  lisuan_gem.o
+  CC [M]  lisuan_context.o
+  CC [M]  lisuan_drv.o
+  CC [M]  lisuan_device.o
+  CC [M]  lisuan_mailbox.o
+  CC [M]  lisuan_procid.o
+  CC [M]  lisuan_sched_entity.o
+  CC [M]  lisuan_sched_fence.o
+  CC [M]  lisuan_sched_main.o
+  CC [M]  lisuan_trace_points.o
+  CC [M]  lisuan_ring.o
+  CC [M]  lisuan_fb.o
+  CC [M]  lisuan_vm_gpu.o
+  CC [M]  lisuan_vm_cpu.o
+  CC [M]  lisuan_p2pdma.o
+  CC [M]  gf_os_interface.o
+  CC [M]  gf_debugfs.o
+  CC [M]  gf_irq.o
+  CC [M]  gf_job.o
+  CC [M]  gf_ringbuffer.o
+  CC [M]  gf_trans.o
+  CC [M]  gf_kmd_event.o
+  CC [M]  kms/gf_kms.o
+  CC [M]  kms/gf_kms_virt.o
+  CC [M]  kms/gf_kms_dm.o
+  CC [M]  kms/gf_kms_pipe_crc.o
+  CC [M]  kms/gf_kms_hdr.o
+  CC [M]  video_codec/bidirect_list.o
+  CC [M]  video_codec/vcmdswhwregisters.o
+  CC [M]  video_codec/VC9000E/vcx_abnormal_irq.o
+  CC [M]  video_codec/VC9000E/vcx_axife.o
+  CC [M]  video_codec/VC9000E/vcx_normal_driver.o
+  CC [M]  video_codec/VC9000E/vcx_vcmd_driver.o
+  CC [M]  video_codec/VC9000D/hantro_axife.o
+  CC [M]  video_codec/VC9000D/hantro_dec.o
+  CC [M]  video_codec/VC9000D/hantro_vcmd.o
+  CC [M]  video_codec/VC9000D/subsys.o
+  CC [M]  display/display.o
+  CC [M]  display/disp_device.o
+  CC [M]  display/disp_callback.o
+  CC [M]  display/crtc/disp_plane.o
+  CC [M]  display/crtc/disp_dhi.o
+  CC [M]  display/crtc/disp_pipe.o
+  CC [M]  display/crtc/disp_crtc.o
+  CC [M]  display/crtc/disp_pll.o
+  CC [M]  display/crtc/disp_hdr.o
+  CC [M]  display/encoder/disp_dvo_encoder.o
+  CC [M]  display/encoder/disp_dp_encoder.o
+  CC [M]  display/encoder/disp_hdmi_encoder.o
+  CC [M]  display/encoder/disp_encoder.o
+  CC [M]  display/connector/disp_dvo_connector.o
+  CC [M]  display/connector/disp_dp_connector.o
+  CC [M]  display/connector/disp_hdmi_connector.o
+  CC [M]  display/connector/disp_pwm.o
+  CC [M]  display/connector/disp_displayid.o
+  CC [M]  display/connector/disp_connector.o
+  CC [M]  display/connector/disp_edid.o
+  CC [M]  display/connector/disp_mode.o
+  CC [M]  display/hdaudio/disp_codec.o
+  CC [M]  display/intr/disp_intr.o
+  CC [M]  display/vbt/disp_vbt.o
+  CC [M]  display/common/disp_hw_common.o
+  CC [M]  display/connector/disp_dp_aux.o
+  CC [M]  display/encoder/disp_dp_phy.o
+  CC [M]  display/encoder/disp_dsc.o
+  LD [M]  gf.o
+gf.o: warning: objtool: gf_init_pwm_setting+0x4b: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_pci_mem_config_init+0x21c: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_mhb_init+0x4f: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_interrupt_disable+0x8e: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_interrupt_enable+0xcc: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_msi_init+0x19a: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_send_mail_box_req+0xc8: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_clear_mail_box_irq_flag+0x1b: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_hw_clk+0xfd: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_hw_voltage+0xdf: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_set_hw_therm_fan_mode+0xa5: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_hw_therm_fan_speed+0x6c: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_parse_fm_version+0x85: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_hw_therm+0x118: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_hw_FM_version+0x42: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_customer_id+0x25: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_device_id+0x25: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_misc_infos+0xbd: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_reset_hw+0x32f: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_handle_mhb_irq+0x1cc: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_hw_irq+0x71: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_clear_hw_irq+0x66: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_clear_fence_irq+0x1b: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hantro_reset+0x71: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_dump_status+0x1b2: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_is_ring_at_current_vf+0x2e: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_map_cf_buffer+0x41: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_dump_debug_status+0x1c0: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_init_rb_hw+0xd8: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_send_request+0x37: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_send_event_ack+0x18: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_event_id+0x16: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_set_mmu_pid_0_entry+0x2a: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_set_mmu_bypass_begin+0x20: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_set_mmu_bypass_end+0x20: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_mmu_bypass_inv+0x1f: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_set_mhb_fb_vf+0x23: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_vf_info+0x33: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_mhu_disable_mask+0x16: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_vf_hw_cfg+0x16: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_vf_fb_size+0x20: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_gpc_mask+0x16: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_fb_cfg+0x16: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_init_tlb_level0_pte+0x37: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_init_tlb_level1_pte+0x47: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_init_tlb_level2_pte+0x30: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_time_stamp+0x80: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_init_save_restore_cmds+0x7e: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_get_tlb_inv_cmd+0x54: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_emit_vf_efence+0x37: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_init_cmd_template+0x93: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_deinit_cmd_template+0x2b: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_init_gce_host_cmds+0x6d: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_gce_host_update_pde_cmds+0x91: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_gce_host_update_pte_cmds+0xa7: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_init_gce_clr_cmds+0x8e: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_init_gce_blt_cmds+0xd8: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_init_gpu_state_cmds+0x89: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_gfx_rb_deinit_cmds+0x50: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_ifence_wait_cmds+0xec: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_do_auto_clear_cmds+0x142: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_do_clear_cmds+0x3b: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_raw_blit_cmds+0xb8: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_mem_op_write_cmds+0x52: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_cpia_gce_end_cmds+0x1d: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_job_run_rb_size+0x35: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_job_run_begin_cmds+0x46: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_job_run_end_cmds+0x36: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_job_run_dma_cmds+0x7e: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_job_run_fence_cmds+0x5f: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_gce_cmd_size+0x1a: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_send_skip_cmd+0x134: 'naked' return found in MITIGATION_RETHUNK build
+gf.o: warning: objtool: gf_hw_get_vcmd_fill_indicator_and_end_cmds+0x114: 'naked' return found in MITIGATION_RETHUNK build
+  MODPOST Module.symvers
+  CC [M]  .module-common.o
+  CC [M]  gf.mod.o
+  LD [M]  gf.ko
+  BTF [M] gf.ko
+Skipping BTF generation for gf.ko due to unavailability of vmlinux
+make[2]: 离开目录“/home/ubuntu/project/display/_work/src/usr/src/lisuangpu-dkms-262.2.0.56”
+make[1]: 离开目录“/usr/src/linux-headers-7.0.0-28-generic”

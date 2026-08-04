@@ -1,0 +1,16 @@
+DRM_DRIVER_NAME := gf
+
+ifndef KERNEL_VERSION
+KERNEL_VERSION := $(shell uname -r)
+endif
+LINUXDIR ?= /lib/modules/$(KERNEL_VERSION)/build
+KERNEL_GF_DIR := $(shell \
+	if [ -d "/lib/modules/$(KERNEL_VERSION)/kernel/drivers/gpu" ];then\
+		echo "/lib/modules/$(KERNEL_VERSION)/kernel/drivers/gpu/drm/$(DRM_DRIVER_NAME)";\
+	else\
+		echo "/lib/modules/$(KERNEL_VERSION)/kernel/drivers/char/drm";\
+	fi)
+
+# --- test-only targets (not part of the vendor Makefile) ---
+print-kver:
+	@printf '%s\n' '$(KERNEL_VERSION)'
