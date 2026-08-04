@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: dkms_source/display_pipeline/encoder
-title: 显示输出编码器子系统（HDMI/DP/DVO）
-scope:
-    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/encoder/
-source_files: []
-depends_on: []
-related_to:
-    - path: dkms_source/display_pipeline/crtc

@@ -1,0 +1,8 @@
+# ---- 砺算 GPU 厂商专有产物：切勿提交到仓库 ----
+# 驱动包与库为第三方专有软件，需用户自行向厂商/OEM 获取（见 lisuan-7g100-ubuntu-fix/README.md）。
+lisuangpu-dkms-*.deb
+lisuangpu-lib-*.deb
+*.deb
+
+# ---- Qoder / IDE 本地数据 ----
+.qoder/

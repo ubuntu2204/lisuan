@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: dkms_source/display_pipeline/connector
-title: 显示连接器子系统（HDMI/DP/eDP/DVO 及 EDID/DisplayID/模式/PWM）
-scope:
-    - _work/src/usr/src/lisuangpu-dkms-262.2.0.56/display/connector/
-source_files: []
-depends_on: []
-related_to:
-    - path: dkms_source/display_pipeline/register
