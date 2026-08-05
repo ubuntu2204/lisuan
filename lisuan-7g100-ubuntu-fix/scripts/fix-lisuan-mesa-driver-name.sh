@@ -31,19 +31,23 @@ DRI32=/usr/lib/i386-linux-gnu/dri
 log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n'  "$*" >&2; }
 
-# --- 64-bit: lisuan_dri.so -> gf_dri.so -----------------------------------
+# ---- 64 位：lisuan_dri.so -> gf_dri.so -----------------------------------
+# Mesa 的 DRI 加载器按 drmGetVersion() 返回的名字（lisuan）找驱动文件，
+# 而厂商只提供 gf_dri.so；建同名软链即可，不需要拷贝/改二进制。
 if [[ -f "$DRI64/gf_dri.so" ]]; then
-  ln -sf gf_dri.so        "$DRI64/lisuan_dri.so"
+  ln -sf gf_dri.so        "$DRI64/lisuan_dri.so"   # -f：重复执行时覆盖旧链（幂等）
   log "linked $DRI64/lisuan_dri.so -> gf_dri.so"
 else
   warn "gf_dri.so not found in $DRI64 — install lisuangpu-lib first."
 fi
+# VA-API 视频驱动同理：libva 按驱动名找 <name>_drv_video.so
 if [[ -f "$DRI64/gf_drv_video.so" ]]; then
   ln -sf gf_drv_video.so  "$DRI64/lisuan_drv_video.so"
   log "linked $DRI64/lisuan_drv_video.so -> gf_drv_video.so"
 fi
 
-# --- 32-bit: vendor ships no 32-bit gf driver; nothing to link ------------
+# ---- 32 位：厂商未提供 32 位 gf 驱动，无链可建 ----------------------------
+# Steam 的 CEF 是 64 位，不受影响；32 位 GL 应用会落到 swrast
 if [[ -f "$DRI32/gf_dri.so" ]]; then
   ln -sf gf_dri.so        "$DRI32/lisuan_dri.so"
   log "linked $DRI32/lisuan_dri.so -> gf_dri.so"
@@ -52,10 +56,10 @@ else
   warn "32-bit GL clients will fall back to swrast; Steam's 64-bit CEF is unaffected."
 fi
 
-# --- refresh dynamic linker cache (harmless; symlinks don't strictly need it)
+# ---- 刷新动态链接缓存（软链本身不强制需要，无害）
 ldconfig 2>/dev/null || true
 
-# --- verify ---------------------------------------------------------------
+# --- 验证：打印新建的软链 -------------------------------------------------
 log "Result:"
 ls -l "$DRI64"/lisuan_*.so 2>/dev/null || true
 

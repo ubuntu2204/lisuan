@@ -34,30 +34,33 @@
 # License: Apache-2.0
 set -euo pipefail
 
-FORCE_DRI_GBM=0
-PRINT_ENV=0
+# ---------------- 参数解析：只认选项，其余全部当作要运行的命令 ----------------
+FORCE_DRI_GBM=0   # 是否同时强制 GBM 走 dri 后端（避开厂商 gf_gbm 段错误）
+PRINT_ENV=0       # 只打印环境变量配方不执行命令（供其它脚本/用户抄作业）
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force-dri-gbm) FORCE_DRI_GBM=1; shift ;;
     --print-env) PRINT_ENV=1; shift ;;
-    -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    --) shift; break ;;
-    *) break ;;
+    -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;   # 帮助=打印头部注释
+    --) shift; break ;;   # -- 之后一律是命令
+    *) break ;;           # 第一个非选项参数即命令开头
   esac
 done
 
-# Force the Mesa implementations of the glvnd-dispatched GLX/EGL APIs.
-# (Default glvnd ordering prefers the Lisuan vendor: 10_gf.json < 50_mesa.json.)
+# 强制 glvnd 把 GLX/EGL 分发给 Mesa 实现（而非厂商 libGLX_gf/libEGL_gf）。
+# glvnd 缺省按 JSON 文件名排序，10_gf.json 优先于 50_mesa.json，所以
+# 必须显式指定；这两个变量只影响当前进程及其子进程。
 export __GLX_VENDOR_LIBRARY_NAME=mesa
 export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
 
 if [[ "$FORCE_DRI_GBM" == "1" ]]; then
-  # System libgbm picks backends by DRM driver name first ("gf" for this
-  # card); the vendor gf_gbm.so segfaults on primary nodes under
-  # libgbm 25.2.x. The distro "dri" backend is the safe path.
+  # 系统 libgbm 默认按 DRM 驱动名选后端（本卡是 "gf" → 厂商 gf_gbm.so，
+  # 在新 libgbm 下会段错误）；GBM_BACKEND=dri 强制用发行版 dri 后端
+  # （走 zink/kms，安全）。见 docs/system-mesa-analysis.md §5 地雷 1。
   export GBM_BACKEND=dri
 fi
 
+# --print-env：输出配方供人工/其它脚本使用，不执行任何命令
 if [[ "$PRINT_ENV" == "1" ]]; then
   echo "__GLX_VENDOR_LIBRARY_NAME=$__GLX_VENDOR_LIBRARY_NAME"
   echo "__EGL_VENDOR_LIBRARY_FILENAMES=$__EGL_VENDOR_LIBRARY_FILENAMES"
@@ -67,10 +70,12 @@ if [[ "$PRINT_ENV" == "1" ]]; then
   exit 0
 fi
 
+# 未给命令时报用法（退出码 2 = 用法错误，便于脚本区分）
 if [[ $# -eq 0 ]]; then
   echo "usage: $0 [options] [--] COMMAND [ARGS...]" >&2
   echo "       $0 --print-env" >&2
   exit 2
 fi
 
+# exec 替换本进程：环境变量自然继承给目标应用，退出码也原样传回
 exec "$@"

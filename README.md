@@ -68,6 +68,9 @@ open-source glue layer that simply needs recompiling against the right headers.
 | `lisuan-7g100-ubuntu-fix/scripts/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-steam-cef-lock.sh` | **Steam 修复主入口**：向容器内注入 `GBM_BACKEND=dri` + `LD_PRELOAD` glapi 并 `chattr +i` 锁定（详见[三](#三steam-适配)） |
+| `lisuan-7g100-ubuntu-fix/scripts/steam-cef-autofix.sh` | 开机自愈（root/systemd 调用）：发现 Steam 更新还原了补丁就自动重新注入锁定，由 `./lisuan-fix.sh` 菜单 9 安装为系统服务；`--uninstall` 卸载服务 |
+| `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
+| `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
 
@@ -302,17 +305,20 @@ vermagic: 7.0.0-28-generic SMP preempt mod_unload modversions   # ← 与运行�
 > 撤销补丁 ≠ 卸载显卡驱动。撤销后已装好的 `gf.ko` 仍在使用；真正的影响是
 > **下次内核升级会退回原厂 Bug 行为**。除非确有需要，一般不建议撤销。
 
+每一项注入都有对应的卸载入口（均幂等，也都在 `./lisuan-fix.sh` 菜单里）：
+
+| 注入 | 卸载方式 |
+|---|---|
+| DKMS Makefile 补丁 | `sudo lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 11） |
+| DRI 驱动名软链 | `sudo lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 12） |
+| Steam 容器补丁 | `sudo lisuan-7g100-ubuntu-fix/scripts/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 13） |
+| 开机自愈服务 | `sudo lisuan-7g100-ubuntu-fix/scripts/steam-cef-autofix.sh --uninstall`（菜单 10） |
+
+验证 DKMS 补丁已还原（第 4 行应变回原厂行）：
+
 ```bash
-# 方式一：用备份还原（推荐）
-SRC=$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)
-sudo cp -a "$SRC/Makefile.bak" "$SRC/Makefile"
-
-# 方式二：反向应用补丁（无 .bak 时）
-cd "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)"
-sudo patch -p1 -R < /path/to/lisuan-7g100-ubuntu-fix/patches/0001-dkms-makefile-honor-KERNELVER.patch
-
-# 验证已还原（第 4 行应变回 KERNEL_VERSION := $(shell uname -r)）
 sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
+# 预期：KERNEL_VERSION := $(shell uname -r)
 ```
 
 > 若要彻底卸载整个砺算驱动（显卡将失去驱动，请谨慎）：
@@ -386,7 +392,13 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 
 ### 注意事项
 
-- Steam 客户端更新前：`sudo ./scripts/fix-steam-cef-lock.sh --unlock`；更新后重跑注入。
+- **日常开机无需任何操作**：补丁写入 `wrap.sh` 并 `chattr +i` 锁定，重启不丢；
+  游戏用桌面菜单图标启动。
+- 建议安装开机自愈：`./lisuan-fix.sh` 选 **9**（或
+  `sudo lisuan-7g100-ubuntu-fix/scripts/steam-cef-autofix.sh` 手动验证）。
+  之后 Steam 客户端更新还原补丁时，下次开机自动重新注入，菜单 5/6 不再需要。
+- 不装自愈服务时：Steam 客户端更新前先 `sudo ./scripts/fix-steam-cef-lock.sh --unlock`，
+  更新后重跑注入。
 - 手动编辑 wrap.sh 后务必 `chmod +x`（`sed -i` 会丢执行位，容器内 pv-adverb 会报
   Permission denied）。
 - 三个问题的根因与修复建议已整理成厂商 bug 报告：

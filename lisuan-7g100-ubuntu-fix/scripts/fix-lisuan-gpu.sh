@@ -23,21 +23,24 @@
 # License: Apache-2.0
 set -euo pipefail
 
-PKG="lisuangpu-dkms"
-KVER="${1:-$(uname -r)}"
+# ---------------- 常量与入参 ----------------
+PKG="lisuangpu-dkms"            # 厂商 DKMS 驱动包名
+KVER="${1:-$(uname -r)}"        # 目标内核：缺省修复当前运行内核，也可传参指定
 MODULE="gf"          # kernel module file name (gf.ko); DRM driver registers as "lisuan"
-GPU_VENDOR="4c54"    # Lisuan ("LT")
+GPU_VENDOR="4c54"    # Lisuan ("LT")，用于 lspci 定位显卡
 
 log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n'  "$*" >&2; }
 die()  { printf '\033[1;31mXX\033[0m %s\n'  "$*" >&2; exit 1; }
 
+# 打内核模块/改 /usr/src 均需 root
 [[ $EUID -eq 0 ]] || die "Must run as root:  sudo $0 ${1:-}"
 
-# ---- locate the installed DKMS source & version -----------------------------
+# ---- 定位已安装的 DKMS 源码与版本号 -----------------------------
+# DKMS 包解包在 /usr/src/<包名>-<版本>/；同名多版本时取最新
 SRC_DIR="$(ls -d /usr/src/${PKG}-* 2>/dev/null | sort -V | tail -1 || true)"
 [[ -n "$SRC_DIR" && -d "$SRC_DIR" ]] || die "$PKG source not found under /usr/src. Install the vendor lisuangpu-dkms package first (see README)."
-VER="${SRC_DIR##*/${PKG}-}"
+VER="${SRC_DIR##*/${PKG}-}"     # 从目录名截出版本号，如 262.2.0.56
 MK="${SRC_DIR}/Makefile"
 [[ -f "$MK" ]] || die "Makefile not found: $MK"
 
@@ -46,50 +49,57 @@ log "Target kernel: ${KVER}"
 log "Source dir   : ${SRC_DIR}"
 
 command -v dkms >/dev/null || die "dkms is not installed:  apt-get install dkms"
+# 编译模块必须有目标内核的头文件（/lib/modules/<kver>/build 软链）
 [[ -d "/lib/modules/${KVER}/build" ]] || die "Kernel headers for ${KVER} missing:  apt-get install linux-headers-${KVER}"
 
-# ---- step 1: durable root-cause patch (honor KERNELVER) ----------------------
+# ---- 第 1 步：根因补丁（让 Makefile 认 KERNELVER）——永久生效 ----------
+# 原厂 Makefile 只认 KERNEL_VERSION（缺省取 uname -r），忽略 dkms.conf 传入的
+# KERNELVER，导致“拿运行内核的头文件编、归档到目标内核目录”。改为：
+# 有 KERNELVER 用之，否则才回退 uname -r。补丁写入 /usr/src，今后每次
+# 内核升级触发的 dkms autoinstall 都会正确构建。
 if grep -q 'KERNEL_VERSION := $(if $(KERNELVER)' "$MK"; then
   log "Makefile already honors KERNELVER — skipping patch."
 else
   log "Patching ${MK} (backup -> ${MK}.bak)"
-  cp -a "$MK" "${MK}.bak"
+  cp -a "$MK" "${MK}.bak"          # 备份原件，供撤销（见 README）
+  # 用 perl 做整行替换（sed 处理 $( ) 转义繁琐，perl 更稳）
   perl -0pi -e \
     's/^KERNEL_VERSION := \$\(shell uname -r\)$/KERNEL_VERSION := \$(if \$(KERNELVER),\$(KERNELVER),\$(shell uname -r))/m' \
     "$MK"
+  # 替换后必须能 grep 到新行，否则 Makefile 格式可能变了，宁死不继续
   grep -q 'KERNEL_VERSION := $(if $(KERNELVER)' "$MK" \
     || die "Patch did not apply — inspect $MK manually (expected line: KERNEL_VERSION := \$(shell uname -r))."
   printf '    now: '; grep -n 'KERNEL_VERSION :=' "$MK"
 fi
 
-# ---- step 2: rebuild + reinstall through DKMS for the target kernel ----------
+# ---- 第 2 步：针对目标内核重编重装（remove 旧构建 → build → install）----
 log "Removing stale DKMS build for ${KVER} (if any)"
-dkms remove  -m "$PKG" -v "$VER" -k "$KVER" 2>/dev/null || true
-log "Building against ${KVER} headers"
-dkms build   -m "$PKG" -v "$VER" -k "$KVER"
+dkms remove  -m "$PKG" -v "$VER" -k "$KVER" 2>/dev/null || true   # 无旧构建时忽略报错
+dkms build   -m "$PKG" -v "$VER" -k "$KVER"                        # 用目标内核头文件编译
 log "Installing"
-dkms install -m "$PKG" -v "$VER" -k "$KVER" --force
+dkms install -m "$PKG" -v "$VER" -k "$KVER" --force                # --force：覆盖同版本残留
 log "Refreshing module dependency data"
-depmod -a "$KVER"
+depmod -a "$KVER"                                                   # 刷新 modules.dep，modprobe 才能找到
 
-# ---- step 3: verify the freshly installed module -----------------------------
+# ---- 第 3 步：验证新装模块的 vermagic 与目标内核一致 ----------------
 KO="$(find "/lib/modules/${KVER}" -name "${MODULE}.ko" -o -name "${MODULE}.ko.zst" 2>/dev/null | head -1)"
 [[ -n "$KO" ]] || die "Built module not found in /lib/modules/${KVER} after install."
 VMAGIC="$(modinfo "$KO" 2>/dev/null | awk '/^vermagic:/{print $2}')"
 log "Installed: $KO"
 log "vermagic : $VMAGIC  (expected: ${KVER})"
+# vermagic 不一致 = 补丁未生效或头文件错，此时加载必失败，提醒人工检查
 [[ "$VMAGIC" == "$KVER" ]] || warn "vermagic still mismatched — do NOT continue; re-check headers."
 
-# ---- step 4: load (only meaningful when fixing the running kernel) -----------
+# ---- 第 4 步：加载模块（仅当修复的就是当前运行内核时才有意义）-------
 if [[ "$KVER" == "$(uname -r)" ]]; then
   log "Loading module '${MODULE}'"
   modprobe "$MODULE" || warn "modprobe failed — inspect: dmesg | tail -30"
   echo
   echo "==================== RESULT ===================="
   lsmod | grep -E "^${MODULE} " || echo "(${MODULE} not loaded)"
-  echo "-- GPU binding --"
+  echo "-- GPU binding --"    # 成功标志：Kernel driver in use: lisuan
   lspci -nnk | grep -iA3 "${GPU_VENDOR}:" || lspci -nnk | grep -iA3 'VGA compatible'
-  echo "-- DRM nodes --"
+  echo "-- DRM nodes --"       # 成功标志：出现 cardN / renderD12x
   ls -l /dev/dri/ 2>/dev/null || echo "(no /dev/dri)"
   echo "================================================"
   echo "Success looks like:  'Kernel driver in use: lisuan'  +  /dev/dri/cardN present."
