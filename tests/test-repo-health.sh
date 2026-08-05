@@ -17,20 +17,23 @@ for f in README.md; do
   t_assert_eq 0 $? "required file present: $f"
 done
 
-# --- 2. Vendor artifacts must NOT be in the repo (open-source hygiene) ------
-# These names are also listed in .gitignore; the test guards accidental commits.
-for name in '*.deb' '*.ko' '*.o.hex' 'lisuan_proprietary' 'gf-*.ko'; do
-  if find "${REPO_ROOT}" -path '*/tests/*' -prune -o -name "$name" -print 2>/dev/null | grep -q .; then
-    t_fail "vendor artifact must not be tracked: $name"
+# --- 2. Vendor artifacts must NOT be tracked (open-source hygiene) ----------
+# 直接用 git ls-files 检查“是否被跟踪”，比扫磁盘更精确：本地留存但未跟踪
+# 的厂商文件（.gitignore 已排除）不算违规。
+for pat in '*.deb' '*.ko' '*.ko.zst' '*.o' '*.o.hex' 'lisuan_proprietary*'; do
+  if git -C "$REPO_TOP" ls-files -z -- "$pat" 2>/dev/null | grep -qz .; then
+    t_fail "vendor artifact must not be tracked: $pat"
   else
-    t_ok "no vendor artifact present: $name"
+    t_ok "no vendor artifact tracked: $pat"
   fi
 done
 
 # --- 3. Scripts are executable ---------------------------------------------
-for s in scripts/fix-lisuan-gpu.sh scripts/verify-lisuan-gpu.sh; do
-  [[ -x "${REPO_ROOT}/$s" ]]
-  t_assert_eq 0 $? "script is executable: $s"
+# 交付子树与仓库根的所有 .sh 都必须带可执行位（否则用户直接 ./xxx.sh 会失败）
+for s in "${REPO_ROOT}"/scripts/*.sh "${REPO_TOP}"/*.sh; do
+  [[ -f "$s" ]] || continue
+  [[ -x "$s" ]]
+  t_assert_eq 0 $? "script is executable: $(basename "$s")"
 done
 
 # --- 4. Patch file is non-empty and mentions the root cause -----------------
@@ -45,6 +48,12 @@ for f in patches/0001-dkms-makefile-honor-KERNELVER.patch \
          scripts/verify-lisuan-gpu.sh; do
   grep -qF -- "$f" "${REPO_TOP}/README.md"
   t_assert_eq 0 $? "README references $f"
+done
+
+# --- 6. Required top-level docs present --------------------------------------
+for f in CHANGELOG.md NOTICE LICENSE; do
+  [[ -f "${REPO_TOP}/$f" ]]
+  t_assert_eq 0 $? "top-level doc present: $f"
 done
 
 t_finish "test-repo-health.sh"

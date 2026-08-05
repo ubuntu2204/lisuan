@@ -3,19 +3,17 @@
 lisuangpu-dkms-*.deb
 lisuangpu-lib-*.deb
 *.deb
+*.ko
 *.ko.zst
+*.o
 *.o.hex
 lisuan_proprietary*
 
+# ---- 本地诊断草稿区：构建日志、探针、解包的厂商源码等，整体不入库 ----
+_work/
+
 # ---- Qoder / IDE 本地数据 ----
 .qoder/
-
-# ---- 本地分析用的 Mesa 官方源码树(体积大,仅本机调试用) ----
-_work/mesa-src/
-
-# ---- 本次诊断的临时探针(gdb 脚本/GBM 测试程序) ----
-_work/gbm-*
-_work/gdb-*
 
 # ---- 构建产物噪音 ----
 *.mod

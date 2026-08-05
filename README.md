@@ -20,25 +20,43 @@
 
 ## English (TL;DR)
 
-The Lisuan (砺算) 7G100 GPU driver is shipped as a DKMS package (`lisuangpu-dkms`).
-Its `Makefile` selects the build kernel from `KERNEL_VERSION` (default `uname -r`),
-but `dkms.conf` passes the **target** kernel as `KERNELVER`. The variable names
-differ, so after a kernel upgrade DKMS builds the module against the *running*
-kernel and files it under the *target* kernel tree. The result is a module with
-the wrong `vermagic` / symbol CRCs that refuses to load — the GPU ends up with
-no kernel driver bound (black screen).
+A set of independent, field-verified fixes for running the **Lisuan (砺算) 7G100**
+GPU (PCI `4c54:5006`) on **Ubuntu 24.04 LTS** with vendor driver packages
+`lisuangpu-dkms` / `lisuangpu-lib` 262.2.0.56. Three problem layers are covered:
 
-**This repo does not contain the vendor driver.** It contains only an
-independent, one-line `Makefile` patch, helper scripts, and documentation,
-under Apache-2.0. Fix:
+1. **Kernel (DKMS)** — after a kernel upgrade the module is built against the
+   *running* kernel but filed under the *target* kernel tree (the vendor
+   `Makefile` reads `KERNEL_VERSION` while `dkms.conf` passes `KERNELVER`).
+   Wrong `vermagic`/symbol CRCs → module refuses to load → black screen.
+   Fixed by a one-line Makefile patch (`patches/`) plus an idempotent repair
+   script; no reverse-engineering involved.
+2. **Userspace graphics (Mesa)** — the DRM driver registers as `lisuan` while
+   the userspace driver is named `gf`, so Mesa finds no DRI driver
+   (`driver=(null)`); fixed with symlinks. A source-level analysis of the
+   vendor Mesa 22.0.4 fork vs system Mesa 25.2.x is in `docs/` (zink is the
+   viable fallback path).
+3. **Applications (Steam)** — Steam's CEF crashes in its pressure-vessel
+   container (two root causes: vendor `gf_gbm.so` segfaults under modern
+   libgbm; Steam's bundled ANGLE fails lazy symbol resolution). Fixed by an
+   injected, `chattr +i`-locked environment in `steamwebhelper_sniper_wrap.sh`,
+   with a boot-time auto-repair systemd service. Native Linux games (verified:
+   Dota Underlords) run via a documented host-native launch path.
+
+**This repo does not contain the vendor driver** — only independent patches,
+scripts, documentation and tests, under Apache-2.0. It also includes a
+fully-evidenced vendor bug report (`docs/vendor-bug-report-gf-gbm-crash.md`)
+covering the three container/ABI issues, intended for Lisuan's driver team.
+
+Quick entry point (interactive: environment detection + numbered menu):
 
 ```bash
-sudo ./lisuan-7g100-ubuntu-fix/scripts/fix-lisuan-gpu.sh
+./lisuan-fix.sh
 ```
 
-No reverse-engineering is required: the single closed-source blob only depends
-on stable kernel symbols (`__fentry__`, `sscanf`); everything else is the
-open-source glue layer that simply needs recompiling against the right headers.
+No reverse-engineering is required for the kernel fix: the single closed-source
+blob only depends on stable kernel symbols (`__fentry__`, `sscanf`); everything
+else is the open-source glue layer that simply needs recompiling against the
+right headers.
 
 ---
 
@@ -91,7 +109,6 @@ open-source glue layer that simply needs recompiling against the right headers.
 |---|---|
 | `lisuan-7g100-ubuntu-fix/docs/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
 | `lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
-| `lisuan-7g100-ubuntu-fix/docs/qoder-wayland-click-bug-report.md` | Wayland 下 Qoder 点击问题的报告 |
 
 > 注意区分：`scripts/` 下的 verify-* 是**面向真机的体检工具**，与仓库根的
 > `tests/`（离线、无硬件依赖的 CI 自检）不是一回事。
@@ -100,6 +117,7 @@ open-source glue layer that simply needs recompiling against the right headers.
 
 | 路径 | 说明 |
 |---|---|
+| `CHANGELOG.md` | 更新日志：每个版本的新增/修复/实测更正，均实机验证 |
 | `lisuan-fix.sh` | **交互式修复索引**：自动检测系统环境并给出结论，输入编号执行单项修复/体检（`./lisuan-fix.sh --detect` 仅检测） |
 | `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为 `lisuan-7g100-ubuntu-fix/` 子树 |
 | `.workflow/gitee-go-test.yml` | Gitee Go 流水线：push/PR 时自动跑 `tests/` |
@@ -477,8 +495,9 @@ A：内核模块文件名为 `gf.ko`，其注册的 DRM/PCI 驱动名为 `lisuan
 显示 `Kernel driver in use: lisuan` 是正常的。
 
 **Q：Steam 能恢复界面硬件加速吗？**
-A：暂不能。最后卡在厂商没有可用的 EGL（X11 平台），已在 bug 报告中提请厂商修复；
-在此之前界面软渲染、游戏用 GPU 是当前最优解。
+A：暂不能。厂商 EGL 本身在宿主可用（X11 等平台实测正常），卡点在容器内的
+ glvnd 分发拿不到厂商栈，已在 bug 报告中提请厂商提供容器适配；在此之前
+界面软渲染、游戏宿主直跑用 GPU 是当前最优解。
 
 ---
 
