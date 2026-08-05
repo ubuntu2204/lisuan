@@ -24,11 +24,13 @@
 #      exit_code=139/11). Preloading the vendor libglapi provides the symbols.
 #      (Verified via LD_DEBUG=libs traces of the crashing gpu-process.)
 #   3. Plain `exec ./steamwebhelper "$@"` — with 1+2 in place the GPU process
-#      no longer crashes; it tries ANGLE EGL (fails cleanly: vendor EGL has no
-#      usable X11 platform and system mesa EGL has no zink fallback), then
-#      falls back to software rendering. The UI works; games keep using the
-#      GPU. Full hardware compositing for the UI still needs the vendor to
-#      ship a working EGL (see docs/vendor-bug-report-gf-gbm-crash.md §7).
+#      no longer crashes; it tries ANGLE EGL (fails cleanly: the container's
+#      glvnd EGL dispatch never reaches the vendor EGL, and system mesa EGL
+#      has no usable backend for this card — vendor EGL itself works fine on
+#      the host), then falls back to software rendering. The UI works.
+#      Full hardware compositing for the UI needs vendor-side container/EGL
+#      dispatch support, and in-container GLX for native games needs a GLX
+#      vendor registration (see docs/vendor-bug-report-gf-gbm-crash.md §3/§4).
 #
 # Note: sed -i recreates the file, so the executable bit is restored with
 # chmod +x afterwards — without it pv-adverb fails with "Permission denied".

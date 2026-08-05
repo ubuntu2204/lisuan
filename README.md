@@ -58,31 +58,62 @@ open-source glue layer that simply needs recompiling against the right headers.
 
 ## 仓库结构
 
-全部修复脚本、补丁与文档集中在 `lisuan-7g100-ubuntu-fix/`：
+全部修复脚本、补丁与文档集中在 `lisuan-7g100-ubuntu-fix/`，按用途分为四类：
+
+**修复类（fix）**——在目标机器上执行，会修改系统状态（均幂等）：
 
 | 路径 | 说明 |
 |---|---|
 | `lisuan-7g100-ubuntu-fix/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
-| `lisuan-7g100-ubuntu-fix/scripts/verify-lisuan-gpu.sh` | 只读体检：lspci/lsmod/modinfo/DRM 节点 |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
-| `lisuan-7g100-ubuntu-fix/scripts/use-system-mesa.sh` | 让指定应用运行在系统 Mesa（zink）之上，绕开厂商 Mesa 22.0.4 分叉 |
-| `lisuan-7g100-ubuntu-fix/scripts/verify-system-mesa.sh` | 系统 Mesa 兼容性体检（zink 回退、GBM dri 后端等） |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-steam-cef-lock.sh` | **Steam 修复主入口**：向容器内注入 `GBM_BACKEND=dri` + `LD_PRELOAD` glapi 并 `chattr +i` 锁定（详见[三](#三steam-适配)） |
+
+**体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
+
+| 路径 | 说明 |
+|---|---|
+| `lisuan-7g100-ubuntu-fix/scripts/verify-lisuan-gpu.sh` | 驱动体检：lspci/lsmod/modinfo/DRM 节点 |
+| `lisuan-7g100-ubuntu-fix/scripts/verify-system-mesa.sh` | 系统 Mesa 兼容性体检（zink 回退、GBM dri 后端等） |
+
+**工具类（use）**——按需包装单个应用的环境：
+
+| 路径 | 说明 |
+|---|---|
+| `lisuan-7g100-ubuntu-fix/scripts/use-system-mesa.sh` | 让指定应用运行在系统 Mesa（zink）之上，绕开厂商 Mesa 22.0.4 分叉 |
+
+**文档（docs）**：
+
+| 路径 | 说明 |
+|---|---|
 | `lisuan-7g100-ubuntu-fix/docs/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
-| `lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（`gf_gbm.so` 段错误 + 容器内 EGL 缺失，附完整证据链） |
+| `lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
 | `lisuan-7g100-ubuntu-fix/docs/qoder-wayland-click-bug-report.md` | Wayland 下 Qoder 点击问题的报告 |
+
+> 注意区分：`scripts/` 下的 verify-* 是**面向真机的体检工具**，与仓库根的
+> `tests/`（离线、无硬件依赖的 CI 自检）不是一回事。
 
 其余顶层内容：
 
 | 路径 | 说明 |
 |---|---|
+| `lisuan-fix.sh` | **交互式修复索引**：自动检测系统环境并给出结论，输入编号执行单项修复/体检（`./lisuan-fix.sh --detect` 仅检测） |
 | `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为 `lisuan-7g100-ubuntu-fix/` 子树 |
 | `.workflow/gitee-go-test.yml` | Gitee Go 流水线：push/PR 时自动跑 `tests/` |
 | `_work/` | 本地诊断草稿区（构建日志、探针程序、解包的厂商 DKMS 源码树、Mesa 官方源码等）。仅本机排查用，**不是交付物**；其中的厂商文件不得再分发 |
 | `lisuangpu-*.deb` | 厂商驱动包原件（已被 `.gitignore` 排除，不入库），仅本机留存 |
 
 ## 快速开始
+
+不熟悉各脚本的话，直接用交互式索引（自动检测环境 + 编号菜单）：
+
+```bash
+./lisuan-fix.sh             # 检测 + 菜单
+./lisuan-fix.sh --detect    # 只做环境检测
+./lisuan-fix.sh 2           # 直接执行第 2 项（修复 DKMS）
+```
+
+或手动执行单项：
 
 ```bash
 cd lisuan-7g100-ubuntu-fix
@@ -347,17 +378,33 @@ export GBM_BACKEND=dri                                        # 绕开 gf_gbm.so
 export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号解析崩溃
 ```
 
-效果：GPU 进程不再崩溃；它尝试硬件加速失败后（厂商 EGL 无可用 X11 平台，见
-[`docs/vendor-bug-report-gf-gbm-crash.md`](./lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md) §7）
-自动回退软渲染，Steam 界面正常，**游戏仍正常使用 GPU**。
+效果：GPU 进程不再崩溃；它尝试硬件加速失败后（容器内 glvnd 的 EGL 分发
+拿不到厂商 EGL，见
+[`docs/vendor-bug-report-gf-gbm-crash.md`](./lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md) §3）
+自动回退软渲染，Steam 界面正常。注意：容器内的原生 GLX 游戏仍无法启动
+（见[游戏兼容性](#游戏兼容性dota-underlords-实测)与报告 §4）。
 
 ### 注意事项
 
 - Steam 客户端更新前：`sudo ./scripts/fix-steam-cef-lock.sh --unlock`；更新后重跑注入。
 - 手动编辑 wrap.sh 后务必 `chmod +x`（`sed -i` 会丢执行位，容器内 pv-adverb 会报
   Permission denied）。
-- 两层根因与修复建议已整理成厂商 bug 报告：
+- 三个问题的根因与修复建议已整理成厂商 bug 报告：
   [`docs/vendor-bug-report-gf-gbm-crash.md`](./lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md)。
+
+### 游戏兼容性（Dota Underlords 实测）
+
+Steam 运行时容器（scout/soldier）内的 GLX 无法加载厂商驱动（容器内 glvnd 缺少
+厂商 GLX vendor 注册），原生 Linux 游戏在容器内会因 GL 初始化失败而崩溃。
+已验证的规避：绕过容器在宿主直跑（宿主 GLX/Vulkan 均正常）：
+
+```bash
+# 需 Steam 客户端在运行（授权）；首次需把 libpng12.so.0 放进游戏库目录
+# （Ubuntu 24.04 已移除该库，可从 18.04 归档取）
+STEAM_RUNTIME=0 ~/.local/share/Steam/steamapps/common/Underlords/game/underlords.sh -steam -vulkan
+```
+
+游戏目录内已放好 `play-native.sh` 启动器与桌面项 `dota-underlords-native.desktop`。
 
 ---
 

@@ -21,4 +21,11 @@ for f in "${TESTS_DIR}"/test-*.sh "${TESTS_DIR}"/lib.sh "${TESTS_DIR}"/run-tests
   t_assert_eq 0 $? "bash -n tests/$(basename "$f")"
 done
 
+# Repo-root entry scripts (e.g. the interactive fix index).
+for f in "${TESTS_DIR}"/../*.sh; do
+  [[ -f "$f" ]] || continue
+  bash -n "$f" 2>/dev/null
+  t_assert_eq 0 $? "bash -n $(basename "$f")"
+done
+
 t_finish "test-scripts-syntax.sh"
