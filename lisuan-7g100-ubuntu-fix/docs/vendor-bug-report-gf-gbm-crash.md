@@ -89,18 +89,33 @@ GBM 后端以 dlopen 插件形式分发，`gf_gbm.so` 编译于 **Mesa 22.0.4**
 
 | 措施 | 效果 |
 |---|---|
-| `GBM_BACKEND=dri`（让系统 libgbm 走发行版 dri_gbm.so → zink/kms） | ✅ 崩溃消失，Steam UI 正常启动 |
-| 配合 CEF 软渲染标志 `--disable-gpu --disable-gpu-compositing --use-gl=swiftshader --use-angle=swiftshader` | ✅ Steam 界面稳定（容器内 GPU 进程另有厂商 GL/Vulkan 栈崩溃，见 §7） |
+| `GBM_BACKEND=dri`（让系统 libgbm 走发行版 dri_gbm.so → zink/kms） | ✅ gf_gbm 崩溃消失 |
+| `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0` | ✅ 容器内 ANGLE 符号解析崩溃消失 |
+| 两者叠加 + 不加任何 Chromium 标志 | ✅ Steam UI 稳定（GPU 进程干净失败后自动软渲染；游戏仍用 GPU） |
 
-## 7. 附带发现（同环境第二个问题）
+## 7. 附带发现（同环境第二个问题，已定位）
 
-即使 `GBM_BACKEND=dri` 生效，Steam 容器内的 CEF GPU 进程仍在厂商
-GL/Vulkan 栈崩溃（ANGLE 日志：`vulkan_icd.cpp ChoosePhysicalDevice:
-Preferred device ICD not found` → `vk_renderer.cpp initFeatures:
-Unknown GPU architecture` 后进程 exit 139；且 `--disable-gpu` 在
-该 CEF 分支下不阻止 GPU 进程启动）。此问题当前用软渲染规避，
-建议厂商一并排查容器场景（overrides 目录内厂商库 + 宿主 Vulkan ICD
-JSON）下的 ICD 发现与初始化路径。
+Steam 容器内 CEF GPU 进程崩溃（exit_code=139/11），经 `LD_DEBUG=libs`
+追踪定位到两层原因：
+
+1. **Steam 自带 ANGLE 符号解析失败（直接崩溃原因，非厂商库问题）**：
+   Steam 在 `ubuntu12_64/` 自带 ANGLE（`libEGL.so`/`libGLESv2.so`），
+   被 `LD_LIBRARY_PATH=.` 优先加载；其延迟绑定的 GL API 符号
+   （`glVertexAttribIPointer` 等数百个）在容器内找不到 glapi 提供者，
+   ld.so 报 "symbol lookup error ... (fatal)" → 进程 SIGSEGV。
+   规避：`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0`。
+2. **修复后不再崩溃，但硬件合成仍不可用（厂商相关）**：
+   ANGLE 的 EGL 后端报 `Could not create a backing OpenGL context`
+   （EGL_NOT_INITIALIZED）——厂商 EGL 无可用 X11 平台，系统 Mesa EGL
+   又无 zink 回退；ANGLE Vulkan 后端能枚举到设备（`libvulkan_gf.so`
+   在容器内工作正常），但旧版 ANGLE 不认识 `4c54` 架构
+   （`initFeatures: Unknown GPU architecture`）后 GPU 进程退出，
+   CEF 最终回退软渲染。
+
+对厂商的附加建议：**提供可用的 EGL（至少 X11/surfaceless 平台）**，
+这是 Steam UI/各类容器化应用获得硬件加速的前提；同时建议提升
+Vulkan ICD 对通用特性/扩展的覆盖，使 ANGLE/zink 等 GL-on-Vulkan
+方案可用。
 
 ## 8. 对厂商的建议
 

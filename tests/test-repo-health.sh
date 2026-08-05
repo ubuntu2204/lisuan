@@ -9,8 +9,11 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 # --- 1. Required top-level files present -----------------------------------
-for f in README.md LICENSE NOTICE .gitignore; do
-  [[ -f "${REPO_ROOT}/$f" ]]
+# LICENSE / NOTICE / .gitignore / README.md all live at the repo root
+# (REPO_ROOT here is the deliverables subtree, not a standalone repo).
+REPO_TOP="$(cd "${REPO_ROOT}/.." && pwd)"
+for f in README.md; do
+  [[ -f "${REPO_TOP}/$f" ]]
   t_assert_eq 0 $? "required file present: $f"
 done
 
@@ -40,7 +43,7 @@ t_assert_grep "$PATCH_FILE" 'uname -r' "patch mentions uname -r"
 for f in patches/0001-dkms-makefile-honor-KERNELVER.patch \
          scripts/fix-lisuan-gpu.sh \
          scripts/verify-lisuan-gpu.sh; do
-  grep -qF -- "$f" "${REPO_ROOT}/README.md"
+  grep -qF -- "$f" "${REPO_TOP}/README.md"
   t_assert_eq 0 $? "README references $f"
 done
 

@@ -15,11 +15,20 @@
 #      NULL) under the newer libgbm ABI. Core dumps of the crashing processes
 #      show the crash frames inside gf_gbm.so. Forcing the distro "dri"
 #      backend sidesteps it (see docs/system-mesa-analysis.md §5 landmine #1).
-#   2. `--disable-gpu --disable-gpu-compositing --use-gl=swiftshader
-#       --use-angle=swiftshader` on the exec line — the in-container GPU
-#      process still crashes in the vendor GL/Vulkan stack even after the GBM
-#      fix, so CEF renders the Steam UI in software; games keep using the GPU
-#      normally. (Plain --disable-gpu alone is ignored by CEF here.)
+#   2. `export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0` —
+#      Steam bundles its own ANGLE (libEGL.so/libGLESv2.so) in ubuntu12_64/,
+#      which LD_LIBRARY_PATH=. puts first. That ANGLE lazily resolves GL API
+#      symbols (glVertexAttribIPointer etc.) against the global scope; inside
+#      the container no glapi provider is loaded yet, so ld.so aborts the GPU
+#      process with "symbol lookup error ... (fatal)" -> SIGSEGV (seen as
+#      exit_code=139/11). Preloading the vendor libglapi provides the symbols.
+#      (Verified via LD_DEBUG=libs traces of the crashing gpu-process.)
+#   3. Plain `exec ./steamwebhelper "$@"` — with 1+2 in place the GPU process
+#      no longer crashes; it tries ANGLE EGL (fails cleanly: vendor EGL has no
+#      usable X11 platform and system mesa EGL has no zink fallback), then
+#      falls back to software rendering. The UI works; games keep using the
+#      GPU. Full hardware compositing for the UI still needs the vendor to
+#      ship a working EGL (see docs/vendor-bug-report-gf-gbm-crash.md §7).
 #
 # Note: sed -i recreates the file, so the executable bit is restored with
 # chmod +x afterwards — without it pv-adverb fails with "Permission denied".
@@ -48,16 +57,19 @@ if [[ "${1:-}" == "--unlock" ]]; then
   exit 0
 fi
 
-# Inject GBM_BACKEND=dri + software-rendering flags if not already present
-if ! grep -q -- '--disable-gpu' "$WRAP"; then
+# Inject GBM_BACKEND=dri + LD_PRELOAD glapi if not already present
+MARK_OK=1
+grep -q -- 'GBM_BACKEND=dri' "$WRAP" || MARK_OK=0
+grep -q -- 'libglapi_gf' "$WRAP" || MARK_OK=0
+if [[ "$MARK_OK" == "0" ]]; then
   cp -a "$WRAP" "${WRAP}.bak"
-  sed -i 's|^exec \./steamwebhelper "\$@"$|export GBM_BACKEND=dri\nexec ./steamwebhelper --disable-gpu --disable-gpu-compositing --use-gl=swiftshader --use-angle=swiftshader "$@"|' "$WRAP"
+  sed -i 's|^exec \./steamwebhelper "\$@"$|export GBM_BACKEND=dri\nexport LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0\nexec ./steamwebhelper "$@"|' "$WRAP"
 fi
 
 # sed -i drops the executable bit; pv-adverb needs it to exec the script
 chmod +x "$WRAP"
 
-if ! grep -q -- '--disable-gpu' "$WRAP" || ! grep -q -- 'GBM_BACKEND=dri' "$WRAP"; then
+if ! grep -q -- 'GBM_BACKEND=dri' "$WRAP" || ! grep -q -- 'libglapi_gf' "$WRAP"; then
   echo "!! 注入失败 — 文件格式可能已变。请手动检查 $WRAP" >&2
   exit 1
 fi

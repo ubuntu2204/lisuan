@@ -1,8 +1,11 @@
 # ---- 砺算 GPU 厂商专有产物：切勿提交到仓库 ----
-# 驱动包与库为第三方专有软件，需用户自行向厂商/OEM 获取（见 lisuan-7g100-ubuntu-fix/README.md）。
+# 驱动包与库为第三方专有软件，需用户自行向厂商/OEM 获取（见 README）。
 lisuangpu-dkms-*.deb
 lisuangpu-lib-*.deb
 *.deb
+*.ko.zst
+*.o.hex
+lisuan_proprietary*
 
 # ---- Qoder / IDE 本地数据 ----
 .qoder/
@@ -13,3 +16,19 @@ _work/mesa-src/
 # ---- 本次诊断的临时探针(gdb 脚本/GBM 测试程序) ----
 _work/gbm-*
 _work/gdb-*
+
+# ---- 构建产物噪音 ----
+*.mod
+*.mod.c
+*.symvers
+*.order
+.tmp_versions/
+
+# ---- 测试草稿(测试本身在 /tmp 下 mktemp,此为保险) ----
+tests/.tmp/
+*.test.tmp
+
+# ---- 编辑器 / 系统噪音 ----
+*.swp
+*~
+.DS_Store

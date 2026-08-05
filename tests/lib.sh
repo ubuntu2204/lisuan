@@ -7,8 +7,10 @@
 set -uo pipefail
 
 # Directory layout ---------------------------------------------------------
+# tests/ lives at the repo root; the deliverables under test (patches,
+# scripts, docs, README) live in the lisuan-7g100-ubuntu-fix/ subtree.
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${TESTS_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${TESTS_DIR}/../lisuan-7g100-ubuntu-fix" && pwd)"
 FIXTURES_DIR="${TESTS_DIR}/fixtures"
 PATCH_FILE="${REPO_ROOT}/patches/0001-dkms-makefile-honor-KERNELVER.patch"
 
