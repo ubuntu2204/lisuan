@@ -1,9 +1,0 @@
-Package: lisuangpu-dkms
-Version: 262.2.0.56
-Architecture: amd64
-Maintainer: Lisuan Tech <gpudriverdevsupport@lisuanTech.com>
-Depends: dkms, xxd
-Section: misc
-Priority: optional
-Description: lisuangpu driver 
- in DKMS format
