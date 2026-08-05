@@ -69,7 +69,6 @@ open-source glue layer that simply needs recompiling against the right headers.
 | `lisuan-7g100-ubuntu-fix/scripts/use-system-mesa.sh` | 让指定应用运行在系统 Mesa（zink）之上，绕开厂商 Mesa 22.0.4 分叉 |
 | `lisuan-7g100-ubuntu-fix/scripts/verify-system-mesa.sh` | 系统 Mesa 兼容性体检（zink 回退、GBM dri 后端等） |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-steam-cef-lock.sh` | **Steam 修复主入口**：向容器内注入 `GBM_BACKEND=dri` + `LD_PRELOAD` glapi 并 `chattr +i` 锁定（详见[三](#三steam-适配)） |
-| `lisuan-7g100-ubuntu-fix/scripts/fix-steam-cef-swrender.sh` / `fix-steam-pv-ldconfig.sh` | Steam 适配的历史方案（已被上者取代，保留供参考） |
 | `lisuan-7g100-ubuntu-fix/docs/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
 | `lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（`gf_gbm.so` 段错误 + 容器内 EGL 缺失，附完整证据链） |
 | `lisuan-7g100-ubuntu-fix/docs/qoder-wayland-click-bug-report.md` | Wayland 下 Qoder 点击问题的报告 |
