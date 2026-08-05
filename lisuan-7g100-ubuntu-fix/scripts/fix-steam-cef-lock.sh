@@ -5,8 +5,24 @@
 #
 # Steam overwrites steamwebhelper_sniper_wrap.sh on every launch ("Verifying
 # all executable checksums"), undoing a plain edit. This script re-applies the
-# --disable-gpu injection AND sets the immutable attribute (chattr +i) so the
+# CEF injection AND sets the immutable attribute (chattr +i) so the
 # file cannot be overwritten. ext4 only.
+#
+# What gets injected (verified working config, 2026-08-05):
+#   1. `export GBM_BACKEND=dri` — the REAL root cause: inside the
+#      pressure-vessel container, system libgbm resolves DRM name "gf" to the
+#      vendor backend gbm/gf_gbm.so (22.0.4 fork), which segfaults (jump to
+#      NULL) under the newer libgbm ABI. Core dumps of the crashing processes
+#      show the crash frames inside gf_gbm.so. Forcing the distro "dri"
+#      backend sidesteps it (see docs/system-mesa-analysis.md §5 landmine #1).
+#   2. `--disable-gpu --disable-gpu-compositing --use-gl=swiftshader
+#       --use-angle=swiftshader` on the exec line — the in-container GPU
+#      process still crashes in the vendor GL/Vulkan stack even after the GBM
+#      fix, so CEF renders the Steam UI in software; games keep using the GPU
+#      normally. (Plain --disable-gpu alone is ignored by CEF here.)
+#
+# Note: sed -i recreates the file, so the executable bit is restored with
+# chmod +x afterwards — without it pv-adverb fails with "Permission denied".
 #
 # Usage:
 #   sudo ./fix-steam-cef-lock.sh           # apply + lock
@@ -32,19 +48,22 @@ if [[ "${1:-}" == "--unlock" ]]; then
   exit 0
 fi
 
-# Inject --disable-gpu if not already present
+# Inject GBM_BACKEND=dri + software-rendering flags if not already present
 if ! grep -q -- '--disable-gpu' "$WRAP"; then
   cp -a "$WRAP" "${WRAP}.bak"
-  sed -i 's|^exec \./steamwebhelper "\$@"$|exec ./steamwebhelper --disable-gpu --disable-gpu-compositing --in-process-gpu "$@"|' "$WRAP"
+  sed -i 's|^exec \./steamwebhelper "\$@"$|export GBM_BACKEND=dri\nexec ./steamwebhelper --disable-gpu --disable-gpu-compositing --use-gl=swiftshader --use-angle=swiftshader "$@"|' "$WRAP"
 fi
 
-if ! grep -q -- '--disable-gpu' "$WRAP"; then
+# sed -i drops the executable bit; pv-adverb needs it to exec the script
+chmod +x "$WRAP"
+
+if ! grep -q -- '--disable-gpu' "$WRAP" || ! grep -q -- 'GBM_BACKEND=dri' "$WRAP"; then
   echo "!! 注入失败 — 文件格式可能已变。请手动检查 $WRAP" >&2
   exit 1
 fi
 
 echo "==> 注入成功:"
-grep 'exec ./steamwebhelper' "$WRAP"
+grep -E 'GBM_BACKEND=dri|exec ./steamwebhelper' "$WRAP"
 
 # Lock the file so Steam's verification cannot overwrite it
 chattr +i "$WRAP"

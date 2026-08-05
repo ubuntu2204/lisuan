@@ -4,6 +4,16 @@
 # load the vendor (gf) GL driver, so CEF's GPU process stops crashing with
 # exit_code=139 ("failed to load driver: gf").
 #
+# STATUS (2026-08-05): superseded as the primary fix. Core-dump analysis
+# showed the in-container CEF crash is actually inside the vendor GBM backend
+# (gf_gbm.so segfault under newer libgbm), and even with GL libs resolvable
+# the container GPU process still crashes in the vendor GL/Vulkan stack.
+# The verified working fix is fix-steam-cef-lock.sh (GBM_BACKEND=dri +
+# software-rendering flags). Modern pressure-vessel also already passes
+# --add-ld.so-path for the overrides dir, weakening this script's premise.
+# This script is kept for reference; its injection is dormant while
+# --disable-gpu is in effect.
+#
 # Root cause this fixes:
 #   pressure-vessel copies the vendor GL libs (gf_dri.so, libglapi_gf.so.0,
 #   libEGL_gf.so.0, libgbm_gf.so.1, libGLX_gf.so.0, ...) into

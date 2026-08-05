@@ -17,7 +17,7 @@
 | `scripts/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致(`lisuan` vs `gf`)导致的 DRI 加载失败 |
 | `scripts/use-system-mesa.sh` | 让指定应用运行在**系统 Mesa(zink)**之上,绕开厂商 Mesa 22.0.4 分叉 |
 | `scripts/verify-system-mesa.sh` | 系统 Mesa 兼容性体检(zink 回退、GBM dri 后端等) |
-| `scripts/fix-steam-cef-lock.sh` / `fix-steam-cef-swrender.sh` / `fix-steam-pv-ldconfig.sh` | Steam(CEF/Proton)相关适配 |
+| `scripts/fix-steam-cef-lock.sh` / `fix-steam-cef-swrender.sh` / `fix-steam-pv-ldconfig.sh` | Steam(CEF/Proton)相关适配。实测有效的组合是 `fix-steam-cef-lock.sh`:向容器内注入 `GBM_BACKEND=dri`(绕开厂商 `gf_gbm.so` 段错误)+ CEF 软渲染标志并 `chattr +i` 锁定 |
 | `docs/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析(为什么原生加载不可行、zink 路径、已知地雷) |
 | `tests/` | 离线自动化测试(补丁、脚本幂等性、语法、仓库合规) |
 
@@ -35,6 +35,12 @@ sudo ./scripts/fix-lisuan-mesa-driver-name.sh
 ./scripts/use-system-mesa.sh --print-env
 ./scripts/use-system-mesa.sh glxinfo -B
 ./scripts/verify-system-mesa.sh
+
+# 4) Steam 界面起不来(cef_log.txt 大量 exit_code=139):
+#    先修驱动名,再注入 CEF 软渲染补丁并锁定
+sudo ./scripts/fix-lisuan-mesa-driver-name.sh
+sudo ./scripts/fix-steam-cef-lock.sh
+MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
 ```
 
 ## 测试
