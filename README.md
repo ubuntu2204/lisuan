@@ -86,6 +86,7 @@ right headers.
 | `lisuan-7g100-ubuntu-fix/scripts/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-steam-cef-lock.sh` | **Steam 修复主入口**：向容器内注入 `GBM_BACKEND=dri` + `LD_PRELOAD` glapi 并 `chattr +i` 锁定（详见[三](#三steam-适配)） |
+| `lisuan-7g100-ubuntu-fix/scripts/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 智能重试/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载（菜单 14/15） |
 | `lisuan-7g100-ubuntu-fix/scripts/steam-cef-autofix.sh` | 开机自愈（root/systemd 调用）：发现 Steam 更新还原了补丁就自动重新注入锁定，由 `./lisuan-fix.sh` 菜单 9 安装为系统服务；`--uninstall` 卸载服务 |
 | `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 | `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
@@ -437,6 +438,8 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
   Steam 的运行时长/退出检测依然有效。相关文件（游戏目录下）：
   `ul-host-run.sh`（委托器）、`play-native.sh`（宿主启动器，含残留
   `LS_SHARE_MEMORY_*` 清理）、`underlords.sh`（容器分支 + 启动崩溃重试）。
+  整套文件由 `scripts/fix-underlords-native.sh`（菜单 14）安装/修复/卸载，
+  Steam 更新游戏后可重跑修复。
 - 首次部署需要把 `libpng12.so.0` 放进游戏 `bin/linuxsteamrt64/` 目录
   （Ubuntu 24.04 已移除该库，可从 18.04 归档取），否则 Source 2 的
   pango 文本模块崩溃。

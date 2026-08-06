@@ -132,10 +132,11 @@ detect() {
 
   # 游戏
   local ul="$HOME/.local/share/Steam/steamapps/common/Underlords/game"
-  if [[ -x "$ul/play-native.sh" ]]; then
-    ok "Dota Underlords 宿主直跑启动器就绪（菜单 [8]，也可用桌面菜单图标）"
+  if grep -q 'Lisuan 7G100 fix (injected)' "$ul/underlords.sh" 2>/dev/null \
+     && [[ -x "$ul/play-native.sh" ]]; then
+    ok "Dota Underlords 修复已安装（Steam 内直接点开始游戏；菜单 [8]/[15]）"
   elif [[ -d "$ul" ]]; then
-    warn "Dota Underlords 已安装但缺少 play-native.sh（见 README 游戏兼容性一节）"
+    warn "Dota Underlords 修复未安装 —— 菜单 [14]"
   fi
   echo
 }
@@ -203,6 +204,8 @@ run_item() {
     11) need_root bash "$S/uninstall-lisuan-gpu.sh" ;;                 # 撤销 DKMS 补丁
     12) need_root bash "$S/uninstall-lisuan-mesa-driver-name.sh" ;;    # 删 DRI 软链
     13) need_root bash "$S/fix-steam-cef-lock.sh" --uninstall ;;       # 还原 Steam wrap.sh
+    14) need_root bash "$S/fix-underlords-native.sh" ;;                # 安装/修复游戏补丁集
+    15) bash "$S/fix-underlords-native.sh" --status ;;                 # 游戏修复状态
     *) bad "无效选项：$1"; return 1 ;;
   esac
 }
@@ -230,6 +233,8 @@ menu() {
   7) 系统 Mesa 兼容性体检（zink/GBM dri 后端）
   ${B}游戏${N}
   8) 启动 Dota Underlords（宿主直跑，需 Steam 在运行）
+  14) 安装/修复 Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项） [需要 sudo]
+  15) 查看 Dota Underlords 修复状态
   0) 退出
 ======================================================
 EOF
@@ -253,9 +258,9 @@ detect
 while true; do
   menu
   if [[ -t 0 ]]; then
-    read -rp "请选择 [0-13]: " choice
+    read -rp "请选择 [0-15]: " choice
   else
-    read -rp "请选择 [0-13]: " choice </dev/tty
+    read -rp "请选择 [0-15]: " choice </dev/tty
   fi
   [[ "$choice" == "0" ]] && { echo "再见。"; break; }
   run_item "$choice" || true             # 单项失败不退出菜单，方便换一项重试

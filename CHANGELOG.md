@@ -3,6 +3,27 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.08.06 — Dota Underlords 可玩性修复固化
+
+### 新增
+
+- **游戏修复安装器** `scripts/fix-underlords-native.sh`（幂等，菜单 14/15）：
+  把此前散落在游戏目录的手工修复固化为可复现脚本，一键安装/修复/卸载：
+  - `underlords.sh` 补丁：容器分支委托宿主 systemd 直跑（沙箱隐藏 PCI sysfs，
+    厂商 Vulkan ICD 在容器内枚举 0 设备，shim 无法绕过——见 bug 报告 §4）；
+    段错误智能重试（上限 10 次，180 秒内 3 连崩判定崩溃循环则停止）；
+    退出检测（退出时 panorama 析构也段错误，靠 `CSteam3Client::Shutdown`
+    日志标记区分"退出时崩"不重启，修复"关一次游戏自动重开"问题）；
+    `-nobreakpad` 使崩溃产生内核 core（游戏自带 breakpad 吞 SIGSEGV）；
+  - 自动下载补齐 `libpng12.so.0`（Ubuntu 24.04 已移除，Source 2 pango 需要）；
+  - 安装桌面项 `dota-underlords-native.desktop`；`--status` / `--uninstall`。
+
+### 实测更正
+
+- 曾把游戏目录的 scout 老 pango 换成宿主新版，崩溃从"玩 30–90 分钟随机出现"
+  恶化为"启动即确定性连崩"，已回滚；pango 混搭假设证伪，崩溃确认为
+  Source 2 panorama 文本模块自身内存损坏（与显卡/驱动无关），只能靠重试兜底。
+
 ## 2026.08.05 — 完整修复栈与运维工具链
 
 ### 新增
