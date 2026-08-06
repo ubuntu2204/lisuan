@@ -121,63 +121,64 @@ GBM 后端以 dlopen 插件形式分发，`gf_gbm.so` 编译于 **Mesa 22.0.4**
 当前规避：问题一的 `GBM_BACKEND=dri` + 上述 `LD_PRELOAD`，Steam UI 以
 软渲染稳定运行。
 
-## 4. 问题三：容器内 GLX 无厂商 vendor 注册（原生游戏无法启动）
+## 4. 问题三：容器内厂商图形栈不可用（原生游戏无法启动）
 
 ### 现象
 
-原生 Linux 游戏（Dota Underlords，Source 2，GLX 建上下文）在 Steam
-运行时容器（scout-on-soldier）内启动即崩：
+原生 Linux 游戏（Dota Underlords，Source 2，Vulkan 渲染 + SDL/GLX 窗口）
+在 Steam 运行时容器（scout-on-soldier）内无法启动：
 
 ```
 libGL error: No driver found
 libGL error: failed to load driver: (null)
 X Error of failed request:  BadValue ... X_GLXCreateContext
+[RenderSystem] vkEnumeratePhysicalDevices failed, unable to init and enumerate GPUs with Vulkan.
 ```
 
 ### 定位过程与证据
 
 容器内环境诊断（游戏进程内实测）：
 
-- `/dev/dri/card1` 可访问，`drmGetVersion()` 返回 `name=gf`；
+- `/dev/dri/card1`、`renderD128` 可访问，`drmGetVersion()` 返回 `name=gf`；
 - pressure-vessel 已把厂商库正确合并进容器：
   `/usr/lib/pressure-vessel/overrides/lib/x86_64-linux-gnu/` 下有
   `libGLX_gf.so.0`、`libEGL_gf.so.0`、`libglapi_gf.so.0`、`dri/gf_dri.so`，
   `share/glvnd/egl_vendor.d/` 下有 `10_gf.json`/`50_mesa.json`；
-- 但游戏拿到的 GLX 始终分发到系统 Mesa（容器内 mesa 不认识 `gf`，
-  报 `failed to load driver: (null)`）。
+- **Vulkan**：`libvulkan_gf.so` 能被加载，但 `vkEnumeratePhysicalDevices`
+  返回 0 设备。容器内 `/sys/bus/pci/devices/` 为空（沙箱隐藏），
+  而宿主同一 ICD 可正常枚举到 7G100——说明 **ICD 依赖 PCI sysfs
+  枚举设备，而非通过 `/dev/dri` 节点**。另外 Vulkan loader 1.3.275 还会以
+  "only supports loader interface version 4, interface version 5 or newer
+  required"（Policy LDP_DRIVER_7）为由拒绝加载该 ICD；
+- **GLX/EGL**：自行编译了组合 vendor 库（同时链接 `libGLX_gf.so.0` 与
+  `libEGL_gf.so.0`，dlsym 可找到 `__glx_Main`/`__egl_Main`）+ 命名正确的
+  `10_gf.json`，通过 `__EGL_VENDOR_LIBRARY_FILENAMES` 注册——LD_DEBUG 证实
+  容器内 glvnd **确实加载了厂商库**，但 GLX 分发仍回退系统 Mesa
+  （`failed to load driver: (null)` → swrast），即使同时设置
+  `MESA_LOADER_DRIVER_OVERRIDE=gf` + `LIBGL_DRIVERS_PATH` 也无效。
+  即：**vendor 能被加载，但无法认领屏幕**——厂商 GLX/EGL 在容器内拿不到
+  设备（宿主同一套库完全正常，问题只在容器环境）。
 
-根因：**glvnd 的 GLX vendor 注册机制对厂商栈失效**：
+根因归纳：沙箱隐藏 PCI sysfs + 厂商栈的设备发现/认领路径依赖它。
+AMD/Intel/NVIDIA 的驱动在同样的 pressure-vessel 沙箱内工作正常，因为
+它们的 Vulkan ICD 通过 `/dev/dri`（drmGetDevice2）枚举设备，不依赖
+`/sys/bus/pci`。
 
-1. glvnd 从 `/usr/share/glvnd/egl_vendor.d/*.json` 枚举 vendor，该目录
-   **在容器内不存在**；pressure-vessel 合并的 JSON 在
-   `/usr/lib/pressure-vessel/overrides/share/glvnd/egl_vendor.d/`，
-   glvnd 并不读取该路径；
-2. 厂商只提供了 **EGL** 的 vendor 配置（`10_gf.json` →
-   `libEGL_gf.so.0`），没有 **GLX** 的 vendor 配置；该库不导出
-   `__glx_Main`，即使被读取也无法注册 GLX vendor（`libGLX_gf.so.0`
-   才导出 `__glx_Main`，需要独立的 JSON 条目）；
-3. 宿主上 `__GLX_VENDOR_LIBRARY_NAME=gf` 可用，是因为 glvnd 的名称回退
-   会在默认链接路径 dlopen `libGLX_gf.so.0`；容器内 overrides 目录不在
-   默认 dlopen 搜索路径，回退同样失败。
-
-已尝试并排除的手段（全部无效，GLX 一律回退系统 Mesa）：
+已尝试并排除的手段（全部无效）：
 `__GLX_VENDOR_LIBRARY_NAME=gf`、`__GLX_FORCE_VENDOR_LIBRARY_0=gf`、
-`__EGL_VENDOR_LIBRARY_DIRS` 指向 overrides 合并目录并自建指向
-`libGLX_gf.so.0` 的 GLX vendor JSON、Source 2 的 `-egl` 参数、
-`SDL_VIDEO_X11_FORCE_EGL=1`、改用纯 soldier 运行时。
+`__EGL_VENDOR_LIBRARY_DIRS`/`__EGL_VENDOR_LIBRARY_FILENAMES` + 自建/
+自编译 vendor JSON（含组合库 shim）、Source 2 的 `-egl` 参数、
+`SDL_VIDEO_X11_FORCE_EGL=1`、换用 1.2 系 Vulkan loader、改用纯 soldier
+运行时。结论：**不存在本地可编译的 shim 能绕过设备发现层的缺失**。
 
 ### 规避（已验证）
 
-绕过 Steam 运行时容器，在宿主直跑（宿主厂商 GLX/Vulkan 均正常，Steam
-客户端保持运行以提供授权）：
+把游戏弹出沙箱在宿主直跑：`underlords.sh` 检测到容器环境后经共享会话
+D-Bus 调宿主 systemd（`systemd-run --user`）启动游戏，Steam 的运行跟踪
+依然有效（详见仓库 README “游戏兼容性”节）。注：Ubuntu 24.04 已移除
+libpng12，宿主直跑需把 `libpng12.so.0`（可取自 18.04 归档）放入游戏
+`bin/linuxsteamrt64/` 目录。
 
-```bash
-STEAM_RUNTIME=0 ~/.local/share/Steam/steamapps/common/Underlords/game/underlords.sh -steam -vulkan
-```
-
-注：Ubuntu 24.04 已移除 libpng12，宿主直跑需把 `libpng12.so.0`（可取自
-18.04 归档）放入游戏 `bin/linuxsteamrt64/` 目录，否则 Source 2 的
-pango 文本模块初始化失败。
 
 ## 5. 已验证的规避方案汇总
 
@@ -190,21 +191,24 @@ pango 文本模块初始化失败。
 
 ## 6. 对厂商的建议
 
-1. **针对当前系统 Mesa 重新构建 `gf_gbm.so`**，或改为自带 libgbm 的
+1. **（最关键）Vulkan ICD 改为通过 `/dev/dri` 枚举设备**：目前 ICD 依赖
+   `/sys/bus/pci` 枚举，在 Steam pressure-vessel 等沙箱内（PCI sysfs 被
+   隐藏、`/dev/dri` 正常可见）枚举到 0 设备，导致所有 Vulkan 游戏在
+   Steam 运行时内不可用。AMD（RADV）/Intel（ANV）/NVIDIA 的 ICD 均通过
+   `drmGetDevice2()` 枚举，在同款沙箱内工作正常——这是可直接对标修复的
+   参照实现。同时建议将 ICD 升级到 Vulkan loader interface ≥5
+   （当前 interface 4 会被 loader 1.3.275+ 以 LDP_DRIVER_7 拒绝）；
+2. **修复 GLX/EGL 在容器内的设备认领**：实验证实自编译的 glvnd vendor
+   shim（GLX+EGL 组合库 + 正确命名的 JSON）在容器内能被 glvnd 加载，
+   但厂商 GLX/EGL 无法认领屏幕——设备发现/认领路径同样依赖被隐藏的
+   PCI sysfs，需与第 1 条一并修复；厂商随包补齐 GLX vendor JSON
+   （指向 `libGLX_gf.so.0`）仍是必要前提；
+3. **针对当前系统 Mesa 重新构建 `gf_gbm.so`**，或改为自带 libgbm 的
    方案（与厂商 GLX/EGL 栈同思路），消除对宿主 libgbm ABI 的依赖；
    至少应在初始化入口做版本探测，不匹配时返回错误码而非崩溃
    （libgbm 会回退下一后端），避免拖垮整个进程；
-2. **补齐 glvnd vendor 配置**：随包提供 GLX 的 vendor JSON
-   （指向 `libGLX_gf.so.0`，与现有 EGL JSON 并列）；并考虑与
-   pressure-vessel 的合并路径（`/usr/lib/pressure-vessel/overrides/
-   share/glvnd/egl_vendor.d/`）兼容的分发方式，使容器化应用
-   （Steam UI、原生游戏）能注册厂商 GLX/EGL vendor；
-3. **容器/沙箱场景的 EGL 可用性**：厂商 EGL（X11 等平台）在宿主实测
-   可用，但容器内的应用（CEF/ANGLE、SDL）默认分发到系统 Mesa EGL 而
-   拿不到厂商 EGL；建议在文档中给出官方推荐的环境变量组合
-   （如 `__EGL_VENDOR_LIBRARY_FILENAMES`），或提供统一的容器适配脚本；
-4. 持续提升 Vulkan ICD 的特性/扩展覆盖（容器内设备枚举与创建已验证
-   正常），使 zink/ANGLE 等 GL-on-Vulkan 方案的可用性随之提高；
+4. 持续提升 Vulkan ICD 的特性/扩展覆盖，使 zink/ANGLE 等 GL-on-Vulkan
+   方案的可用性随之提高；
 5. 长期：将 Gallium 驱动上游化到当前 Mesa（同行已有先例），从根上
    消除"分叉 Mesa 插件 vs 系统 Mesa"的 ABI 漂移。
 

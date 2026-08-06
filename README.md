@@ -424,17 +424,26 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 
 ### 游戏兼容性（Dota Underlords 实测）
 
-Steam 运行时容器（scout/soldier）内的 GLX 无法加载厂商驱动（容器内 glvnd 缺少
-厂商 GLX vendor 注册），原生 Linux 游戏在容器内会因 GL 初始化失败而崩溃。
-已验证的规避：绕过容器在宿主直跑（宿主 GLX/Vulkan 均正常）：
+**在 Steam 里点"开始游戏"即可直接玩**（已实测）。原理与细节：
 
-```bash
-# 需 Steam 客户端在运行（授权）；首次需把 libpng12.so.0 放进游戏库目录
-# （Ubuntu 24.04 已移除该库，可从 18.04 归档取）
-STEAM_RUNTIME=0 ~/.local/share/Steam/steamapps/common/Underlords/game/underlords.sh -steam -vulkan
-```
-
-游戏目录内已放好 `play-native.sh` 启动器与桌面项 `dota-underlords-native.desktop`。
+- 容器内无法用厂商图形栈，根因有三层（均有实证）：
+  1. 沙箱隐藏 `/sys/bus/pci` → 厂商 Vulkan ICD 枚举不到 GPU（0 设备）；
+     新版 Vulkan loader 还会以 "loader interface version" 为由拒绝厂商 ICD；
+  2. 容器内 glvnd 无法注册厂商 GLX vendor（无 vendor JSON 目录）；
+  3. 厂商 EGL 在容器内拿不到 X11 visual。
+- 规避方案：把游戏弹出沙箱、在宿主直跑（宿主图形栈完全正常）。
+  实现：`underlords.sh` 检测到自己在容器内时，通过共享的会话 D-Bus 调用
+  宿主 systemd（`systemd-run --user`）在宿主启动游戏，并阻塞到游戏退出，
+  Steam 的运行时长/退出检测依然有效。相关文件（游戏目录下）：
+  `ul-host-run.sh`（委托器）、`play-native.sh`（宿主启动器，含残留
+  `LS_SHARE_MEMORY_*` 清理）、`underlords.sh`（容器分支 + 启动崩溃重试）。
+- 首次部署需要把 `libpng12.so.0` 放进游戏 `bin/linuxsteamrt64/` 目录
+  （Ubuntu 24.04 已移除该库，可从 18.04 归档取），否则 Source 2 的
+  pango 文本模块崩溃。
+- 已知限制：宿主直跑的游戏没有 Steam 游戏内覆盖（Shift+Tab）；被 `kill -9`
+  强杀后残留的 `LS_SHARE_MEMORY_*` 会在下次启动时自动清理；启动瞬间偶发
+  tier0 段错误由 `underlords.sh` 自动重试（最多 2 次）兜底。
+- 备用：桌面项 `dota-underlords-native.desktop` 可不依赖 Steam 启动链路直接玩。
 
 ---
 
