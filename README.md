@@ -110,6 +110,7 @@ right headers.
 |---|---|
 | `lisuan-7g100-ubuntu-fix/docs/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
 | `lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
+| `lisuan-7g100-ubuntu-fix/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
 
 > 注意区分：`scripts/` 下的 verify-* 是**面向真机的体检工具**，与仓库根的
 > `tests/`（离线、无硬件依赖的 CI 自检）不是一回事。
@@ -464,8 +465,13 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 
 ## 关于厂商驱动的获取
 
-> **本仓库不分发任何厂商专有文件**（`.deb` 驱动包、闭源 blob、重编出的 `gf.ko`）。
+> **本仓库不分发任何厂商专有文件**（`.deb` 驱动包、闭源 blob、重编出的 `gf.ko`），
 > 这些内容归砺算 / 整机厂商所有，请通过**官方渠道或设备 OEM** 自行获取。
+>
+> 例外：厂商 DKMS 包内的**内核源码**本身以 GPLv2 / Dual MIT/GPLv2 授权
+> （包内 `copyright` 与文件头声明），已按授权原样转录至
+> [`lisuan-7g100-ubuntu-fix/vendor-src/`](./lisuan-7g100-ubuntu-fix/vendor-src/README.md)
+> （含来源包 SHA-256；闭源 blob 与一切二进制产物不在其中）。
 
 本修复针对并验证于以下版本的驱动包，供你核对完整性（`sha256sum`）：
 

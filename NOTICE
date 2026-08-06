@@ -6,23 +6,33 @@ This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 ===============================================================================
 Scope of this repository
 ===============================================================================
-This repository contains ONLY an independent compatibility fix authored by the
-project contributors:
-  * a one-line patch to the DKMS Makefile shipped by the vendor driver package
-    (patches/), and
-  * helper scripts and documentation (scripts/, README.md).
+This repository contains:
+  * an independent compatibility fix authored by the project contributors:
+    a one-line patch to the DKMS Makefile shipped by the vendor driver package
+    (patches/), plus helper scripts and documentation (scripts/, README.md);
+    these are licensed under the Apache License, Version 2.0; and
+  * a verbatim transcription of the OPEN-LICENSED kernel sources contained in
+    the vendor package lisuangpu-dkms 262.2.0.56 (vendor-src/, see its
+    README.md for provenance and SHA-256). Per the package copyright file and
+    the per-file headers, those sources are licensed under GPLv2 /
+    Dual MIT/GPLv2 and are redistributed here under GPLv2.
 
-It does NOT contain, and does not redistribute, any part of the Lisuan (砺算)
-GPU driver, its closed-source object blobs, its user-mode libraries, or the
-`.deb` packages. Those remain the property of their respective owners and must
-be obtained from the vendor / OEM by the end user (see README.md).
+It does NOT contain, and does not redistribute, the CLOSED-SOURCE parts of the
+Lisuan (砺算) GPU driver — in particular the precompiled binary blob
+`objs/x86_64/lisuan_proprietary.o.hex` shipped in lisuangpu-dkms — nor any
+user-mode libraries or `.deb` packages. Those remain the property of their
+respective owners and must be obtained from the vendor / OEM by the end user
+(see README.md).
 
 ===============================================================================
-Third-party components (NOT included here — referenced only)
+Third-party components
 ===============================================================================
 Lisuan GPU DKMS driver (package: lisuangpu-dkms) and user-mode libraries
 (package: lisuangpu-lib) are works of Lisuan Technology
-(维阵 / Lisuan Tech, <gpudriverdevsupport@lisuanTech.com>) and are governed by
-their own license terms. This project is not affiliated with, nor endorsed by,
-Lisuan Technology. "砺算" / "Lisuan" and "海光" / "Hygon" are trademarks of
-their respective holders and are used here for identification purposes only.
+(维阵 / Lisuan Tech, <gpudriverdevsupport@lisuanTech.com>). The open-licensed
+kernel sources of lisuangpu-dkms are redistributed in vendor-src/ under GPLv2
+(see vendor-src/README.md and vendor-src/copyright); the closed-source blob,
+user-mode libraries and packaging remain governed by the vendor's own license
+terms and are not included. This project is not affiliated with, nor endorsed
+by, Lisuan Technology. "砺算" / "Lisuan" and "海光" / "Hygon" are trademarks
+of their respective holders and are used here for identification purposes only.
