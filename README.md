@@ -440,9 +440,21 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 - 首次部署需要把 `libpng12.so.0` 放进游戏 `bin/linuxsteamrt64/` 目录
   （Ubuntu 24.04 已移除该库，可从 18.04 归档取），否则 Source 2 的
   pango 文本模块崩溃。
+- **游戏中途随机崩溃（`libpanorama_text_pango.so` 固定偏移段错误）**：这是
+  Source 2 panorama 文本模块自身的内存损坏（虚表调用失败），与显卡无关。
+  实验：把游戏目录的 pango 换成宿主新版反而把崩溃变成**启动即崩**（确定性），
+  已回滚到游戏自带 scout pango（备份在 `pango-scout-bak/`，勿删）。
+  当前对策：`underlords.sh` 智能重试——段错误后自动清理残留 shm 并重启
+  （最多 10 次；180 秒内连崩 3 次判定为崩溃循环，停止重试避免无限循环）。
+  退出检测：退出时 panorama 析构也会段错误，脚本用日志中的
+  `CSteam3Client::Shutdown` 标记区分"退出时崩"与"游戏中崩"，前者不重启
+  （否则会出现"关一次游戏自动重开"的现象）。
+  另外启动参数加了 `-nobreakpad`：游戏自带 breakpad 会吞掉 SIGSEGV，关掉后
+  崩溃才会产生内核 core（`/tmp/core.underlords.*`，需 core_pattern 指向 /tmp），
+  可供 gdb 定位。
 - 已知限制：宿主直跑的游戏没有 Steam 游戏内覆盖（Shift+Tab）；被 `kill -9`
-  强杀后残留的 `LS_SHARE_MEMORY_*` 会在下次启动时自动清理；启动瞬间偶发
-  tier0 段错误由 `underlords.sh` 自动重试（最多 2 次）兜底。
+  强杀后残留的 `LS_SHARE_MEMORY_*` 会在下次启动时自动清理；段错误由
+  `underlords.sh` 智能重试兜底（见上条）。
 - 备用：桌面项 `dota-underlords-native.desktop` 可不依赖 Steam 启动链路直接玩。
 
 ---
