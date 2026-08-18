@@ -206,6 +206,8 @@ run_item() {
     13) need_root bash "$S/fix-steam-cef-lock.sh" --uninstall ;;       # 还原 Steam wrap.sh
     14) need_root bash "$S/fix-underlords-native.sh" ;;                # 安装/修复游戏补丁集
     15) bash "$S/fix-underlords-native.sh" --status ;;                 # 游戏修复状态
+    16) bash "$S/use-zcode.sh" ;;                                      # 启动 ZCode (显示异常修复)
+    17) bash "$S/use-zcode.sh" --install-desktop ;;                    # 把 zcode 桌面项切到 wrapper
     *) bad "无效选项：$1"; return 1 ;;
   esac
 }
@@ -235,6 +237,9 @@ menu() {
   8) 启动 Dota Underlords（宿主直跑，需 Steam 在运行）
   14) 安装/修复 Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项） [需要 sudo]
   15) 查看 Dota Underlords 修复状态
+  ${B}Electron 应用${N}
+  16) 启动 ZCode（--no-sandbox + XWayland + 禁用 GPU 合成, 修显示异常白屏/花屏）
+  17) 把 ZCode 桌面项 Exec 切到修复 wrapper（之后从应用菜单直启即生效）
   0) 退出
 ======================================================
 EOF

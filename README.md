@@ -67,6 +67,7 @@ right headers.
 - [一、内核 DKMS 驱动修复](#一内核-dkms-驱动修复)
 - [二、Mesa / 图形栈适配](#二mesa--图形栈适配)
 - [三、Steam 适配](#三steam-适配)
+- [四、Electron 类应用（ZCode）适配](#四electron-类应用zcode-适配)
 - [关于厂商驱动的获取](#关于厂商驱动的获取)
 - [自动化测试](#自动化测试)
 - [常见问题 FAQ](#常见问题-faq)
@@ -103,6 +104,7 @@ right headers.
 | 路径 | 说明 |
 |---|---|
 | `lisuan-7g100-ubuntu-fix/scripts/use-system-mesa.sh` | 让指定应用运行在系统 Mesa（zink）之上，绕开厂商 Mesa 22.0.4 分叉 |
+| `lisuan-7g100-ubuntu-fix/scripts/use-zcode.sh` | **ZCode（Electron AppImage）显示异常修复**：`--no-sandbox` + `--ozone-platform-hint=x11` + 禁用 GPU 合成；`--install-desktop` 把桌面项切到本 wrapper |
 
 **文档（docs）**：
 
@@ -157,6 +159,10 @@ MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
 ./scripts/use-system-mesa.sh --print-env
 ./scripts/use-system-mesa.sh glxinfo -B
 ./scripts/verify-system-mesa.sh
+
+# 5) Electron 类应用 (ZCode) 显示异常: 界面空白 / 花屏 / 黑块
+./scripts/use-zcode.sh                       # 启动 (含 --no-sandbox 等修复)
+./scripts/use-zcode.sh --install-desktop     # 把应用菜单的 Exec 切到本 wrapper
 ```
 
 ---
@@ -460,6 +466,68 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
   强杀后残留的 `LS_SHARE_MEMORY_*` 会在下次启动时自动清理；段错误由
   `underlords.sh` 智能重试兜底（见上条）。
 - 备用：桌面项 `dota-underlords-native.desktop` 可不依赖 Steam 启动链路直接玩。
+
+---
+
+## 四、Electron 类应用（ZCode）适配
+
+> 同类问题也适用于其它 Electron / Chromium 系桌面应用（VSCode、网易云音乐、微信等）：
+> 在国产 GPU + Ubuntu 24.04 上同样可能表现为"界面空白 / 花屏 / 黑块"。根因与修复
+> 完全一致，本节的 `--no-sandbox` / `--ozone-platform-hint=x11` / `--disable-gpu`
+> 三件套可直接套用。
+
+**症状**：ZCode（福昕同系的国产 AI 编码助手，Electron AppImage，3.7.7.4926）启动后
+窗口弹出但内容区空白（或拖拽/缩放时花屏、窗口残缺），无法使用。
+
+### 根因（与 Steam / Foxit 同源的三层叠加）
+
+1. **Chromium 沙箱剥离渲染进程**：Ubuntu 24.04 内核限制了 unprivileged user
+   namespace，Electron 的渲染进程在默认沙箱里无法启动。ZCode 自带的 `AppRun` 原本
+   带了 `--no-sandbox`，但很多用户/桌面环境实际走的是**另一份 `Exec`**（如应用菜单
+   项直接指向 AppImage 本体、漏了 `--no-sandbox`）→ 渲染进程起不来 → 整窗白屏。
+2. **Wayland 原生后端异常**：当前会话是 Wayland（`XDG_SESSION_TYPE=wayland`），
+   Electron 的 wayland 后端在国产驱动上窗口渲染残缺 → 切回 XWayland 即可稳定。
+3. **GPU 合成白屏**：砾算 G100 + Mesa 驱动 GL 特性不全，Chromium 的 GPU 合成层会
+   白屏/花屏 → 禁用 GPU 与 GPU 合成，回退软渲染（与 Foxit WebEngine 修复同源）。
+
+> 与 Foxit 的区别：Foxit 的 WebEngine 还有"环境变量到不了子进程需 `/opt` 软链兜底"
+> 这一环；Electron 的渲染进程直接吃命令行，因此只需在启动时传入开关即可，无需改系统。
+
+### 修复（已实测）
+
+```bash
+cd lisuan-7g100-ubuntu-fix
+bash scripts/use-zcode.sh                       # 启动 ZCode (带完整修复开关)
+bash scripts/use-zcode.sh --install-desktop     # 把系统 zcode.desktop 的 Exec 切到本 wrapper
+```
+
+`use-zcode.sh` 实际执行的开关（与 `use-system-mesa.sh` 同级，属"按需包装单应用环境"）：
+
+```bash
+"$APPIMAGE" \
+  --no-sandbox \                 # 修 Ubuntu 24.04 沙箱导致的渲染进程起不来
+  --ozone-platform-hint=x11 \    # 经 XWayland 渲染, 规避 wayland 原生后端残缺
+  --disable-gpu --disable-gpu-compositing   # 规避国产驱动 GPU 合成白屏
+  ${ZCODE_EXTRA_FLAGS:-}         # 可追加自定义开关, 如 ZCODE_EXTRA_FLAGS=--enable-logging
+```
+
+修复后从应用菜单 / 双击启动均正常（桌面项 `Exec` 已指向 wrapper）。
+
+### 验证
+
+```bash
+ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash scripts/use-zcode.sh
+# 正常应看到 GPU 进程 fallback 到软件渲染, 无 "GPU process isn't usable" 致命错误
+```
+
+### 注意事项
+
+- 若换回纯 X11 会话（`XDG_SESSION_TYPE=x11`），`--ozone-platform-hint=x11` 仍无害，
+  可保留。
+- 想试恢复硬件加速流畅度：`ZCODE_EXTRA_FLAGS="--ignore-gpu-blocklist" bash scripts/use-zcode.sh`
+  （若出现花屏/白屏，去掉该标志回退默认即可）。
+- 本脚本只改"启动环境"，不触碰系统其它文件；撤销只需把桌面项 `Exec` 改回 AppImage
+  本体，或删除 `use-zcode.sh`。
 
 ---
 
