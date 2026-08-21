@@ -29,7 +29,8 @@
 #   5. desktop entry    — "Dota Underlords (Lisuan native)"
 #
 # Usage:
-#   sudo ./fix-underlords-native.sh            # install (or repair)
+#   sudo ./fix-underlords-native.sh                  # install (or repair), 自动重启开启
+#   sudo ./fix-underlords-native.sh --no-autorestart # 安装并彻底关闭自动重启
 #   sudo ./fix-underlords-native.sh --uninstall
 #   ./fix-underlords-native.sh --status
 #
@@ -57,7 +58,11 @@ status() {
   echo "== Dota Underlords 修复状态 =="
   [[ -d "$GAME_DIR" ]] || { echo "  游戏未安装于 $GAME_DIR"; exit 0; }
   if grep -q "$MARKER" "$LAUNCHER" 2>/dev/null; then
-    echo "  [OK] underlords.sh 已打补丁（容器委托 + 智能重试 + 退出检测）"
+    if grep -q 'auto-restart DISABLED' "$LAUNCHER" 2>/dev/null; then
+      echo "  [OK] underlords.sh 已打补丁（容器委托，自动重启已关闭）"
+    else
+      echo "  [OK] underlords.sh 已打补丁（容器委托 + 智能重试 + 退出检测）"
+    fi
   else
     echo "  [--] underlords.sh 未打补丁"
   fi
@@ -90,19 +95,37 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 fi
 
 # ---- 1. patch underlords.sh --------------------------------------------------
+# 注入的重启策略:
+#   * 默认 (无 --no-autorestart): 游戏中途段错误 (139) 自动重开, 退出时崩不重开
+#   * --no-autorestart: 彻底关闭自动重启, 游戏进程结束 (无论正常退出还是崩溃)
+#     即直接退出, 副作用是 panorama 随机段错误会让游戏直接闪退不可玩
+NO_AUTORESTART=0
+[[ "${1:-}" == "--no-autorestart" ]] && NO_AUTORESTART=1
+# --no-autorestart 是 install 的修饰开关, 不参与后续 argv 透传, 清掉避免误判
+[[ "${1:-}" == "--no-autorestart" ]] && shift
+
 if grep -q "$MARKER" "$LAUNCHER"; then
-  log "underlords.sh 已含补丁标记，跳过补丁（如需强制重打：先还原 .orig）"
-else
-  cp -a "$LAUNCHER" "$LAUNCHER.orig"
-  GAME_DIR_ESC="$GAME_DIR" python3 - "$LAUNCHER" <<'PYEOF'
+  if [ "$NO_AUTORESTART" = 1 ]; then
+    # 已打过补丁且要求关闭自动重启: 用 .orig 重打 (支持 --no-autorestart 重打)
+    cp -a "$LAUNCHER.orig" "$LAUNCHER"
+    log "underlords.sh 已含补丁标记，先用 .orig 还原以便按新策略重打"
+  else
+    log "underlords.sh 已含补丁标记，跳过补丁（如需强制重打：先还原 .orig）"
+  fi
+fi
+
+if [ "$NO_AUTORESTART" = 1 ] || ! grep -q "$MARKER" "$LAUNCHER"; then
+  [ -f "$LAUNCHER.orig" ] || cp -a "$LAUNCHER" "$LAUNCHER.orig"
+  GAME_DIR_ESC="$GAME_DIR" NO_AUTORESTART="$NO_AUTORESTART" python3 - "$LAUNCHER" <<'PYEOF'
 import os, sys
 p = sys.argv[1]
 g = os.environ['GAME_DIR_ESC']
+no_auto = os.environ.get('NO_AUTORESTART', '0') == '1'
 s = open(p).read()
 
 # 1) container delegation branch right after the shebang
 s = s.replace('#!/bin/bash\n', '''#!/bin/bash
-# --- Lisuan 7G100 fix (injected): in-container delegation + crash retry ---
+# --- Lisuan 7G100 fix (injected): in-container delegation ---
 if [ -d /usr/lib/pressure-vessel ]; then
   # inside steam runtime container: sandbox hides /sys/bus/pci so the vendor
   # Vulkan ICD finds no GPU here. Delegate to host via session D-Bus instead.
@@ -115,9 +138,18 @@ fi
 export UL_LOG=/tmp/underlords-stderr.log
 ''', 1)
 
-# 2) smart crash retry (replaces the plain exit-42 restart loop)
+# 2) restart loop (replaces the plain exit-42 restart loop)
 old_loop = 'STATUS=42\nwhile [ $STATUS -eq 42 ]; do'
-new_loop = '''STATUS=42
+if no_auto:
+    # 彻底关闭自动重启: 只跑一次, 游戏进程结束即退出 (正常退出或崩溃都不重开)
+    new_loop = '''STATUS=42
+# Lisuan fix: auto-restart DISABLED (--no-autorestart). The game runs once and
+# exits as soon as the process ends — a mid-game segfault (panorama text module
+# heap corruption) will drop you straight to desktop instead of restarting.
+while [ $STATUS -eq 42 ]; do'''
+else:
+    # 默认: 游戏中途段错误 (139) 自动重开; 退出时崩 (有 Shutdown 标记) 不重开
+    new_loop = '''STATUS=42
 CRASH_RETRY=0
 CRASH_TIMES=""
 # Lisuan fix: auto-restart the game on segfault (139) — this engine has a
@@ -156,10 +188,11 @@ while [ $STATUS -eq 42 ] || { [ $STATUS -eq 139 ] && [ $CRASH_RETRY -lt 10 ]; };
 assert old_loop in s, 'STATUS=42 loop not found (game script changed?)'
 s = s.replace(old_loop, new_loop, 1)
 
-# 3) per-session log truncation before each (re)launch
-old_dbg = '\tif [ "${GAME_DEBUGGER}" == "gdb" ] || [ "${GAME_DEBUGGER}" == "cgdb" ]; then'
-assert old_dbg in s, 'debugger branch not found (game script changed?)'
-s = s.replace(old_dbg, '\t: > /tmp/underlords-stderr.log   # per-session log (quit-marker detection)\n' + old_dbg, 1)
+# 3) per-session log truncation before each (re)launch (仅默认策略用于退出判定)
+if not no_auto:
+    old_dbg = '\tif [ "${GAME_DEBUGGER}" == "gdb" ] || [ "${GAME_DEBUGGER}" == "cgdb" ]; then'
+    assert old_dbg in s, 'debugger branch not found (game script changed?)'
+    s = s.replace(old_dbg, '\t: > /tmp/underlords-stderr.log   # per-session log (quit-marker detection)\n' + old_dbg, 1)
 
 # 4) -nobreakpad (kernel core on crash) + per-session stderr capture
 old_exec = '"${GAMEROOT}"/${GAMEEXE} "$@"\n\tfi'
@@ -168,7 +201,7 @@ assert old_exec in s, 'game exec line not found (game script changed?)'
 s = s.replace(old_exec, new_exec, 1)
 
 open(p, 'w').write(s)
-print('patched')
+print('patched' + (' (no-autorestart)' if no_auto else ''))
 PYEOF
   chmod +x "$LAUNCHER"
   bash -n "$LAUNCHER" || die "补丁后语法检查失败，请检查 $LAUNCHER（备份: $LAUNCHER.orig）"

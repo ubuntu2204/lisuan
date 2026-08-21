@@ -87,7 +87,7 @@ right headers.
 | `lisuan-7g100-ubuntu-fix/scripts/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
 | `lisuan-7g100-ubuntu-fix/scripts/fix-steam-cef-lock.sh` | **Steam 修复主入口**：向容器内注入 `GBM_BACKEND=dri` + `LD_PRELOAD` glapi 并 `chattr +i` 锁定（详见[三](#三steam-适配)） |
-| `lisuan-7g100-ubuntu-fix/scripts/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 智能重试/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载（菜单 14/15） |
+| `lisuan-7g100-ubuntu-fix/scripts/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 智能重试/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载、`--no-autorestart` 彻底关闭自动重启（游戏中途崩溃也直接退出，菜单 14/15） |
 | `lisuan-7g100-ubuntu-fix/scripts/steam-cef-autofix.sh` | 开机自愈（root/systemd 调用）：发现 Steam 更新还原了补丁就自动重新注入锁定，由 `./lisuan-fix.sh` 菜单 9 安装为系统服务；`--uninstall` 卸载服务 |
 | `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 | `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
@@ -462,9 +462,13 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
   另外启动参数加了 `-nobreakpad`：游戏自带 breakpad 会吞掉 SIGSEGV，关掉后
   崩溃才会产生内核 core（`/tmp/core.underlords.*`，需 core_pattern 指向 /tmp），
   可供 gdb 定位。
+- **彻底关闭自动重启**：若不想保留"游戏中途崩溃自动重开"（例如遇到退出误重开
+  又不想区分），用 `sudo scripts/fix-underlords-native.sh --no-autorestart`
+  重打补丁——游戏进程结束（正常退出或崩溃）即直接退出，不再拉起。副作用：
+  panorama 随机段错误会让游戏**直接闪退不可玩**，按需选择（菜单外手动执行）。
 - 已知限制：宿主直跑的游戏没有 Steam 游戏内覆盖（Shift+Tab）；被 `kill -9`
   强杀后残留的 `LS_SHARE_MEMORY_*` 会在下次启动时自动清理；段错误由
-  `underlords.sh` 智能重试兜底（见上条）。
+  `underlords.sh` 智能重试兜底（见上条，仅在默认自动重启开启时生效）。
 - 备用：桌面项 `dota-underlords-native.desktop` 可不依赖 Steam 启动链路直接玩。
 
 ---
