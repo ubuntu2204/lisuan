@@ -3,6 +3,34 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.08.23 — HDMI 音频（HDAudio codec）修复
+
+### 修复
+
+- **7G100 在本系统（Ubuntu 24.04）HDMI 音频不正常**（converter 3 无声 / 音频流
+  重配置后丢声）：根因在 `vendor-src/display/hdaudio/disp_codec.c` 的
+  `disp_codec_irq_prepare`。`Reg_Hau_Reg105` 的 `set_cov2_strm_fmt` 与
+  `set_cov3_strm_fmt` 是**两个相互独立**的 bit（可同时置位），原代码却用
+  `if/else` 互斥处理——当两者同时置位（HDMI 音频同时重配置 converter 2、3
+  是常见场景）时，converter[3] 的 `stream_format`（采样率/位深）永远不更新、
+  停留在 0（无效），导致该 converter 输出的音频无声或异常。改为两个独立 `if`。
+  顺带修正其 `disp_print` 把 `pconverter[3]` 错打印为 `pconverter[1]` 的复制笔误。
+  - 载体：补丁 `patches/0002-audio-fix-hdmi-converter-23-stream-format.patch`
+    （在转录源码上干净应用）。
+
+- **声音设置只显示"虚拟输出"（无 7G100 HDMI 声卡）**：这是**用户态音频服务
+  没枚举到声卡**，与上面的内核 codec 逻辑是两层问题。根因：7G100 GPU
+  （`4c54:5006`）的伴生 HD-Audio 功能在 `05:00.1`（`4c54:5010`），`lspci`
+  可见但**无驱动绑定**——`Memory at ... [disabled]`、`IRQ 255`，故
+  `aplay -l` 为空，PipeWire 只能给虚拟 sink。标准 `snd_hda_intel` 支持该
+  控制器，但 `4c54:5010` 不在其内置 PCI id 表，内核不会自动 probe。
+  - 载体：`scripts/fix-lisuan-audio.sh`（幂等，需 `sudo`）：加载
+    `snd_hda_intel` 并通过 `new_id` 热绑定 `4c54:5010`；落地
+    `/etc/modprobe.d/lisuan-audio.conf`（install 指令 + `probe_mask=0xfff`）
+    与 `lisuan-audio-bind.service` 开机自绑；重启 PipeWire/WirePlumber 接管
+    新声卡。`--status` 只看报告、`--uninstall` 撤销。
+  - 注：本机 `gf` DRM 驱动已绑定 VGA（`lisuan`），仅音频功能需此脚本补绑。
+
 ## 2026.08.06 — Dota Underlords 可玩性修复固化
 
 ### 新增
