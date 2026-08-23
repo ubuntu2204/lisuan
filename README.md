@@ -68,6 +68,8 @@ right headers.
 - [二、Mesa / 图形栈适配](#二mesa--图形栈适配)
 - [三、Steam 适配](#三steam-适配)
 - [四、Electron 类应用（ZCode）适配](#四electron-类应用zcode-适配)
+- [五、海光板载音频修复](#五海光板载音频修复)
+- [六、游戏修复文档](#六游戏修复文档)
 - [关于厂商驱动的获取](#关于厂商驱动的获取)
 - [自动化测试](#自动化测试)
 - [常见问题 FAQ](#常见问题-faq)
@@ -114,6 +116,9 @@ right headers.
 |---|---|
 | `lisuan-7g100-ubuntu-fix/docs/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
 | `lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
+| `lisuan-7g100-ubuntu-fix/docs/fix-hygon-audio.md` | **音频修复文档**：海光板载 HDA（`1d94:14c9`）绑定 `snd_hda_intel`、三层根因、`driver_override` 原理与验证（与砺算 7G100 GPU 无关） |
+| `lisuan-7g100-ubuntu-fix/docs/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
+| `lisuan-7g100-ubuntu-fix/docs/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃的 BepInEx 运行时 patch、Proton 8.0 选型、Azure IP 网络封锁、user_settings.py 注入无效教训、Steam 状态卡死坑 |
 | `lisuan-7g100-ubuntu-fix/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
 
 > 注意区分：`scripts/` 下的 verify-* 是**面向真机的体检工具**，与仓库根的
@@ -538,6 +543,35 @@ ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash scripts/use-zcode.sh
   （若出现花屏/白屏，去掉该标志回退默认即可）。
 - 本脚本只改"启动环境"，不触碰系统其它文件；撤销只需把桌面项 `Exec` 改回 AppImage
   本体，或删除 `use-zcode.sh`。
+
+---
+
+## 五、海光板载音频修复
+
+> 注意：此问题与**砺算 7G100 GPU 无关**。机器上有两个音频 PCI 功能 —— 砺算 7G100 的伴生
+> 音频（`4c54:5010`，`05:00.1`）是 `gf` 显示驱动内部的透明 codec，不创建 ALSA 卡；真正能出声的
+> 是**海光（Hygon）板载 HDA 控制器**（`1d94:14c9`，`07:00.6`）。
+
+现象：声音设置里只有"虚拟输出 / Dummy Output"，没有任何真实声卡。修复脚本
+`scripts/fix-hygon-audio.sh`，完整根因（三层叠加）、`driver_override` 强制匹配原理与验证见
+[音频修复文档](./lisuan-7g100-ubuntu-fix/docs/fix-hygon-audio.md)：
+
+- 海光 `1d94` 不在 `snd_hda_intel` PCI id 表 → 用 `driver_override` 强制匹配；
+- `snd_intel_dspcfg` 对未知 vendor 默认走 SOF/SST（本机无固件）→ 先 `modprobe snd-intel-dspcfg dsp_driver=1` 强制原生 HDA；
+- codec（ALC222）上电慢 `azx_get_response` 超时 → `probe_mask=0xff delay=2000`。
+
+修复后 `aplay -l` 出现 `card 0: Intel [HDA Intel], device 0: ALC222 Analog`。
+
+---
+
+## 六、游戏修复文档
+
+针对具体游戏的完整修复文档（根因、规避方案、部署、验证）独立成篇：
+
+- [刀塔霸业（Dota Underlords）修复](./lisuan-7g100-ubuntu-fix/docs/fix-underlords-native.md)
+  —— Source 2 原生 Linux 游戏在 Steam pressure-vessel 容器内崩溃，容器委托宿主直跑；libpng12 补齐、panorama 随机段错误智能重试与退出检测。
+- [随从大师（Minion Masters）修复](./lisuan-7g100-ubuntu-fix/docs/fix-minion-masters.md)
+  —— Unity/IL2CPP 游戏崩在 Vivox 登录，BepInEx 运行时 patch 把 `LoginAsync` prologue 改为立即返回已完成 UniTask；另含 Azure IP 网络封锁、Proton 8.0 选型、user_settings.py 注入无效教训、Steam 状态卡死坑。
 
 ---
 
