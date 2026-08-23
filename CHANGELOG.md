@@ -18,18 +18,32 @@
   - 载体：补丁 `patches/0002-audio-fix-hdmi-converter-23-stream-format.patch`
     （在转录源码上干净应用）。
 
-- **声音设置只显示"虚拟输出"（无 7G100 HDMI 声卡）**：这是**用户态音频服务
-  没枚举到声卡**，与上面的内核 codec 逻辑是两层问题。根因：7G100 GPU
-  （`4c54:5006`）的伴生 HD-Audio 功能在 `05:00.1`（`4c54:5010`），`lspci`
-  可见但**无驱动绑定**——`Memory at ... [disabled]`、`IRQ 255`，故
-  `aplay -l` 为空，PipeWire 只能给虚拟 sink。标准 `snd_hda_intel` 支持该
-  控制器，但 `4c54:5010` 不在其内置 PCI id 表，内核不会自动 probe。
-  - 载体：`scripts/fix-lisuan-audio.sh`（幂等，需 `sudo`）：加载
-    `snd_hda_intel` 并通过 `new_id` 热绑定 `4c54:5010`；落地
-    `/etc/modprobe.d/lisuan-audio.conf`（install 指令 + `probe_mask=0xfff`）
-    与 `lisuan-audio-bind.service` 开机自绑；重启 PipeWire/WirePlumber 接管
-    新声卡。`--status` 只看报告、`--uninstall` 撤销。
-  - 注：本机 `gf` DRM 驱动已绑定 VGA（`lisuan`），仅音频功能需此脚本补绑。
+- **声音设置只显示"虚拟输出"（无真实声卡）**：这是**用户态音频服务没枚举到
+  任何 ALSA 声卡**，与上面的内核 codec 逻辑是两层问题。本机有两张音频 PCI
+  功能：
+  - `05:00.1` `4c54:5010`：7G100 GPU 伴生 HD-Audio，是 `gf` 显示驱动**内部
+    的透明 codec**（`disp_codec.c` / `display_hda_handle` / ELD / infoframe
+    全自管），**不创建 ALSA 声卡、也不是标准 Intel HD-A 控制器**，绑给
+    `snd_hda_intel` 是死路——已排除。
+  - `07:00.6` `1d94:14c9`：海光（Hygon）板载 **标准 HD-A 控制器**（源于 AMD
+    Zen），才是本机真实可出声的声卡；但其 vendor id `1d94` 不在
+    `snd_hda_intel` 内置 PCI id 表，内核不自动 probe → BAR 不启用 → 无
+    `/dev/snd/card*`。
+  - 修复：`scripts/fix-lisuan-audio.sh`（幂等，需 `sudo`）。完整根因链：
+    1. `1d94` 不在 `snd_hda_intel` 的 PCI id 表 → `new_id` 返回 `-EINVAL`、
+       `bind` 因 id 不匹配被静默拒绝。用 `driver_override` 绕过 id 表强制匹配。
+    2. `snd_intel_dspcfg` 对未知 vendor 默认选 SOF/SST 路径，本机无固件 →
+       `azx_probe` 静默失败（dmesg 无日志）。须在加载 `snd_hda_intel` **之前**
+       以 `dsp_driver=1` 加载 `snd-intel-dspcfg` 强制原生 HDA。
+    3. 绑定成功后 codec (ALC222) 上电慢，`azx_get_response` 超时。加
+       `probe_mask=0xff delay=2000` 探测全部 codec 地址并等待上电。
+    最终 `aplay -l` 出现 `card 0: Intel [HDA Intel], device 0: ALC222 Analog`。
+  - 持久化：`/etc/modprobe.d/lisuan-audio.conf`（`install` 指令带
+    `probe_mask=0xff delay=2000` + `options snd-intel-dspcfg dsp_driver=1`）
+    与 `lisuan-audio-bind.service` 开机自绑（driver_override + bind）；
+    重启 PipeWire/WirePlumber 接管新声卡。`--status` 看报告、`--uninstall` 撤销。
+  - 注：7G100 的 HDMI 边带音频（`4c54:5010`）是 `gf` 显示驱动内部透明 codec，
+    不创建 ALSA 卡，需厂商驱动支持，超出本脚本范围；板载出声走海光 HDA。
 
 ## 2026.08.06 — Dota Underlords 可玩性修复固化
 

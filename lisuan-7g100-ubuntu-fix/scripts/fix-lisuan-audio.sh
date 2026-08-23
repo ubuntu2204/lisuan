@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
 #
-# fix-lisuan-audio.sh — make Ubuntu's audio stack see the Lisuan (砺算) 7G100
-# HDMI sound device instead of only "Dummy Output" / virtual sink.
+# fix-lisuan-audio.sh — make Ubuntu's audio stack see a REAL sound card instead
+# of only "Dummy Output" / virtual sink on a 砺算 7G100 + 海光 (Hygon) machine.
 #
 # Root cause it fixes:
-#   The 7G100 GPU (PCI 4c54:5006) exposes a companion HD-Audio function at
-#   05:00.1 (PCI 4c54:5010). The vendor display driver (gf -> "lisuan") binds
-#   the VGA function, but the audio function is left with NO driver bound:
-#     - lspci shows "Memory at ... [disabled]" and "IRQ 255" (never enabled)
-#     - `aplay -l` is empty  ->  PipeWire/WirePlumber only expose a virtual sink
-#   Standard snd_hda_intel supports this controller, but 4c54:5010 is NOT in its
-#   built-in PCI id table, so the kernel never auto-probes it.
+#   On this board Ubuntu shows only a virtual sink because NO ALSA sound card is
+#   registered. Two audio PCI functions exist:
+#     - 05:00.1  4c54:5010  Lisuan 7G100 GPU companion HD-Audio.
+#                 This is a *transparent* codec driven entirely inside the vendor
+#                 `gf` display driver (disp_codec.c / display_hda_handle / ELD /
+#                 infoframe logic). It does NOT create an ALSA card and is NOT a
+#                 standards-compliant Intel HD-A controller, so snd_hda_intel
+#                 cannot bind to it — binding it is a dead end.
+#     - 07:00.6  1d94:14c9  Hygon (海光) on-board HD-Audio controller.
+#                 This IS a standard HD-A controller (Hygon derives from AMD
+#                 Zen), but its vendor id 1d94 is missing from snd_hda_intel's
+#                 built-in PCI id table, so the kernel never auto-probes it and
+#                 the BAR stays disabled -> no /dev/snd/card* -> virtual output.
+#
+#   => The real fix is to hot-bind the Hygon HDA (1d94:14c9) to snd_hda_intel
+#      via its new_id interface. (The 7G100 HDMI audio currently has no
+#      kernel-side ALSA path and is out of scope for this script.)
 #
 # What it does (idempotent):
-#   1. Loads snd_hda_intel and hot-binds 4c54:5010 via the driver's new_id
+#   1. Loads snd_hda_intel and hot-binds 1d94:14c9 via the driver's new_id
 #      interface (enables the BAR, allocates a real IRQ, registers an ALSA card).
-#   2. Drops a modprobe.d + systemd oneshot so the binding survives reboot
-#      (the GPU audio function re-appears unbound after every boot).
+#   2. Drops a modprobe.d + systemd oneshot so the binding survives reboot.
 #   3. Restarts PipeWire/WirePlumber so they pick up the new ALSA card.
 #   4. Prints a verification report.
 #
@@ -28,8 +37,8 @@
 # License: Apache-2.0
 set -euo pipefail
 
-AUDIO_VID="4c54"
-AUDIO_DID="5010"
+AUDIO_VID="1d94"
+AUDIO_DID="14c9"
 DRV="snd_hda_intel"
 MODCONF="/etc/modprobe.d/lisuan-audio.conf"
 ONESHOT="/etc/systemd/system/lisuan-audio-bind.service"
@@ -45,7 +54,7 @@ die()  { printf '\033[1;31mXX\033[0m %s\n'  "$*" >&2; exit 1; }
 
 # ---- 定位音频功能设备 (04 = multimedia audio controller) -------------------
 DEV="$(lspci -n -d ${AUDIO_VID}:${AUDIO_DID} 2>/dev/null | head -1 | cut -d' ' -f1 || true)"
-[[ -n "$DEV" ]] || { warn "7G100 audio function ${AUDIO_VID}:${AUDIO_DID} not found via lspci — is the GPU seated?"; [[ $STATUS -eq 1 || $UNINSTALL -eq 1 ]] && exit 0 || exit 1; }
+[[ -n "$DEV" ]] || { warn "Hygon HDA ${AUDIO_VID}:${AUDIO_DID} not found via lspci — is the board audio controller present?"; [[ $STATUS -eq 1 || $UNINSTALL -eq 1 ]] && exit 0 || exit 1; }
 SYSDEV="/sys/bus/pci/devices/0000:${DEV}"
 
 # ---- 卸载分支 --------------------------------------------------------------
@@ -60,7 +69,9 @@ if [[ $UNINSTALL -eq 1 ]]; then
     log "Unbinding ${DEV} from ${DRVNAME}"
     echo "${DEV}" > "/sys/bus/pci/drivers/${DRVNAME}/unbind" 2>/dev/null || true
   fi
-  modprobe -r "$DRV" 2>/dev/null || true
+  # 清除 driver_override，避免重启后仍强制绑定
+  [[ -e "${SYSDEV}/driver_override" ]] && echo "" > "${SYSDEV}/driver_override" 2>/dev/null || true
+  modprobe -r "$DRV" snd_hda_codec snd_hda_core snd_intel_dspcfg snd_intel_sdw_acpi 2>/dev/null || true
   log "Removed. A reboot is recommended."
   exit 0
 fi
@@ -87,7 +98,7 @@ if [[ $STATUS -eq 1 ]]; then
   exit 0
 fi
 
-# ---- 修复：加载驱动并热绑定 4c54:5010 -------------------------------------
+# ---- 修复：加载驱动并热绑定海光 HDA (1d94:14c9) -------------------------
 log "Audio function: ${DEV} (${AUDIO_VID}:${AUDIO_DID})"
 
 # 若已被别的驱动绑定，先解绑
@@ -95,56 +106,99 @@ if [[ -e "${SYSDEV}/driver" ]]; then
   BOUND="$(readlink -f "${SYSDEV}/driver" | xargs basename)"
   if [[ "$BOUND" != "$DRV" ]]; then
     log "Device already bound to '${BOUND}' — unbinding first"
-    echo "${DEV}" > "/sys/bus/pci/drivers/${BOUND}/unbind"
+    echo "${DEV}" > "/sys/bus/pci/drivers/${BOUND}/unbind" 2>/dev/null || true
   else
-    log "Already bound to ${DRV} — reloading to apply options"
+    log "Already bound to ${DRV} — will reload to apply options"
   fi
 fi
 
-log "Loading ${DRV}"
-modprobe "$DRV" || warn "modprobe ${DRV} failed — inspect: dmesg | tail -30"
-
-# 驱动加载后才有 new_id 接口；写入 PCI id 触发 probe
-if [[ -e "/sys/bus/pci/drivers/${DRV}/new_id" ]]; then
-  log "Hot-binding ${AUDIO_VID}:${AUDIO_DID} to ${DRV}"
-  # 已绑定时写 new_id 会报 EEXIST，忽略即可
-  echo "${AUDIO_VID} ${AUDIO_DID}" > "/sys/bus/pci/drivers/${DRV}/new_id" 2>/dev/null \
-    || warn "new_id write returned non-zero (often benign if already bound)"
-else
-  die "/sys/bus/pci/drivers/${DRV}/new_id missing — is ${DRV} really loaded?"
+# 关键：模块若已在内存，其 modprobe options (dsp_driver=1 等) 不会被重读。
+# 先干净卸载再加载，确保新 options 生效。
+if [[ -n "$(lsmod | grep -o "^${DRV} ")" ]]; then
+  log "Unloading ${DRV} (so new modprobe.d options take effect)"
+  modprobe -r "$DRV" 2>/dev/null || true
+  # 顺带卸掉依赖的 codec/core 模块
+  modprobe -r snd_hda_codec snd_hda_core 2>/dev/null || true
 fi
 
-# 若新绑定，强制 PCI 层启用设备资源（内核有时需要 rescan）
+# 关键：snd_hda_intel 的 probe 内部会调用 snd_intel_dspcfg 决定最终用哪条
+# 路径（原生 HDA=1 / SST=2 / SOF=3）。对未知 vendor 1d94，dspcfg 默认可能选
+# SOF/SST 而本机无对应固件 -> azx_probe 静默失败（dmesg 无日志）。因此必须
+# 在加载 snd_hda_intel 之前，先以 dsp_driver=1 加载 snd-intel-dspcfg。
+log "Loading snd-intel-dspcfg with dsp_driver=1 (native HDA, no SOF/SST)"
+modprobe snd-intel-dspcfg dsp_driver=1 2>/dev/null \
+  || warn "snd-intel-dspcfg load/param failed — inspect dmesg"
+
+log "Loading ${DRV} (probe_mask=0xff to find codec on any addr, delay=2000 for slow power-up)"
+modprobe "$DRV" probe_mask=0xff delay=2000 \
+  || warn "modprobe ${DRV} failed — inspect: dmesg | tail -30"
+
+# 关键：1d94 不在 snd_hda_intel 的 PCI id 表里，new_id 对其返回 -EINVAL，
+# 直接 bind 又会因 id 不匹配被 driver_probe_device 静默拒绝（dmesg 无日志）。
+# 正确机制是 driver_override：写入驱动名后，内核忽略 id 表、强制用该驱动
+# probe 此设备；probe 时内核自动 pci_enable_device，启用 [disabled] 的 BAR
+# 并分配 IRQ。海光 Dhyana 源于 AMD Zen，HDA 控制器硬件与 snd_hda_intel 兼容。
+if [[ -e "${SYSDEV}/driver_override" ]]; then
+  log "Setting driver_override = ${DRV} (forces match, bypasses id table)"
+  echo "${DRV}" > "${SYSDEV}/driver_override" 2>/dev/null \
+    || warn "driver_override write failed"
+else
+  warn "No driver_override attr — falling back to new_id/bind"
+  printf '%s %s\n' "$AUDIO_VID" "$AUDIO_DID" > "/sys/bus/pci/drivers/${DRV}/new_id" 2>/dev/null \
+    || true
+fi
+
 if [[ ! -e "${SYSDEV}/driver" ]]; then
-  warn "Still no driver bound after new_id — forcing pci rescan"
-  echo 1 > /sys/bus/pci/rescan 2>/dev/null || true
-  echo "${AUDIO_VID} ${AUDIO_DID}" > "/sys/bus/pci/drivers/${DRV}/new_id" 2>/dev/null || true
+  log "Forcing bind ${DEV} -> ${DRV} (enables BAR/IRQ, runs probe)"
+  ERR="$(echo "${DEV}" > "/sys/bus/pci/drivers/${DRV}/bind" 2>&1)"
+  if [[ -e "${SYSDEV}/driver" ]]; then
+    log "bind succeeded"
+  else
+    warn "bind failed: ${ERR:-<no message>}"
+    warn "--- dmesg probe errors ---"
+    dmesg 2>/dev/null | grep -iE "hda|azx|snd|codec|1d94|error|fail|invalid|enodev" | tail -25 \
+      || echo "(dmesg not readable)"
+  fi
+else
+  log "Device already bound"
 fi
 
 # ---- 持久化：开机自动绑定（每次启动音频功能都是 unbound 状态） -----------
 log "Persisting binding across reboots"
 
 # modprobe.d：强制加载 snd_hda_intel（并给通用 codec 兜底，避免某些固件
-# 枚举不出具体 codec 型号时整卡哑掉）
+# 枚举不出具体 codec 型号时整卡哑掉）。
+# 关键选项：
+#   - dsp_driver=1  强制 snd_hda_intel 走原生 HDA 路径，避免 snd_intel_dspcfg
+#     把未知 vendor (1d94) 默认选去 SOF/DSP 而本机无 SOF 固件导致 probe 失败。
+#   - probe_mask=0xff  探测所有 codec 地址（默认只探 0-3）。
+#   - delay=2000      给 codec (ALC222) 上电时间，否则 azx_get_response 超时。
 cat > "$MODCONF" <<EOF
-# Lisuan 7G100 (4c54:5010) HDMI audio — not in snd_hda_intel's built-in PCI
-# id table, so bind it via new_id at load time. See lisuan-audio-bind.service.
-install ${DRV} /sbin/modprobe --ignore-install ${DRV} ; \\
+# Hygon (海光) on-board HD-Audio (1d94:14c9) — a standard HDA controller but
+# its vendor id is absent from snd_hda_intel's built-in PCI id table, so bind it
+# via driver_override (see lisuan-audio-bind.service); new_id is also tried as a
+# best-effort fallback.
+# (The Lisuan 7G100 GPU companion codec 4c54:5010 is a transparent codec inside
+#  the vendor gf display driver and does NOT register an ALSA card — out of scope.)
+install ${DRV} /sbin/modprobe --ignore-install ${DRV} probe_mask=0xff delay=2000 ; \\
   echo ${AUDIO_VID} ${AUDIO_DID} > /sys/bus/pci/drivers/${DRV}/new_id 2>/dev/null ; true
-options snd-hda-intel probe_mask=0xfff
+# dsp_driver=1 强制 snd_hda_intel 走原生 HDA 路径（snd-intel-dspcfg 的模块参数），
+# 避免未知 vendor (1d94) 被默认选去 SOF/DSP 而本机无 SOF 固件导致 probe 失败。
+options snd-intel-dspcfg dsp_driver=1
+options snd-hda-intel probe_mask=0xff delay=2000
 EOF
 
 # systemd oneshot：在显示驱动绑定 VGA 之后、音频服务之前，确保绑定完成
 cat > "$ONESHOT" <<EOF
 [Unit]
-Description=Lisuan 7G100 HDMI audio (4c54:5010) HDA bind
+Description=Hygon (海光) on-board HD-Audio (1d94:14c9) HDA bind
 After=local-fs.target
 Before=pipewire.service pipewire-pulse.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/sh -c 'modprobe ${DRV} 2>/dev/null; echo ${AUDIO_VID} ${AUDIO_DID} > /sys/bus/pci/drivers/${DRV}/new_id 2>/dev/null; true'
+ExecStart=/bin/sh -c 'modprobe -r ${DRV} snd_intel_dspcfg 2>/dev/null; modprobe snd-intel-dspcfg dsp_driver=1 2>/dev/null; modprobe ${DRV} probe_mask=0xff delay=2000 2>/dev/null; echo ${DRV} > /sys/bus/pci/devices/0000:${DEV}/driver_override 2>/dev/null; echo ${AUDIO_VID} ${AUDIO_DID} > /sys/bus/pci/drivers/${DRV}/new_id 2>/dev/null; echo 0000:${DEV} > /sys/bus/pci/drivers/${DRV}/bind 2>/dev/null; true'
 
 [Install]
 WantedBy=multi-user.target
@@ -167,11 +221,18 @@ sleep 1
 if [[ -e "${SYSDEV}/driver" ]]; then
   log "Driver bound: $(readlink -f "${SYSDEV}/driver" | xargs basename)"
 else
-  warn "Audio function STILL unbound — check dmesg for HDA codec probe errors"
+  warn "Audio function STILL unbound."
+  warn "--- kernel probe log (most recent) ---"
+  dmesg 2>/dev/null | grep -iE "hda|snd|codec|azx|1d94|audio" | tail -20 \
+    || echo "(dmesg not readable without root / dmesg_restrict=1)"
+  warn "--- device resources ---"
+  lspci -v -s "$DEV" 2>/dev/null | grep -iE "Memory|IRQ|Control" | head
+  warn "If 'Memory ... [disabled]' / 'IRQ 255': the function is not enabled by"
+  warn "ACPI/firmware — binding a driver alone won't help; check BIOS/ACPI."
 fi
 
 report
 echo
 echo "Success looks like:  'Kernel driver in use: ${DRV}'  +  a real card in 'aplay -l'"
-echo "and a non-virtual sink in the Ubuntu sound settings (HDMI / 7G100)."
+echo "and a non-virtual sink in the Ubuntu sound settings (Hygon on-board HDMI/analog)."
 echo "If the card appears but is silent, re-check HDMI cable + sink profile in pavucontrol."
