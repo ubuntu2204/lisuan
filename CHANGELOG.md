@@ -29,7 +29,7 @@
     Zen），才是本机真实可出声的声卡；但其 vendor id `1d94` 不在
     `snd_hda_intel` 内置 PCI id 表，内核不自动 probe → BAR 不启用 → 无
     `/dev/snd/card*`。
-  - 修复：`scripts/fix-lisuan-audio.sh`（幂等，需 `sudo`）。完整根因链：
+  - 修复：`scripts/fix-hygon-audio.sh`（幂等，需 `sudo`）。完整根因链：
     1. `1d94` 不在 `snd_hda_intel` 的 PCI id 表 → `new_id` 返回 `-EINVAL`、
        `bind` 因 id 不匹配被静默拒绝。用 `driver_override` 绕过 id 表强制匹配。
     2. `snd_intel_dspcfg` 对未知 vendor 默认选 SOF/SST 路径，本机无固件 →
@@ -38,9 +38,9 @@
     3. 绑定成功后 codec (ALC222) 上电慢，`azx_get_response` 超时。加
        `probe_mask=0xff delay=2000` 探测全部 codec 地址并等待上电。
     最终 `aplay -l` 出现 `card 0: Intel [HDA Intel], device 0: ALC222 Analog`。
-  - 持久化：`/etc/modprobe.d/lisuan-audio.conf`（`install` 指令带
+  - 持久化：`/etc/modprobe.d/hygon-audio.conf`（`install` 指令带
     `probe_mask=0xff delay=2000` + `options snd-intel-dspcfg dsp_driver=1`）
-    与 `lisuan-audio-bind.service` 开机自绑（driver_override + bind）；
+    与 `hygon-audio-bind.service` 开机自绑（driver_override + bind）；
     重启 PipeWire/WirePlumber 接管新声卡。`--status` 看报告、`--uninstall` 撤销。
   - 注：7G100 的 HDMI 边带音频（`4c54:5010`）是 `gf` 显示驱动内部透明 codec，
     不创建 ALSA 卡，需厂商驱动支持，超出本脚本范围；板载出声走海光 HDA。

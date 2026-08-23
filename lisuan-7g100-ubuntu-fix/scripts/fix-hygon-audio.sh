@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# fix-lisuan-audio.sh — make Ubuntu's audio stack see a REAL sound card instead
-# of only "Dummy Output" / virtual sink on a 砺算 7G100 + 海光 (Hygon) machine.
+# fix-hygon-audio.sh — make Ubuntu's audio stack see a REAL sound card instead
+# of only "Dummy Output" / virtual sink on a 砺算 (Lisuan) 7G100 + 海光 (Hygon) machine.
 #
 # Root cause it fixes:
 #   On this board Ubuntu shows only a virtual sink because NO ALSA sound card is
@@ -30,9 +30,9 @@
 #   4. Prints a verification report.
 #
 # Usage:
-#   sudo ./fix-lisuan-audio.sh            # fix now + persist
-#   sudo ./fix-lisuan-audio.sh --status   # only report, no changes
-#   sudo ./fix-lisuan-audio.sh --uninstall
+#   sudo ./fix-hygon-audio.sh            # fix now + persist
+#   sudo ./fix-hygon-audio.sh --status   # only report, no changes
+#   sudo ./fix-hygon-audio.sh --uninstall
 #
 # License: Apache-2.0
 set -euo pipefail
@@ -40,8 +40,8 @@ set -euo pipefail
 AUDIO_VID="1d94"
 AUDIO_DID="14c9"
 DRV="snd_hda_intel"
-MODCONF="/etc/modprobe.d/lisuan-audio.conf"
-ONESHOT="/etc/systemd/system/lisuan-audio-bind.service"
+MODCONF="/etc/modprobe.d/hygon-audio.conf"
+ONESHOT="/etc/systemd/system/hygon-audio-bind.service"
 STATUS=0; UNINSTALL=0
 [[ "${1:-}" == "--status"   ]] && STATUS=1
 [[ "${1:-}" == "--uninstall" ]] && UNINSTALL=1
@@ -59,8 +59,8 @@ SYSDEV="/sys/bus/pci/devices/0000:${DEV}"
 
 # ---- 卸载分支 --------------------------------------------------------------
 if [[ $UNINSTALL -eq 1 ]]; then
-  log "Uninstalling Lisuan audio binding"
-  systemctl disable --now lisuan-audio-bind.service 2>/dev/null || true
+  log "Uninstalling Hygon audio binding"
+  systemctl disable --now hygon-audio-bind.service 2>/dev/null || true
   rm -f "$ONESHOT"
   rm -f "$MODCONF"
   # 若已绑定，解绑并卸载
@@ -176,7 +176,7 @@ log "Persisting binding across reboots"
 cat > "$MODCONF" <<EOF
 # Hygon (海光) on-board HD-Audio (1d94:14c9) — a standard HDA controller but
 # its vendor id is absent from snd_hda_intel's built-in PCI id table, so bind it
-# via driver_override (see lisuan-audio-bind.service); new_id is also tried as a
+# via driver_override (see hygon-audio-bind.service); new_id is also tried as a
 # best-effort fallback.
 # (The Lisuan 7G100 GPU companion codec 4c54:5010 is a transparent codec inside
 #  the vendor gf display driver and does NOT register an ALSA card — out of scope.)
@@ -205,7 +205,7 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now lisuan-audio-bind.service 2>/dev/null \
+systemctl enable --now hygon-audio-bind.service 2>/dev/null \
   || warn "Could not enable systemd unit (non-fatal; manual modprobe still works)"
 
 # ---- 重启用户态音频服务，使其发现新声卡 -----------------------------------

@@ -91,6 +91,8 @@ right headers.
 | `lisuan-7g100-ubuntu-fix/scripts/steam-cef-autofix.sh` | 开机自愈（root/systemd 调用）：发现 Steam 更新还原了补丁就自动重新注入锁定，由 `./lisuan-fix.sh` 菜单 9 安装为系统服务；`--uninstall` 卸载服务 |
 | `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 | `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
+| `lisuan-7g100-ubuntu-fix/scripts/fix-hygon-audio.sh` | **板载音频修复**：海光（Hygon）`1d94:14c9` HDA 控制器不在 `snd_hda_intel` 默认 id 表、且被 `snd_intel_dspcfg` 误选 SOF/SST 路径、codec (ALC222) 上电慢，导致声音设置只有"虚拟输出"。脚本用 `driver_override` 强制匹配 + `dsp_driver=1` + `probe_mask=0xff delay=2000` 绑定并注册真实声卡，落地 `hygon-audio.conf`/`hygon-audio-bind.service` 开机自绑（注：与砺算 7G100 GPU 无关，7G100 的 HDMI 音频是 `gf` 驱动内部透明 codec，不创建 ALSA 卡） |
+| `lisuan-7g100-ubuntu-fix/scripts/diag-hygon-audio.sh` | 诊断脚本：在加载 `snd-intel-dspcfg dsp_driver=1` 后用 `driver_override`+`bind` 绑定海光 HDA，并打印 `aplay -l`/dmesg 以确认 codec 是否枚举成功 |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
 
@@ -163,6 +165,10 @@ MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
 # 5) Electron 类应用 (ZCode) 显示异常: 界面空白 / 花屏 / 黑块
 ./scripts/use-zcode.sh                       # 启动 (含 --no-sandbox 等修复)
 ./scripts/use-zcode.sh --install-desktop     # 把应用菜单的 Exec 切到本 wrapper
+
+# 6) 声音设置只有"虚拟输出"、没有真实声卡（海光板载 HDA，与 7G100 GPU 无关）
+sudo ./scripts/fix-hygon-audio.sh            # 绑定海光 1d94:14c9 + 开机自启
+sudo ./scripts/fix-hygon-audio.sh --status   # 只看绑定/声卡状态
 ```
 
 ---
