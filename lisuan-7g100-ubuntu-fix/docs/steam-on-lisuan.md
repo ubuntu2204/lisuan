@@ -38,8 +38,25 @@ Steam 在 Linux 上不是"一个进程"，而是多层容器：
 `double free or corruption` + `failed to load driver: (null)`，Steam 进程直接 `Aborted`。
 表现像"Steam 打不开 / 闪退"，与游戏无关，但会连带让所有游戏起不来。
 
-**判定要点**：若 Steam 客户端本身崩溃（非游戏），先检查是否有全局 gf env 注入；去掉后
-Steam 客户端即恢复。游戏进程树内的 gf env 注入不受此影响。
+**真正的根因（2026-08-24 实测）**：不是 env 变量，而是 **全局 DRI 软链**
+`/usr/lib/x86_64-linux-gnu/dri/lisuan_dri.so -> gf_dri.so`（由
+`fix-lisuan-mesa-driver-name.sh` 旧版创建）。它让 Steam 客户端（pressure-vessel sniper
+容器内）的 EGL 加载到厂商 **gf 的 22.0.4 fork 驱动**，在无头/XWayland 下该 fork 触发
+`double free or corruption` → `Aborted (core dumped)`。移除这两个软链后 Steam 客户端
+`double free` 立即消失、转为稳定的 `failed to load driver: (null)`（仅告警、不崩）。
+
+**另一个曾引发同样崩溃的污染源**：`fix-steam-cef-lock.sh` 把
+`LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0` 注入到
+`steamwebhelper_sniper_wrap.sh`（即 **Steam 客户端 wrap**，非游戏）→ 同样让 Steam 客户端
+走 gf glapi 而 double free。该 PRELOAD 应只注入游戏进程树，绝不能进 Steam 客户端 wrap
+（见 §3）。
+
+**判定要点**：若 Steam 客户端本身崩溃（非游戏），先查
+`/usr/lib/x86_64-linux-gnu/dri/lisuan_*.so` 软链是否存在、以及 `steamwebhelper_sniper_wrap.sh`
+是否被注入了 gf `LD_PRELOAD`；去掉后 Steam 客户端即恢复。游戏进程树内的 gf 注入不受影响。
+
+**修复**：`fix-lisuan-mesa-driver-name.sh` 现默认**不再建全局软链**（只 `--native-gl` 显式开启）；
+`fix-steam-cef-lock.sh` 的 Steam 客户端 PRELOAD 注入应移除（见 §3）。
 
 （完整论证与修复见 `vendor-bug-report-gf-gbm-crash.md` §6。）
 
@@ -53,11 +70,23 @@ Steam UI 的 CEF/GPU 进程在 gf 驱动下有两个崩溃点：
 2. **容器内 ANGLE 惰性符号解析失败**：CEF 的 ANGLE 指向系统 Mesa EGL（无人把 CEF 指到厂商 EGL），
    而系统 Mesa EGL 对本卡无可用后端，符号解析异常（非崩溃，最终回退软渲染）。
 
-修复（`scripts/fix-steam-cef-lock.sh`，并 `steam-cef-autofix.sh` 开机自愈）：
+> **重要（2026-08-24 修正）**：原 `fix-steam-cef-lock.sh` 把
+> `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0` + `GBM_BACKEND=dri`
+> 注入到 **`steamwebhelper_sniper_wrap.sh`（Steam 客户端 wrap）** 并 `chattr +i` 锁定。
+> 这会让 **Steam 客户端自身** 走 gf glapi → 在无头/XWayland 下 `double free or corruption`
+> 崩溃（见 §2）。该 PRELOAD **绝不能进 Steam 客户端 wrap**，否则 Steam 打不开、所有游戏
+> 起不来。正确做法是把这些变量只注入**游戏进程树**（游戏 Launch Options 或 Proton
+> `user_settings.py`，且仅当游戏渲染确实需要时）。
+>
+> 实测：移除 Steam 客户端 wrap 里的 PRELOAD + 全局 `lisuan_dri.so` 软链后，Steam 客户端
+> 稳定（仅 `failed to load driver: (null)` 告警、不崩），游戏(Proton/wine) 渲染走 gf Vulkan
+> 不受影响（不依赖这些软链）。故 `fix-steam-cef-lock.sh` 应**停止向 Steam 客户端 wrap 注入**
+> gf PRELOAD（保留为可选、仅供原生游戏排障用，且明确警告其会害 Steam 客户端）。
 
-- 注入 `GBM_BACKEND=dri` → `gf_gbm` 段错误消失；
-- `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0` → 容器内 ANGLE 符号解析崩溃消失；
-- 写入 `steamwebhelper_sniper_wrap.sh` 并 `chattr +i` 锁定（Steam 更新会还原补丁，故需开机自愈重注）。
+修复（仅针对**游戏进程树**，不要写入 Steam 客户端 wrap）：
+
+- `GBM_BACKEND=dri` → 避免 gf_gbm ABI 段错误（仅游戏需要时）；
+- 若确需在游戏进程内用 gf glapi，仅对**游戏** `LD_PRELOAD` 该库，绝不对 Steam 客户端。
 
 日志位置：`~/.local/share/Steam/logs/cef_log.txt`（exit_code=139 段）。
 （完整论证见 `vendor-bug-report-gf-gbm-crash.md` 问题一/二。）

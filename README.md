@@ -744,8 +744,8 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 | 内核 | DKMS 变量名错配（`KERNEL_VERSION` vs `KERNELVER`）→ vermagic 错配 | 一行 Makefile 补丁 + `fix-lisuan-gpu.sh`（[一、内核模块](#一内核模块-gfko-编译与加载) / `patches/`） |
 | Mesa | 驱动名不一致（DRM `lisuan` vs 用户态 `gf`） | `fix-lisuan-mesa-driver-name.sh`（[三、Mesa/用户态](#三mesa用户态适配)） |
 | Mesa | 厂商 fork 22.0.4 vs 系统 25.2.x 不兼容 | `zink` 回退（`docs/system-mesa-analysis.md`） |
-| Steam/CEF | `gf_gbm.so` 段错误 + ANGLE 惰性符号失败 | `fix-steam-cef-lock.sh` + `steam-cef-autofix.sh`（`docs/vendor-bug-report-gf-gbm-crash.md`） |
-| Steam/CEF | **gf env 不能污染 Steam 客户端**（致命坑） | 只注入游戏进程树（`docs/steam-on-lisuan.md` §2） |
+| Steam/CEF | `gf_gbm.so` 段错误 + ANGLE 惰性符号失败 | 仅游戏进程树注入（`docs/vendor-bug-report-gf-gbm-crash.md`） |
+| Steam/CEF | **全局 dri 软链 `lisuan_dri.so->gf_dri.so` / Steam 客户端 PRELOAD 使 Steam 客户端 double free**（致命坑） | 默认不建软链、不向 Steam wrap 注入 gf（`docs/steam-on-lisuan.md` §2/§3） |
 | Wine/DXVK | `d3d11: failed to create factory` 渲染卡死 | `PROTON_USE_WINED3D=1`（`docs/fix-minion-masters.md` 附录 A1） |
 | Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`docs/fix-minion-masters.md` 附录 A1） |
 | 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`docs/fix-minion-masters.md` 坑 1） |

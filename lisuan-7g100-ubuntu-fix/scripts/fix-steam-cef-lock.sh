@@ -86,47 +86,41 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   exit 0
 fi
 
+# 重要（2026-08-24 修正）: 向 Steam 客户端 wrap 注入 gf PRELOAD/GBM 会让
+# **Steam 客户端自身** 走 gf glapi -> 无头/XWayland 下 double free 崩溃
+# (见 docs/steam-on-lisuan.md §2/§3)。故默认 **不再注入 Steam 客户端 wrap**。
+# 此脚本仅保留清理能力 (--unlock / --uninstall) 以移除历史注入。
+# 若确实需要给游戏进程树注入 gf GL, 请改用游戏 Launch Options 或 Proton
+# user_settings.py (仅游戏), 不要碰 Steam 客户端 wrap。
+
 # 注入前检查：两个标记都在说明已注入过，跳过（幂等）
 MARK_OK=1
 grep -q -- 'GBM_BACKEND=dri' "$WRAP" || MARK_OK=0
 grep -q -- 'libglapi_gf' "$WRAP" || MARK_OK=0
 if [[ "$MARK_OK" == "0" ]]; then
-  cp -a "$WRAP" "${WRAP}.bak"    # 备份原件，便于手工恢复
-  # 在 exec 行前插入两个 export：
-  #   GBM_BACKEND=dri  → 绕开厂商 gf_gbm.so 段错误（根因 1）
-  #   LD_PRELOAD glapi → 修 Steam 自带 ANGLE 的符号解析崩溃（根因 2）
-  sed -i 's|^exec \./steamwebhelper "\$@"$|export GBM_BACKEND=dri\nexport LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0\nexec ./steamwebhelper "$@"|' "$WRAP"
+  # 未注入：默认什么都不做（不再向 Steam 客户端 wrap 注入 gf，避免其崩溃）
+  echo "==> 未检测到 gf 注入, 且默认不再向 Steam 客户端 wrap 注入 (会导致 Steam 客户端 double free)。"
+  echo "==> 如需为游戏进程树注入 gf GL, 请用游戏 Launch Options / Proton user_settings.py, 不要改此 wrap。"
+  chmod +x "$WRAP"
+  exit 0
 fi
 
-# sed -i 会重建文件导致丢可执行位；容器内 pv-adverb 靠 execve 执行
-# 该脚本，无执行位会报 Permission denied，必须补回
+# 已注入（历史残留）：提示用户用 --uninstall 清理，不要继续锁定
+echo "!! 检测到 wrap 仍含 gf 注入 (GBM_BACKEND=dri / libglapi_gf)，这会让 Steam 客户端崩溃。"
+echo "!! 请运行:  sudo $0 --uninstall   来移除（移除后 Steam 客户端恢复稳定）。"
 chmod +x "$WRAP"
+exit 1
 
-# 注入后二次校验：wrap.sh 格式可能被 Steam 更新改过，宁可报错也不带病锁定
-if ! grep -q -- 'GBM_BACKEND=dri' "$WRAP" || ! grep -q -- 'libglapi_gf' "$WRAP"; then
-  echo "!! 注入失败 — 文件格式可能已变。请手动检查 $WRAP" >&2
-  exit 1
-fi
-
-echo "==> 注入成功:"
-grep -E 'GBM_BACKEND=dri|exec ./steamwebhelper' "$WRAP"
-
-# 关键一步：chattr +i 置不可变属性。Steam 每次启动都会校验并还原
-# 可写文件，锁定后它无法覆盖，补丁才能长期存活（仅 ext4 等支持该属性的文件系统）
-chattr +i "$WRAP"
-echo "==> 已锁定 (chattr +i) — Steam 校验无法恢复原文件"
-
+# 以下旧逻辑已废弃（保留注释，勿启用）：
+#   sed -i 's|^exec \./steamwebhelper "\$@"$|export GBM_BACKEND=dri\nexport LD_PRELOAD=...|' "$WRAP"
+#   chattr +i "$WRAP"
 cat <<EOF
 
-现在启动 Steam:
-  MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
+注意: 本脚本默认不再向 Steam 客户端 wrap 注入 gf 环境变量 (该注入会导致 Steam 客户端
+double free 崩溃, 见 docs/steam-on-lisuan.md §2)。仅用于清理历史注入:
+  sudo $0 --uninstall   移除 wrap 里的 gf 注入 (Steam 客户端恢复稳定)
+  sudo $0 --unlock      仅解锁 (供 Steam 更新前)
 
-验证 CEF 是否还崩:
-  grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt
-
-Steam 更新前解锁:
-  sudo $0 --unlock
-
-更新后重新注入:
-  sudo $0
+游戏需要 gf GL 时, 请改用游戏 Launch Options / Proton user_settings.py 注入, 不要碰
+Steam 客户端 wrap。
 EOF
