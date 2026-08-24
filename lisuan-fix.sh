@@ -208,6 +208,10 @@ run_item() {
     15) bash "$S/fix-underlords-native.sh" --status ;;                 # 游戏修复状态
     16) bash "$S/use-zcode.sh" ;;                                      # 启动 ZCode (显示异常修复)
     17) bash "$S/use-zcode.sh" --install-desktop ;;                    # 把 zcode 桌面项切到 wrapper
+    18) bash "$S/use-codebuddy.sh" ;;                                   # 启动 CodeBuddy (gf 加速)
+    19) bash "$S/use-codebuddy.sh" --install-desktop ;;                # CodeBuddy 桌面项切到 wrapper
+    20) bash "$S/use-qoder.sh" ;;                                       # 启动 Qoder (gf 加速)
+    21) bash "$S/use-qoder.sh" --install-desktop ;;                    # Qoder 桌面项切到 wrapper
     *) bad "无效选项：$1"; return 1 ;;
   esac
 }
@@ -240,6 +244,10 @@ menu() {
   ${B}Electron 应用${N}
   16) 启动 ZCode（--no-sandbox + XWayland + 禁用 GPU 合成, 修显示异常白屏/花屏）
   17) 把 ZCode 桌面项 Exec 切到修复 wrapper（之后从应用菜单直启即生效）
+  18) 启动 CodeBuddy 国内版（gf 硬件加速, 修显示异常 + 加速渲染）
+  19) 把 CodeBuddy 桌面项 Exec 切到加速 wrapper（从应用菜单直启即生效）
+  20) 启动 Qoder 国内版（gf 硬件加速, 修显示异常 + 加速渲染）
+  21) 把 Qoder 桌面项 Exec 切到加速 wrapper（从应用菜单直启即生效）
   0) 退出
 ======================================================
 EOF

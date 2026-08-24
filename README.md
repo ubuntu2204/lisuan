@@ -67,7 +67,10 @@ right headers.
 - [一、内核 DKMS 驱动修复](#一内核-dkms-驱动修复)
 - [二、Mesa / 图形栈适配](#二mesa--图形栈适配)
 - [三、Steam 适配](#三steam-适配)
-- [四、Electron 类应用（ZCode）适配](#四electron-类应用zcode-适配)
+- [四、Electron 类应用适配（ZCode / CodeBuddy / Qoder）](#四electron-类应用适配zcode--codebuddy--qoder)
+  - [4.1 通用 Electron 硬件加速 wrapper（CodeBuddy / Qoder 共用）](#41-通用-electron-硬件加速-wrappercodebuddy--qoder-共用)
+  - [4.2 CodeBuddy 国内版](#42-codebuddy-国内版)
+  - [4.3 Qoder 国内版](#43-qoder-国内版)
 - [五、海光板载音频修复](#五海光板载音频修复)
 - [六、游戏修复文档](#六游戏修复文档)
 - [关于厂商驱动的获取](#关于厂商驱动的获取)
@@ -109,6 +112,9 @@ right headers.
 |---|---|
 | `lisuan-7g100-ubuntu-fix/scripts/use-system-mesa.sh` | 让指定应用运行在系统 Mesa（zink）之上，绕开厂商 Mesa 22.0.4 分叉 |
 | `lisuan-7g100-ubuntu-fix/scripts/use-zcode.sh` | **ZCode（Electron AppImage）显示异常修复**：`--no-sandbox` + `--ozone-platform-hint=x11` + 禁用 GPU 合成；`--install-desktop` 把桌面项切到本 wrapper |
+| `lisuan-7g100-ubuntu-fix/scripts/use-electron-gf.sh` | **通用 Electron / Chromium 应用 gf 硬件加速 wrapper**：显示异常三件套 + gf 驱动 GPU 加速（默认开），`--no-hw` 回退软件渲染；支持 `--app codebuddy\|qoder\|zcode` / `--cmd` / `--appimage` |
+| `lisuan-7g100-ubuntu-fix/scripts/use-codebuddy.sh` | **CodeBuddy 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
+| `lisuan-7g100-ubuntu-fix/scripts/use-qoder.sh` | **Qoder 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
 
 **文档（docs）**：
 
@@ -170,6 +176,14 @@ MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
 # 5) Electron 类应用 (ZCode) 显示异常: 界面空白 / 花屏 / 黑块
 ./scripts/use-zcode.sh                       # 启动 (含 --no-sandbox 等修复)
 ./scripts/use-zcode.sh --install-desktop     # 把应用菜单的 Exec 切到本 wrapper
+
+# 5b) Electron 类应用 gf 硬件加速 (CodeBuddy / Qoder 国内版等)
+./scripts/use-codebuddy.sh                   # CodeBuddy 国内版 (gf 加速, 默认)
+./scripts/use-codebuddy.sh --no-hw           # 回退软件渲染(白屏/花屏时)
+./scripts/use-codebuddy.sh --install-desktop # 应用菜单直启即带加速
+./scripts/use-qoder.sh                        # Qoder 国内版 (gf 加速, 默认)
+./scripts/use-qoder.sh --no-hw                # 回退软件渲染
+./scripts/use-qoder.sh --install-desktop      # 应用菜单直启即带加速
 
 # 6) 声音设置只有"虚拟输出"、没有真实声卡（海光板载 HDA，与 7G100 GPU 无关）
 sudo ./scripts/fix-hygon-audio.sh            # 绑定海光 1d94:14c9 + 开机自启
@@ -484,12 +498,17 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 
 ---
 
-## 四、Electron 类应用（ZCode）适配
+## 四、Electron 类应用适配（ZCode / CodeBuddy / Qoder）
 
 > 同类问题也适用于其它 Electron / Chromium 系桌面应用（VSCode、网易云音乐、微信等）：
 > 在国产 GPU + Ubuntu 24.04 上同样可能表现为"界面空白 / 花屏 / 黑块"。根因与修复
 > 完全一致，本节的 `--no-sandbox` / `--ozone-platform-hint=x11` / `--disable-gpu`
 > 三件套可直接套用。
+
+> 本节已实测适配 **ZCode**（Foxit 国产 AI 编码助手，Electron AppImage）、
+> **CodeBuddy 国内版** 与 **Qoder 国内版**（均为国产 AI 编码助手 Electron 应用）：
+> ZCode 走 `use-zcode.sh`（软件渲染稳定优先）；CodeBuddy / Qoder 走 `use-electron-gf.sh`
+> 通用 wrapper（默认启用 gf 驱动 GPU 硬件加速，详见 4.1–4.3）。
 
 **症状**：ZCode（福昕同系的国产 AI 编码助手，Electron AppImage，3.7.7.4926）启动后
 窗口弹出但内容区空白（或拖拽/缩放时花屏、窗口残缺），无法使用。
@@ -543,6 +562,106 @@ ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash scripts/use-zcode.sh
   （若出现花屏/白屏，去掉该标志回退默认即可）。
 - 本脚本只改"启动环境"，不触碰系统其它文件；撤销只需把桌面项 `Exec` 改回 AppImage
   本体，或删除 `use-zcode.sh`。
+
+### 4.1 通用 Electron 硬件加速 wrapper（CodeBuddy / Qoder 共用）
+
+`scripts/use-electron-gf.sh` 是上一节 ZCode 修复思路的**通用化 + gf 硬件加速版**：
+同一套"显示异常三件套"（`--no-sandbox` / `--ozone-platform-hint=x11` /
+`--disable-gpu-compositing`）保证能开，另提供 **gf 驱动 GPU 加速**替代默认软件渲染，
+让 AI 编码助手这类重 UI 应用更流畅。
+
+**gf 加速原理**（与第三节方案 A 探明的机制一致）：
+
+- 宿主 gf GLX 已验证可用（`GLX_VENDOR_LIBRARY_NAME=gf glxinfo` 可枚举
+  `LISUAN 7G100 Series Graphics`）。
+- 只给**本应用进程**注入 gf env（`__GLX_VENDOR_LIBRARY_NAME=gf` +
+  `VK_ICD_FILENAMES` 指向 gf ICD）+ 让 Chromium 走桌面 GL
+  （`--use-gl=angle --use-angle=gl`），由 gf 驱动承担渲染 / 栅格化。
+- **关键**：env 只注入到 Electron 进程树，**不污染 Steam 等其它进程**（全局注入 gf
+  会让 Steam 客户端 GLX 崩溃，见第三节）—— 本脚本天然只作用于单应用，安全。
+
+**默认启用 gf 加速**；若个别版本出现白屏 / 花屏，加 `--no-hw` 一键回退软件渲染。
+
+```bash
+cd lisuan-7g100-ubuntu-fix/scripts
+
+# CodeBuddy 国内版（未安装时先装好，或 CODEBUDDY_CMD 指定路径）
+bash use-codebuddy.sh                      # gf 加速启动
+bash use-codebuddy.sh --no-hw              # 白屏/花屏时回退软件渲染
+bash use-codebuddy.sh --install-desktop    # 应用菜单 Exec 切到本 wrapper（从菜单直启即带加速）
+
+# Qoder 国内版（已装: /usr/bin/qoder）
+bash use-qoder.sh                          # gf 加速启动
+bash use-qoder.sh --no-hw                  # 回退软件渲染
+bash use-qoder.sh --install-desktop        # 桌面项改写到 ~/.local/share/applications（无需 sudo）
+
+# 任意其它 Electron 应用
+bash use-electron-gf.sh --cmd /path/to/electron-app
+bash use-electron-gf.sh --appimage /path/to.appimage
+```
+
+**加速模式实际开关**（`use-electron-gf.sh`，默认 `--hw`）：
+
+```bash
+# 软件渲染(稳定, 默认 --no-hw)
+"$CMD" --no-sandbox --ozone-platform-hint=x11 --disable-gpu-compositing --disable-gpu
+
+# gf 硬件加速(默认)
+__GLX_VENDOR_LIBRARY_NAME=gf LIBGL_ALWAYS_SOFTWARE=0 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/gf_icd.x86_64.json \
+"$CMD" --no-sandbox --ozone-platform-hint=x11 --disable-gpu-compositing \
+        --ignore-gpu-blocklist --enable-gpu-rasterization \
+        --use-gl=angle --use-angle=gl --enable-features=Vulkan
+```
+
+**验证 gf 是否真正生效**：启动后在应用内打开 DevTools（`F12` 或 `Ctrl+Shift+I`）→
+`chrome://gpu`，确认 `Graphics Feature Status` 下 `Canvas` / `WebGL` 显示
+`Hardware accelerated`，且 `GL_VENDOR` / `GL_RENDERER` 含 `LISUAN` / `gf`；或用：
+
+```bash
+GF_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash use-qoder.sh 2>&1 | grep -iE "gl_renderer|gpu|angle"
+# 应看到 ANGLE 走 GL + gf 设备, 而非 SwiftShader/软件
+```
+
+**桌面项改写说明**：`--install-desktop` 会把系统级 `.desktop`
+（`/usr/share/applications`）**复制**到用户级（`~/.local/share/applications`）再改写
+`Exec`，用户级优先级更高且无需 sudo；撤销只需删除用户级那份 `.desktop`。
+
+### 4.2 CodeBuddy 国内版
+
+**症状**：同 4 节通用表现——窗口弹出但内容区空白 / 花屏 / 黑块，或卡在加载页。
+
+**部署**：
+
+```bash
+cd lisuan-7g100-ubuntu-fix/scripts
+# 1) 直接加速启动（推荐先试 gf 加速）
+bash use-codebuddy.sh
+# 2) 若白屏/花屏，回退软件渲染：
+bash use-codebuddy.sh --no-hw
+# 3) 安装后从应用菜单直启即带修复+加速：
+bash use-codebuddy.sh --install-desktop
+```
+
+- 若 CodeBuddy 不在默认 `PATH`（`codebuddy` / `codebuddy-ai`），用环境变量指定：
+  `CODEBUDDY_CMD=/opt/codebuddy/codebuddy bash use-codebuddy.sh`。
+- 其它开关可追加：`GF_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash use-codebuddy.sh`。
+
+### 4.3 Qoder 国内版
+
+**症状**：同 4 节通用表现——界面空白 / 花屏，GPU 合成层异常。
+
+**部署**：
+
+```bash
+cd lisuan-7g100-ubuntu-fix/scripts
+bash use-qoder.sh                       # gf 加速启动（默认）
+bash use-qoder.sh --no-hw               # 白屏/花屏时回退软件渲染
+bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单直启即带加速
+```
+
+- 已安装判定：`/usr/bin/qoder` + `/usr/share/applications/qoder.desktop`（含 `qoder-cn`）。
+- 加速验证同上（`chrome://gpu` 看 `GL_RENDERER` 是否为 gf 设备）。
+- 撤销：删除 `~/.local/share/applications/qoder*.desktop` 即可恢复系统原桌面项。
 
 ---
 
