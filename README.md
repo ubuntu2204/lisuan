@@ -68,11 +68,20 @@ right headers.
 - [二、Mesa / 图形栈适配](#二mesa--图形栈适配)
 - [三、Steam 适配](#三steam-适配)
 - [四、Electron 类应用适配（ZCode / CodeBuddy / Qoder）](#四electron-类应用适配zcode--codebuddy--qoder)
+  - [4.0 ZCode（软件渲染稳定优先）](#40-zcode软件渲染稳定优先)
   - [4.1 通用 Electron 硬件加速 wrapper（CodeBuddy / Qoder 共用）](#41-通用-electron-硬件加速-wrappercodebuddy--qoder-共用)
   - [4.2 CodeBuddy 国内版](#42-codebuddy-国内版)
   - [4.3 Qoder 国内版](#43-qoder-国内版)
 - [五、海光板载音频修复](#五海光板载音频修复)
 - [六、游戏修复文档](#六游戏修复文档)
+  - [6.1 刀塔霸业（Dota Underlords）修复](#61-刀塔霸业dota-underlords-修复)
+  - [6.2 随从大师（Minion Masters）修复](#62-随从大师minion-masters-修复)
+- [Steam 平台适配细节（容器 / CEF / 登录 / Proton）](#steam-平台适配细节容器--cef--登录--proton)
+- [七、踩坑经验总览与砺算技术要点](#七踩坑经验总览与砺算技术要点)
+  - [7.1 砺算 7G100 技术要点（必读）](#71-砺算-7g100-技术要点必读)
+  - [7.2 踩坑清单（按层分类）](#72-踩坑清单按层分类)
+  - [7.3 环境/网络类坑](#73-环境网络类坑)
+  - [7.4 排查方法论](#74-排查方法论)
 - [关于厂商驱动的获取](#关于厂商驱动的获取)
 - [自动化测试](#自动化测试)
 - [常见问题 FAQ](#常见问题-faq)
@@ -510,6 +519,8 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 > ZCode 走 `use-zcode.sh`（软件渲染稳定优先）；CodeBuddy / Qoder 走 `use-electron-gf.sh`
 > 通用 wrapper（默认启用 gf 驱动 GPU 硬件加速，详见 4.1–4.3）。
 
+### 4.0 ZCode（软件渲染稳定优先）
+
 **症状**：ZCode（福昕同系的国产 AI 编码助手，Electron AppImage，3.7.7.4926）启动后
 窗口弹出但内容区空白（或拖拽/缩放时花屏、窗口残缺），无法使用。
 
@@ -691,6 +702,70 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
   —— Source 2 原生 Linux 游戏在 Steam pressure-vessel 容器内崩溃，容器委托宿主直跑；libpng12 补齐、panorama 随机段错误智能重试与退出检测。
 - [随从大师（Minion Masters）修复](./lisuan-7g100-ubuntu-fix/docs/fix-minion-masters.md)
   —— Unity/IL2CPP 游戏崩在 Vivox 登录，BepInEx 运行时 patch 把 `LoginAsync` prologue 改为立即返回已完成 UniTask；另含 Azure IP 网络封锁、Proton 8.0 选型、user_settings.py 注入无效教训、Steam 状态卡死坑。
+
+---
+
+## Steam 平台适配细节（容器 / CEF / 登录 / Proton）
+
+> Steam 本身的全部坑集中在这里，游戏专属问题见上面的 6.1 / 6.2。
+
+- [Steam 在砺算 7G100 上的适配细节](./lisuan-7g100-ubuntu-fix/docs/steam-on-lisuan.md)
+  —— pressure-vessel 容器架构（gf Vulkan 容器内自动可用、PCI sysfs 被隐藏）；**gf env 不能污染 Steam 客户端**（致命坑）；CEF `gf_gbm` 段错误 + ANGLE 崩溃修复（`fix-steam-cef-lock.sh`）；无头环境 Steam 登录窗 GLX 崩溃需图形界面生成 `ssfn`；`applaunch` "游戏运行中"状态卡死；Proton 8.0 选型；`user_settings.py` 注入不进容器白名单；overlay 排障；排障速查表。
+
+---
+
+## 七、踩坑经验总览与砺算技术要点
+
+> 本章把前面各章分散的"坑"与"砺算技术背景"汇成一份速查表，便于**排障时直接对照**，
+> 也便于向砺算驱动团队反馈。逐项的完整论证见对应章节与 `docs/`。
+
+### 7.1 砺算 7G100 技术要点（必读）
+
+| 项 | 值 / 说明 |
+| --- | --- |
+| GPU | 砺算 Lisuan **7G100**，PCI `03:00.0` `[4c54:5006]`（子系统 `4c54:5000`） |
+| PCI 厂商号 | `4c54`（ASCII `"LT"`）—— 一切驱动匹配、日志过滤的起点 |
+| 内核模块 | 文件名 `gf.ko`；DRM 驱动**注册名**为 `lisuan`（与用户态驱动名 `gf` 不一致，见 7.2） |
+| 用户态驱动名 | `gf`（Mesa DRI driver / Vulkan ICD 均以此命名）；DRM 名却叫 `lisuan` → 经典坑 |
+| Vulkan ICD | `gf_icd.x86_64.json`（gf Vulkan）；另有 lavapipe `lvp_icd.json`（软件兜底） |
+| GLX vendor | 双下划线变量 `__GLX_VENDOR_LIBRARY_NAME=gf`（pressure-vessel 白名单只认双下划线形式） |
+| 伴生音频 | `4c54:5010` `05:00.1` 是 `gf` 显示驱动内部的**透明 codec**（`disp_codec.c`），**不创建 ALSA 卡**，不能作为声卡使用 |
+| 真正出声 | 海光板载 HDA `1d94:14c9` `07:00.6`（ALC222）—— 与 7G100 GPU **无关** |
+| 验证环境 | Ubuntu 24.04.4 LTS (noble) / 内核 `7.0.0-28-generic` (HWE) / gcc 13.3.0 / 驱动包 `lisuangpu-dkms` `262.2.0.56` |
+
+**图形栈层次（从上到下）**：应用 → (Electron/Chromium / Steam CEF / Wine+DXVK) → Mesa(`gf` DRI) / ANGLE → Vulkan(`gf_icd`) 或 GLX(`__GLX_VENDOR_LIBRARY_NAME=gf`) → 内核 `gf.ko`(DRM 名 `lisuan`) → 硬件。每一层都曾踩过坑（见下表）。
+
+### 7.2 踩坑清单（按层索引）
+
+> 每条细节与修法见对应 `docs/` 文档（链接内为文档内小节）。本表仅为速查索引。
+
+| 层 | 坑 | 修法 / 细节文档 |
+| --- | --- | --- |
+| 内核 | DKMS 变量名错配（`KERNEL_VERSION` vs `KERNELVER`）→ vermagic 错配 | 一行 Makefile 补丁 + `fix-lisuan-gpu.sh`（[一、内核模块](#一内核模块-gfko-编译与加载) / `patches/`） |
+| Mesa | 驱动名不一致（DRM `lisuan` vs 用户态 `gf`） | `fix-lisuan-mesa-driver-name.sh`（[三、Mesa/用户态](#三mesa用户态适配)） |
+| Mesa | 厂商 fork 22.0.4 vs 系统 25.2.x 不兼容 | `zink` 回退（`docs/system-mesa-analysis.md`） |
+| Steam/CEF | `gf_gbm.so` 段错误 + ANGLE 惰性符号失败 | `fix-steam-cef-lock.sh` + `steam-cef-autofix.sh`（`docs/vendor-bug-report-gf-gbm-crash.md`） |
+| Steam/CEF | **gf env 不能污染 Steam 客户端**（致命坑） | 只注入游戏进程树（`docs/steam-on-lisuan.md` §2） |
+| Wine/DXVK | `d3d11: failed to create factory` 渲染卡死 | `PROTON_USE_WINED3D=1`（`docs/fix-minion-masters.md` 附录 A1） |
+| Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`docs/fix-minion-masters.md` 附录 A1） |
+| 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`docs/fix-minion-masters.md` 坑 1） |
+| 游戏逻辑 | `user_settings.py` 注入无效 | 用 Launch Options（`docs/fix-minion-masters.md` 坑 4） |
+| 音频 | 海光 HDA 三层根因 | `fix-hygon-audio.sh` + 开机自绑（`docs/fix-hygon-audio.md`） |
+
+### 7.3 环境 / 网络类坑（索引）
+
+- **Steam 客户端未登录（无头卡死，需 ssfn）** → 图形界面登录一次（`docs/steam-on-lisuan.md` §4）
+- **Azure IP `140.228.24.145:443`(及 `:33798`) 网络封锁** → 代理/VPN（`docs/fix-minion-masters.md` 坑 2）
+- **Standard shader 不支持（画质告警，不致命）** → 忽略（`docs/fix-minion-masters.md` 附录 A3）
+
+### 7.4 排查方法论（速查）
+
+1. **先看 Player.log / cef_log.txt 停在哪一行**——区分卡渲染 / 卡登录 / 卡网络。
+2. **卡渲染** → 优先 `PROTON_USE_WINED3D=1`，再查 `VK_ICD_FILENAMES` 指向有效 ICD。
+3. **卡登录/崩溃** → 优先看 Player.log 最后一行 + 进程退出码（wine seh 经 Steam 多层重定向常抓不到 stderr）。
+4. **进程干净退出（无 dump、无 .NET 异常）** → 多为网络/服务端问题（维护、IP 封锁），对照官网状态页。
+5. **改 env 只注入目标进程树，绝不污染 Steam 客户端 / 全局 shell**。
+6. **IL2CPP 崩溃无法按托管名 patch** → 走 Il2CppInterop 运行时 API 定位 native 方法改机器码。
 
 ---
 

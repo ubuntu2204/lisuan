@@ -189,7 +189,23 @@ libpng12，宿主直跑需把 `libpng12.so.0`（可取自 18.04 归档）放入�
 | 两者叠加（注入 `steamwebhelper_sniper_wrap.sh` 并 `chattr +i` 锁定） | ✅ Steam UI 稳定（GPU 进程干净失败后自动软渲染） |
 | `STEAM_RUNTIME=0` 宿主直跑游戏 + 补 libpng12 | ✅ Dota Underlords 正常运行（问题三） |
 
-## 6. 对厂商的建议
+## 6. 部署教训：gf 环境变量不能污染 Steam 客户端
+
+> 这是实机踩出的**致命坑**，单独列出，因为它会让人误判为"游戏/驱动问题"。
+
+`__GLX_VENDOR_LIBRARY_NAME=gf`、`VK_ICD_FILENAMES` 指向 gf ICD 这类 gf 图形环境变量，
+**只能注入到游戏进程树（Launch Options 或 Proton `user_settings.py` 顶层格式）**，
+**绝不能**写进全局 shell profile（如 `~/.bashrc`、`/etc/environment`）或 Steam 启动环境。
+
+原因：pressure-vessel 把宿主 gf 库挂进容器后，**Steam 客户端自身（CEF/steamwebhelper，
+非游戏）也会继承这些 env 并走 gf GLX**，而 Steam 客户端的 GLX 路径在 gf 驱动下会
+`double free or corruption` + `failed to load driver: (null)`，Steam 进程直接
+`Aborted`。表现像"Steam 打不开 / 闪退"，与游戏无关，但会连带让所有游戏起不来。
+
+判定要点：若 Steam 客户端本身崩溃（非游戏），先检查是否有全局 gf env 注入；去掉后
+Steam 客户端即恢复。游戏进程树内的 gf env 注入不受此影响（详见 `docs/steam-on-lisuan.md` §2）。
+
+## 7. 对厂商的建议
 
 1. **（最关键）Vulkan ICD 改为通过 `/dev/dri` 枚举设备**：目前 ICD 依赖
    `/sys/bus/pci` 枚举，在 Steam pressure-vessel 等沙箱内（PCI sysfs 被
@@ -212,7 +228,7 @@ libpng12，宿主直跑需把 `libpng12.so.0`（可取自 18.04 归档）放入�
 5. 长期：将 Gallium 驱动上游化到当前 Mesa（同行已有先例），从根上
    消除"分叉 Mesa 插件 vs 系统 Mesa"的 ABI 漂移。
 
-## 7. 附件清单
+## 8. 附件清单
 
 - Steam CEF 崩溃日志样本：`~/.local/share/Steam/logs/cef_log.txt`
   （exit_code=139 段）
