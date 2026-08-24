@@ -133,7 +133,7 @@ right headers.
 | `lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
 | `lisuan-7g100-ubuntu-fix/docs/fix-hygon-audio.md` | **音频修复文档**：海光板载 HDA（`1d94:14c9`）绑定 `snd_hda_intel`、三层根因、`driver_override` 原理与验证（与砺算 7G100 GPU 无关） |
 | `lisuan-7g100-ubuntu-fix/docs/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
-| `lisuan-7g100-ubuntu-fix/docs/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃的 BepInEx 运行时 patch、Proton 8.0 选型、Azure IP 网络封锁、user_settings.py 注入无效教训、Steam 状态卡死坑 |
+| `lisuan-7g100-ubuntu-fix/docs/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 8.0 选型、user_settings.py 注入无效教训、Steam 状态卡死坑 |
 | `lisuan-7g100-ubuntu-fix/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
 
 > 注意区分：`scripts/` 下的 verify-* 是**面向真机的体检工具**，与仓库根的
@@ -701,7 +701,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 - [刀塔霸业（Dota Underlords）修复](./lisuan-7g100-ubuntu-fix/docs/fix-underlords-native.md)
   —— Source 2 原生 Linux 游戏在 Steam pressure-vessel 容器内崩溃，容器委托宿主直跑；libpng12 补齐、panorama 随机段错误智能重试与退出检测。
 - [随从大师（Minion Masters）修复](./lisuan-7g100-ubuntu-fix/docs/fix-minion-masters.md)
-  —— Unity/IL2CPP 游戏崩在 Vivox 登录，BepInEx 运行时 patch 把 `LoginAsync` prologue 改为立即返回已完成 UniTask；另含 Azure IP 网络封锁、Proton 8.0 选型、user_settings.py 注入无效教训、Steam 状态卡死坑。
+  —— Unity/IL2CPP 游戏：Vivox 登录崩溃 + 图片下载 Texture 异常的 BepInEx 运行时 patch 三件套（Vivox `LoginAsync`、新闻下载状态机 `MoveNext`、`DownloadHandlerTexture.InternalGetTexture`）；证书 patch 反致黑屏（Zenject 异常循环）的回归教训；游戏后端 API 全 404 与 Azure IP 封锁；Proton 8.0 选型、user_settings.py 注入无效教训、Steam 状态卡死坑。**当前已能进主菜单（BattleModeViewModel），剩余阻塞为服务端 API 404 与进程 ~40–90 秒被移除。**
 
 ---
 
@@ -749,23 +749,30 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 | Wine/DXVK | `d3d11: failed to create factory` 渲染卡死 | `PROTON_USE_WINED3D=1`（`docs/fix-minion-masters.md` 附录 A1） |
 | Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`docs/fix-minion-masters.md` 附录 A1） |
 | 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`docs/fix-minion-masters.md` 坑 1） |
-| 游戏逻辑 | `user_settings.py` 注入无效 | 用 Launch Options（`docs/fix-minion-masters.md` 坑 4） |
+| 游戏逻辑 | **证书 patch（`CertificateHandler.ValidateCertificate`）反致黑屏**：Zenject 循环 + BootstrapInstaller NullReference + `NotSupportedException` 刷屏 | 禁用证书 patch，改 patch `DownloadHandlerTexture.InternalGetTexture` 返回 null（`docs/fix-minion-masters.md` 坑 1/坑 2） |
+| 游戏逻辑 | 图片下载 `Curl error 60` → `Texture has not yet finished downloading` 沿 UniTask `TrySetException` 链传播 | patch `InternalGetTexture` 返回 null（`docs/fix-minion-masters.md` 坑 1c） |
+| IL2CPP 插件 | **`il2cpp_class_get_methods` binding 签名错**（iterator 被当数组）→ count 垃圾值 → 0xC0000005 | 只用 `il2cpp_class_get_method_from_name`（`docs/fix-minion-masters.md` 附录 A4） |
+| 游戏逻辑 | `user_settings.py` 注入无效 | 用 Launch Options（`docs/fix-minion-masters.md` 坑 5） |
 | 音频 | 海光 HDA 三层根因 | `fix-hygon-audio.sh` + 开机自绑（`docs/fix-hygon-audio.md`） |
 
 ### 7.3 环境 / 网络类坑（索引）
 
-- **Steam 客户端未登录（无头卡死，需 ssfn）** → 图形界面登录一次（`docs/steam-on-lisuan.md` §4）
-- **Azure IP `140.228.24.145:443`(及 `:33798`) 网络封锁** → 代理/VPN（`docs/fix-minion-masters.md` 坑 2）
+- **Steam 客户端登录态丢失（`steamid=0` 陈旧态）** → 登录过一次后（`AutoLoginUser` + `RememberPassword` 已写入）**重启 Steam 客户端即自动重登**，无需图形界面；首次登录仍需图形界面生成 ssfn（`docs/fix-minion-masters.md` 附录 A2 / `docs/steam-on-lisuan.md` §4）
+- **随从大师后端 API 全 404**（`api.prod.mm21.minionmastersthegame.com` 的 `/v1/*` 全 404、`/health` 却 200）→ `LoginQueueService.Post` 抛 404，登录队列进不去；服务端问题本地无解（`docs/fix-minion-masters.md` 坑 3）
+- **Azure IP `140.228.24.145:443`(及 `:33798`) 网络封锁** → 代理/VPN（`docs/fix-minion-masters.md` 坑 3）
+- **随从大师进程启动后 ~40–90 秒被移除**（进主菜单后消失，当前未解；疑似登录队列 404 后游戏自身退出）→ `docs/fix-minion-masters.md` 坑 7
 - **Standard shader 不支持（画质告警，不致命）** → 忽略（`docs/fix-minion-masters.md` 附录 A3）
 
 ### 7.4 排查方法论（速查）
 
 1. **先看 Player.log / cef_log.txt 停在哪一行**——区分卡渲染 / 卡登录 / 卡网络。
-2. **卡渲染** → 优先 `PROTON_USE_WINED3D=1`，再查 `VK_ICD_FILENAMES` 指向有效 ICD。
-3. **卡登录/崩溃** → 优先看 Player.log 最后一行 + 进程退出码（wine seh 经 Steam 多层重定向常抓不到 stderr）。
-4. **进程干净退出（无 dump、无 .NET 异常）** → 多为网络/服务端问题（维护、IP 封锁），对照官网状态页。
-5. **改 env 只注入目标进程树，绝不污染 Steam 客户端 / 全局 shell**。
-6. **IL2CPP 崩溃无法按托管名 patch** → 走 Il2CppInterop 运行时 API 定位 native 方法改机器码。
+2. **Player.log 被 `NotSupportedException` 刷屏时**，先 `grep -vE "NotSupportedException|Couldn't extract|Derived classes|at System.Reflection|..."` 滤噪再看最初 20 行——IL2CPP 的 `GetGenericArguments()` 未实现，异常提取栈本身会再抛异常，把真正的原始异常淹没。
+3. **卡渲染** → 优先 `PROTON_USE_WINED3D=1`，再查 `VK_ICD_FILENAMES` 指向有效 ICD。
+4. **卡登录/崩溃** → 优先看 Player.log 最后一行 + 进程退出码（wine seh 经 Steam 多层重定向常抓不到 stderr）。
+5. **进程干净退出（无 dump、无 .NET 异常）** → 多为网络/服务端问题（维护、IP 封锁、API 下线），用 curl 直测后端 endpoint 复核，别只盯本地日志。
+6. **改 env 只注入目标进程树，绝不污染 Steam 客户端 / 全局 shell**。
+7. **IL2CPP 崩溃无法按托管名 patch** → 走 Il2CppInterop 运行时 API（`il2cpp_class_from_name` + `il2cpp_class_get_method_from_name`，读 MethodInfo+0 拿 methodPointer）定位 native 方法改机器码；**不要用 `il2cpp_class_get_methods`**（binding 签名错，必崩，见 7.2）。
+8. **patch Unity 内部 native 方法前先反汇编确认它不是共享 stub**——原字节已是 `32 C0 C3 CC`（优化过的 return-false stub）说明有多个调用方，patch 它会波及无辜路径（证书 patch 黑屏的根因）。
 
 ---
 

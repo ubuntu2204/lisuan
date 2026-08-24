@@ -3,6 +3,49 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.08.25 — 随从大师（Minion Masters）进入主菜单
+
+### 修复（文档固化，插件源码在 `/home/ubuntu/mm_patch/plugin/Patcher.cs`）
+
+- **随从大师黑屏 + BepInEx 控制台无限刷 `NotSupportedException`**：定位为证书 patch
+  （`CertificateHandler.ValidateCertificate` @0x75D98C0）破坏 IL2CPP runtime 状态——引发
+  Zenject `ProjectContext` 重复创建 assert + `BootstrapInstaller.Start()` NullReference +
+  异常提取栈死循环（IL2CPP `GetGenericArguments()` 未实现，每个异常的栈提取又抛新异常）。
+  **修复 = 禁用证书 patch**。
+- **致命 Texture 异常**（`Texture has not yet finished downloading`）：图片下载
+  `Curl error 60`（证书校验失败）→ `DownloadHandlerTexture.InternalGetTexture()` 抛异常 →
+  沿 UniTask `SimpleCoroutineAwaiter.Complete` / `TrySetException` 链二次传播（只 patch
+  `MoveNext` 拦不住）。**修复 = patch `InternalGetTexture` @0x97CE7B0 → `xor eax,eax; ret`
+  返回 null**。
+- **插件最终形态**（`MMSkipVivox.dll` 15360 B，三件套）：Vivox `LoginAsync`/`LogoutAsync`
+  （0x7983BD0/0x7983C90 → xor trampoline）+ 新闻下载状态机 `MoveNext`（0x6630500 → ret）+
+  `InternalGetTexture`（0x97CE7B0 → null）。游戏实测到达 **`BattleModeViewModel`（主菜单）**，
+  Steam ID 缓存（76561198811581867）、Ticket、WebSocket 连接、SteamShop 商品列表均成功。
+- **Steam 客户端登录态自愈**：登录过一次后（`AutoLoginUser` + `RememberPassword` 已写入
+  config.vdf），`steamid=0` 陈旧态只需**重启 Steam 客户端**即自动重登（state 5），无需再
+  进图形界面；loopback `127.0.0.1:57343` 自动起。
+
+### 新坑记录（防再踩）
+
+- `il2cpp_class_get_methods` 在 BepInEx/Il2CppInterop binding 下签名错（iterator 协议被当
+  数组返回），count 读出垃圾值（实测 621846768）→ 0xC0000005 闪退；枚举方法只能用
+  `il2cpp_class_get_method_from_name`。
+- Zenject "Tried to create multiple instances of ProjectContext" 是良性 assert（成功运行里
+  也有），不要误判为崩溃根因。
+- BepInEx 日志显示的插件版本是 `AssemblyVersion`（非 `BepInPlugin` 属性），源码需显式
+  `[assembly: AssemblyVersion("1.1.0.0")]`。
+- Unity 启动会把 `Player.log` 轮转为 `Player-prev.log`，排障时看 mtime 区分本次/上次运行。
+- patch Unity 内部 native 方法前先反汇编原字节——已是 `32 C0 C3 CC`（优化过的共享
+  return-false stub）说明有多个调用方，patch 它会波及无辜路径。
+
+### 剩余阻塞（外部环境，本地无解）
+
+- 游戏后端 `api.prod.mm21.minionmastersthegame.com` 所有 `/v1/*` API endpoint 返回 404
+  （`/health` 却 200 "Healthy"）→ `LoginQueueService.Post` 抛 404，登录队列进不去（疑似
+  BetaDwarf 后端下线/迁移）。
+- 游戏进程启动后 ~40–90 秒被移除（进主菜单后消失，疑似登录队列 404 后游戏自身退出）。
+- Azure IP `140.228.24.145:443`（及 `:33798`）网络封锁仍在。
+
 ## 2026.08.23 — HDMI 音频（HDAudio codec）修复
 
 ### 修复
