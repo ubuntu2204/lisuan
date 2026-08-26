@@ -315,3 +315,87 @@ BepInEx 日志里 `Loading [MM Skip Vivox 1.0.0]` 显示的是**程序集版本*
 
 否则 BepInPlugin 写 1.1.0、日志仍显示旧 assembly 版本，排障时容易拿错"当前跑的是哪个 dll"。
 （csproj 若用默认规则，会一直生成 1.0.0.0。）
+
+---
+
+## 坑8（2026-08-26 突破）：让 7G100【硬件渲染】——new WoW64 + gf 发行版白名单绕过
+
+此前路线（坑1-7）游戏只能用 **llvmpipe 软件渲染**。本章记录让游戏真正用 **7G100 显卡渲染 D3D11** 的完整方案（固化脚本 `scripts/fix-minion-masters-7g100-hw.sh`，资产 `assets/mm-gf-vulkan/`）。
+
+### 根本矛盾：32 位游戏 vs 只有 64 位 gf 驱动
+
+- Minion Masters 是 **32 位** Windows Unity 游戏（UnityCrashHandler32.exe 可证）。
+- Proton 8.0（传统 wow64）下 32 位游戏 → 32 位 winevulkan → **需要 32 位 Vulkan ICD**；
+  而砺算只为 amd64 发布 `libvulkan_gf.so`（`lisuangpu-lib` 无 i386 版），**32 位 ICD 不存在**，
+  且 gf 是闭源 RADV fork（无源码可自编 32 位）。
+- 唯一出路：**Proton Experimental 的 new WoW64**（`PROTON_USE_WOW64=1`）——32 位游戏代码
+  经 wine 的 wow64 thunk 调用 **64 位** vulkan ICD。**注意**：Experimental 的 new WoW64 默认
+  只对白名单游戏开，其他游戏必须显式 `PROTON_USE_WOW64=1`（proton 脚本 1543 行逻辑）。
+- 另：前缀必须是 new WoW64 布局——旧前缀沿用传统布局，**把 pfx 移走让 proton 重建**才生效。
+  （重建后 `user.reg` 里的 `winhttp=n,b` 会丢，需重注入，否则 doorstop 不加载。）
+
+### 障碍 1：gf 驱动的「发行版白名单」
+
+容器内 DXVK 永远只看到 llvmpipe。逐层排查（strace/LD_DEBUG/hook strcmp）定位：
+`libvulkan_gf.so` 初始化时读 `/etc/os-release`，与内置名单
+（`Kylin/uos/openEuler/TencentOS Server/Deepin/Ubuntu`）比对，**不在名单直接返回 0 个物理设备**
+（vulkan loader 日志：`Removing driver libvulkan_gf.so due to not having any physical devices`）。
+宿主机 NAME=Ubuntu 通过；Steam Runtime 容器 NAME="Steam Runtime" 被拒。
+
+**绕过**：`LD_PRELOAD` hook 把 `/etc/os-release` 的 `open/openat/fopen` 重定向到伪造的 Ubuntu
+文件（`assets/mm-gf-vulkan/osrelease_redirect.c` + `os-release`）。
+→ 容器内 `vkEnumeratePhysicalDevices` 立即拿到 `LISUAN 7G100`（"TL"，vendor 0x4c54）。
+
+### 障碍 2：vkCreateDevice 依赖伴生库 libSC.so
+
+枚举通过后 `vkCreateDevice` 返回 `-1`（OUT_OF_HOST_MEMORY）。`libvulkan_gf.so` 运行期
+`dlopen("libSC.so")`（砺算着色器编译器）。它只存在于 `/run/host/usr/lib/x86_64-linux-gnu/`，
+**不在容器 ld 搜索路径**（pressure-vessel 重新生成 ld.so.cache，不含 /run/host；proton 又会用
+自己的 `LD_LIBRARY_PATH` 覆盖 LaunchOptions 传的）。
+
+**修复**：把 `libSC.so` 软链进 `Proton - Experimental/files/lib/x86_64-linux-gnu/`
+（proton 设置的 `LD_LIBRARY_PATH` 首位就是它）。链接目标用容器内路径
+`/run/host/usr/lib/x86_64-linux-gnu/libSC.so`。
+
+### 障碍 3：DXVK 版本 vs gf 扩展
+
+- Experimental 自带 **DXVK v3.0.2** 硬要求 `VK_KHR_load_store_op_none` + `VK_KHR_maintenance5`，
+  gf（driver 22.0.4）都没有 → `Skipping: Device does not support required feature ...` → 无适配器。
+  （maintenance5 含 gf 没有的新函数，LD_PRELOAD 伪造扩展会导致调用空指针，**不可伪造**。）
+- **修复**：降级为 **Proton 8.0 的 DXVK v2.3-21**（不要求上述扩展）。注意 Proton 8.0 的目录布局：
+  32 位 DXVK 在 `dist/lib/wine/dxvk/`（proton 脚本把它同步到 syswow64），64 位在 `dist/lib64/wine/dxvk/`；
+  别误用 `dist/lib/wine/i386-windows/`（那是 wine **builtin** d3d11，import wined3d）。
+- 已知非致命噪音：v2.3 下 Unity 会报一次 `d3d11: failed to create buffer (size 20) [0x80070057]`，
+  **不影响继续运行**（实测游戏照常推进，属 v2.3 + wow64 的良性报错）。
+
+### 障碍 4：wine11 wow64 下 BepInEx 插件不加载
+
+new WoW64 下 BepInEx 停在 `Chainloader initialized`——Il2CppInterop 的 runtime-invoke hook
+在 wine11 wow64 下不触发，Chainloader.Start 永不执行，MMSkipVivox 插件不加载 → Vivox 崩回归。
+
+**修复**：放弃 BepInEx Chainloader，改用 **doorstop 直载的纯 P/Invoke 补丁**
+`assets/mm-gf-vulkan/MMPatch.cs`（netstandard2.1，`Doorstop.Entrypoint.Start` 起线程轮询
+`il2cpp_domain_get()` 就绪后，用 `il2cpp_class_get_method_from_name` + VirtualProtect 打同样三个
+patch），`doorstop_config.ini` 的 `target_assembly` 指向 `MMPatch.dll`。**完全不依赖**
+BepInEx.Core / Il2CppInterop。实测 wow64 下 patch 地址与传统模式一致（如 LoginAsync @0x75963BD0）。
+
+### 附带：winex11 GL 初始化崩溃（坑4"0x01160000"的真面目）
+
+wine11 的 `winex11.drv` 在容器内初始化 64 位 OpenGL 失败（`libGL error: No driver found`）
+后会直接崩进 `handle_syscall_fault` 死循环（这就是坑4记录的"32 位地址空间回归"表象）。
+`__GLX_VENDOR_LIBRARY_NAME=mesa` + `LIBGL_ALWAYS_SOFTWARE=1` 让 winex11 走 llvmpipe GL
+即可绕过；**只影响 winex11 的 GL 探测，不影响 DXVK 走 7G100**。
+
+### 验证与最终配置
+
+- `Player.log`: `Renderer: LISUAN 7G100 Series Graphics (ID=0x5006)`，连续多次运行稳定。
+- LaunchOptions（固化脚本写入）：
+  `PROTON_USE_WOW64=1 LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so __GLX_VENDOR_LIBRARY_NAME=mesa LIBGL_ALWAYS_SOFTWARE=1 %command%`
+- CompatToolMapping: 489520 → `proton_experimental`。
+- **注意**：Proton Experimental 每次更新都会覆盖 libSC 链接与 DXVK 降级，更新后需重跑固化脚本。
+
+### 剩余阻塞（与显卡无关）
+
+游戏后端 `api.prod.mm21.minionmastersthegame.com` 的 `/v1/*` API 仍 **404**（`/health` 200 Healthy，
+BetaDwarf 服务器端问题，坑7已记录）。游戏用 7G100 渲染推进到登录队列后，因 404 自行退出
+（无 crash report 的主动退出）。**7G100 硬件渲染链路本身已完全打通并验证**。

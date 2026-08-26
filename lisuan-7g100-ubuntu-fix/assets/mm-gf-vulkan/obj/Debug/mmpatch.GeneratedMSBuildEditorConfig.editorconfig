@@ -1,0 +1,5 @@
+is_global = true
+build_property.RootNamespace = Doorstop
+build_property.ProjectDir = /home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
