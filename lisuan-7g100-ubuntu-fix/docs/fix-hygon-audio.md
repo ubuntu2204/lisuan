@@ -76,6 +76,48 @@ card 0: Intel [HDA Intel], device 0: ALC222 Analog   # ← 真实声卡出现
 
 ---
 
+## 声音输入（麦克风 / 录音）修复
+
+绑定 `snd_hda_intel` 只解决了**输出**（播放）侧——`aplay -l` 出现声卡、`arecord -l` 也会并列出现 capture 设备（`device 0: ALC222 Analog`、`device 2: ALC222 Alt Analog`），PipeWire 也会生成 `alsa_input.pci-0000_07_00.6.analog-stereo` 输入源。但**捕获链路默认偏弱甚至不可用**，原因有三：
+
+1. **Mic Boost 默认 0 dB**：ALC222 的 `Front Mic Boost` / `Rear Mic Boost` / `Line Boost` 默认值为 0，麦克风信号过弱，录出来几乎全是本底噪声。
+2. **Capture 主通道音量低或静音**：`Capture`,0 可能被设得很低（`-17 dB` 甚至 `[off]`），导致 ADC 不采集。
+3. **PipeWire 默认输入源不指向海光卡**：若机器此前还有虚拟源，默认输入源可能停留在 Dummy，应用（会议/录音）拿不到海光麦。
+
+**修复动作**（脚本 `fix_input` 已自动化）：
+
+```bash
+# 提升麦克风增益（0-3，2 ≈ +20 dB）
+amixer -c 0 sset 'Front Mic Boost' 2
+amixer -c 0 sset 'Rear Mic Boost'  2
+amixer -c 0 sset 'Line Boost'      2
+# 主捕获通道拉到 ~80% 并取消静音
+amixer -c 0 sset 'Capture' 50
+amixer -c 0 sset 'Front Mic' 100%
+amixer -c 0 sset 'Rear Mic'  100%
+# 把海光卡的 analog-stereo 输入设为 PipeWire 默认源
+wpctl set-default <alsa_input 的 wpctl id>
+```
+
+> 控件名对不存在的混音器会静默跳过（不同板载 codec 控件集合略有差异），因此用 `|| true` 兜底，不会因某一项缺失而中断。
+
+**验证录音**：
+
+```bash
+arecord -D hw:0,0 -f cd -d 3 test.wav      # 录 3 秒
+python3 - <<'PY'                            # 粗略看是否采到信号
+import wave,array,math
+w=wave.open('test.wav','rb'); a=array.array('h'); a.frombytes(w.readframes(w.getnframes()))
+rms=math.sqrt(sum(x*x for x in a)/len(a))
+print("RMS %.1f => %.1f%% of full scale"%(rms,100*rms/32768))
+PY
+# 对着麦克风说话，RMS 应明显抬升（本机无麦插着时约为 1% 本底属正常）
+```
+
+修复后 `wpctl status` 的 `Sources:` 下应显示 `HDA Intel 模拟立体声`（即海光输入源），且 `amixer` 中 `Capture`,0 为 `[on]`、各 `Mic Boost` 非 0。
+
+---
+
 ## 常见问题
 
 **Q：为什么不让 7G100 的 GPU 音频（4c54:5010）出声？**

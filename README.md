@@ -105,7 +105,7 @@ right headers.
 | `lisuan-7g100-ubuntu-fix/scripts/steam-cef-autofix.sh` | 开机自愈（root/systemd 调用）：发现 Steam 更新还原了补丁就自动重新注入锁定，由 `./lisuan-fix.sh` 菜单 9 安装为系统服务；`--uninstall` 卸载服务 |
 | `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 | `lisuan-7g100-ubuntu-fix/scripts/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
-| `lisuan-7g100-ubuntu-fix/scripts/fix-hygon-audio.sh` | **板载音频修复**：海光（Hygon）`1d94:14c9` HDA 控制器不在 `snd_hda_intel` 默认 id 表、且被 `snd_intel_dspcfg` 误选 SOF/SST 路径、codec (ALC222) 上电慢，导致声音设置只有"虚拟输出"。脚本用 `driver_override` 强制匹配 + `dsp_driver=1` + `probe_mask=0xff delay=2000` 绑定并注册真实声卡，落地 `hygon-audio.conf`/`hygon-audio-bind.service` 开机自绑（注：与砺算 7G100 GPU 无关，7G100 的 HDMI 音频是 `gf` 驱动内部透明 codec，不创建 ALSA 卡） |
+| `lisuan-7g100-ubuntu-fix/scripts/fix-hygon-audio.sh` | **板载音频修复（输出 + 输入）**：海光（Hygon）`1d94:14c9` HDA 控制器不在 `snd_hda_intel` 默认 id 表、且被 `snd_intel_dspcfg` 误选 SOF/SST 路径、codec (ALC222) 上电慢，导致声音设置只有"虚拟输出"。脚本用 `driver_override` 强制匹配 + `dsp_driver=1` + `probe_mask=0xff delay=2000` 绑定并注册真实声卡，落地 `hygon-audio.conf`/`hygon-audio-bind.service` 开机自绑；并额外修复**声音输入**——把 ALC222 的 `Mic Boost` 提到 ~20 dB、`Capture` 音量拉到 ~80% 并取消静音、将海光 `analog-stereo` 输入源设为 PipeWire 默认（注：与砺算 7G100 GPU 无关，7G100 的 HDMI 音频是 `gf` 驱动内部透明 codec，不创建 ALSA 卡） |
 | `lisuan-7g100-ubuntu-fix/scripts/diag-hygon-audio.sh` | 诊断脚本：在加载 `snd-intel-dspcfg dsp_driver=1` 后用 `driver_override`+`bind` 绑定海光 HDA，并打印 `aplay -l`/dmesg 以确认 codec 是否枚举成功 |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
@@ -691,6 +691,13 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 - codec（ALC222）上电慢 `azx_get_response` 超时 → `probe_mask=0xff delay=2000`。
 
 修复后 `aplay -l` 出现 `card 0: Intel [HDA Intel], device 0: ALC222 Analog`。
+
+**声音输入（麦克风 / 录音）**：绑定驱动只解决输出，捕获链路还需额外配置——ALC222 的 `Mic Boost` 默认 0 dB、主 `Capture` 通道默认偏低/静音、且 PipeWire 默认输入源可能不指向海光卡。脚本在重启音频服务后自动执行 `fix_input`：把 `Front/Rear Mic Boost` 提到 ~20 dB、`Capture` 音量拉到 ~80% 并取消静音、将海光 `analog-stereo` 输入源设为 PipeWire 默认。验证：
+
+```bash
+arecord -D hw:0,0 -f cd -d 3 test.wav   # 录 3 秒，对着麦说话 RMS 应明显抬升
+wpctl status                            # Sources: 下应显示 "HDA Intel 模拟立体声"
+```
 
 ---
 

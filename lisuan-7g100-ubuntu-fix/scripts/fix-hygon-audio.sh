@@ -90,6 +90,18 @@ report() {
   else
     echo "(pw-cli not available)"
   fi
+  echo "-- ALSA capture devices (arecord -l) --"
+  arecord -l 2>/dev/null || echo "(arecord not available)"
+  echo "-- PipeWire input sources --"
+  if command -v wpctl >/dev/null; then
+    wpctl status 2>/dev/null | sed -n '/Sources:/,/Source endpoints:/p' | grep -v "endpoints:" || echo "(no sources)"
+  else
+    echo "(wpctl not available)"
+  fi
+  echo "-- Mic / capture mixer --"
+  if command -v amixer >/dev/null; then
+    amixer -c 0 scontents 2>/dev/null | grep -iE "Mic Boost|Capture',0|Input Source',0" -A1 | head -12 || true
+  fi
   echo "======================================================="
 }
 
@@ -216,6 +228,57 @@ for u in pipewire pipewire-pulse wireplumber; do
     || true
 done
 
+# ---- 输入（录音/麦克风）修复 ------------------------------------------------
+# 内核驱动 + ALSA 卡只解决"输出"；捕获链路默认偏弱甚至不可用：
+#   - ALC222 的 Mic Boost 默认 0dB，麦克风信号过弱；
+#   - Capture 主通道(0)可能被设得很低；
+#   - PipeWire 默认输入源可能不指向海光卡（停留在虚拟源）。
+# 这里把麦克风增益/捕获音量拉到合理值，并把海光输入源设为默认。
+fix_input() {
+  local card="$1"
+  # 让 amixer 对不存在的控件静默失败（不同板载 codec 控件名可能不同）
+  amixer -c "$card" sset 'Front Mic Boost' 2 2>/dev/null || true
+  amixer -c "$card" sset 'Rear Mic Boost'  2 2>/dev/null || true
+  amixer -c "$card" sset 'Line Boost'      2 2>/dev/null || true
+  # 主捕获通道拉到 ~80%，并确保 un-muted
+  amixer -c "$card" sset 'Capture' 50 2>/dev/null || true
+  amixer -c "$card" sset 'Capture',0 50 2>/dev/null || true
+  amixer -c "$card" sset 'Front Mic' 100% 2>/dev/null || true
+  amixer -c "$card" sset 'Rear Mic'  100% 2>/dev/null || true
+  amixer -c "$card" sset 'Line'      100% 2>/dev/null || true
+
+  # 把PipeWire默认输入源指向海光卡的 analog-stereo 输入
+  local src
+  # 注意：wpctl status 的节点列表段也会出现 "alsa_input...analog-stereo" 的行，
+  # 但那行 id 是 stream 而非 source device。必须只在 "Sources:" 段内找海光卡
+  # 的输入节点（形如 "… 48. HDA Intel 模拟立体声"）。
+  # 用 sed 截取 "Sources:" 到 "Source endpoints:" 之间的段落（避开树字符的 UTF-8
+  # 多字节匹配问题），再取含 "HDA Intel" 行的首个数字 id。
+  src="$(wpctl status 2>/dev/null \
+        | sed -n '/[Ss]ources:/,/Source endpoints:/p' \
+        | grep 'HDA Intel' | grep -oE '[0-9]+\.' | head -1 | tr -d '.')"
+  if [[ -z "$src" ]]; then
+    # 退化方案：在所有 source 类节点里找海光 analog-stereo 的 node id
+    src="$(wpctl list-objects 2>/dev/null | grep -E 'alsa_input.pci-0000_07_00.6.analog-stereo' \
+          | grep -oE 'id [0-9]+' | grep -oE '[0-9]+' | head -1)"
+  fi
+  if [[ -n "$src" ]]; then
+    wpctl set-default "$src" 2>/dev/null \
+      && log "Default input source -> wpctl id ${src} (Hygon analog-stereo)" \
+      || warn "Could not set default input source (non-fatal)"
+  else
+    warn "No Hygon analog-stereo input source found in wpctl — input config skipped"
+  fi
+}
+# 等 PipeWire 起来再配输入（上面 restart 后稍候）
+sleep 1
+if command -v amixer >/dev/null && command -v wpctl >/dev/null; then
+  log "Configuring input (mic boost / capture volume / default source)"
+  fix_input 0
+else
+  warn "amixer/wpctl not available — skipping input tuning (kernel bind still done)"
+fi
+
 # ---- 验证 -----------------------------------------------------------------
 sleep 1
 if [[ -e "${SYSDEV}/driver" ]]; then
@@ -236,3 +299,7 @@ echo
 echo "Success looks like:  'Kernel driver in use: ${DRV}'  +  a real card in 'aplay -l'"
 echo "and a non-virtual sink in the Ubuntu sound settings (Hygon on-board HDMI/analog)."
 echo "If the card appears but is silent, re-check HDMI cable + sink profile in pavucontrol."
+echo
+echo "Input (microphone/recording) is also configured:  Mic Boost raised to ~20 dB,"
+echo "Capture volume un-muted, and the Hygon analog-stereo source set as PipeWire default."
+echo "Verify with:  arecord -D hw:0,0 -f cd -d 3 test.wav  (then 'wpctl status' shows the source)."
