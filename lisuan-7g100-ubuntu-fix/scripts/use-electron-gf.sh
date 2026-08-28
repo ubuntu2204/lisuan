@@ -126,16 +126,27 @@ if [ "$INSTALL_DESKTOP" = 1 ]; then
   SELF="$(readlink -f "$0")"
   UDIR="$HOME/.local/share/applications"
   mkdir -p "$UDIR"
+  CMD_REAL="$(readlink -f "$CMD" 2>/dev/null || echo "$CMD")"
   found=0
   for d in "${DESKTOP_FILES[@]}"; do
     [ -f "$d" ] || continue
     target="$d"
     if [[ "$d" == /usr/share/* ]]; then
       target="$UDIR/$(basename "$d")"
-      cp "$d" "$target" 2>/dev/null || { echo "!! 无法复制 $d -> $target (需 sudo?)" >&2; continue; }
     fi
-    if grep -q "$SELF" "$target"; then
+    if [ -f "$target" ] && grep -q "$SELF" "$target"; then
       echo "    $target 已指向 wrapper, 跳过"; found=1; continue
+    fi
+    # 只改写 Exec 指向本次解析出的启动命令的桌面项,
+    # 避免把同一应用的其它变体 (如 qoder-cn) 误改写到本二进制
+    exec_bin="$(grep '^Exec=' "$d" | head -1 | sed -E 's/^Exec=//; s/ *%[a-zA-Z]+.*$//; s/^"//; s/"$//')"
+    exec_real="$(readlink -f "$exec_bin" 2>/dev/null || echo "$exec_bin")"
+    if [ "$exec_real" != "$CMD_REAL" ]; then
+      echo "    跳过 $d (Exec 指向 $exec_real, 非 $CMD_REAL)"
+      continue
+    fi
+    if [[ "$d" == /usr/share/* ]]; then
+      cp "$d" "$target" 2>/dev/null || { echo "!! 无法复制 $d -> $target (需 sudo?)" >&2; continue; }
     fi
     if sed -i "s|^Exec=.*|Exec=$SELF --app $APP %U|" "$target" 2>/dev/null; then
       echo "OK: $target 的 Exec 已切到本 wrapper (--app $APP)"
