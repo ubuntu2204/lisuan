@@ -1,0 +1,9 @@
+/home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/bin/MMPatch.deps.json
+/home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/bin/MMPatch.dll
+/home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/bin/MMPatch.pdb
+/home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/obj/Release/mmpatch.GeneratedMSBuildEditorConfig.editorconfig
+/home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/obj/Release/mmpatch.AssemblyInfoInputs.cache
+/home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/obj/Release/mmpatch.AssemblyInfo.cs
+/home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/obj/Release/mmpatch.csproj.CoreCompileInputs.cache
+/home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/obj/Release/MMPatch.dll
+/home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/obj/Release/MMPatch.pdb

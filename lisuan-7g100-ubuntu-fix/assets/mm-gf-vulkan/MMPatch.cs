@@ -66,7 +66,14 @@ public static class MMPatch
         if (domain == IntPtr.Zero) { Log("[MMPatch] il2cpp_domain_get timeout, abort"); return; }
         Log($"[MMPatch] domain ready @0x{domain.ToInt32():X}, applying patches");
 
-        try { PatchVivox(); } catch (Exception ex) { Log("[MMPatch] PatchVivox ex: " + ex); }
+        // Vivox patch 已于 2026-08-28 停用：
+        // 实测 Vivox 在 wine 下能正常 Initializing / 拿到 token / OnLoginStateChanged: LoggedIn；
+        // 而把 LoginAsync+LogoutAsync patch 成空操作后，游戏等不到登录回调，
+        // 停在 [ChatService] Starting LoginAsync 后直接退出（表现为"闪退"）。
+        // 如需重新启用，取消下一行注释即可。
+        // try { PatchVivox(); } catch (Exception ex) { Log("[MMPatch] PatchVivox ex: " + ex); }
+        Log("[MMPatch] Vivox patch disabled (Vivox works natively under wine)");
+
         try { PatchNewsDownloadFallback(); } catch (Exception ex) { Log("[MMPatch] PatchNews ex: " + ex); }
         Log("[MMPatch] done");
     }
