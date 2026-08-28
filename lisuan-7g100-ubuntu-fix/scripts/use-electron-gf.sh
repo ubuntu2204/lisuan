@@ -135,6 +135,7 @@ if [ "$INSTALL_DESKTOP" = 1 ]; then
       target="$UDIR/$(basename "$d")"
     fi
     if [ -f "$target" ] && grep -q "$SELF" "$target"; then
+      chmod +x "$target" 2>/dev/null || true
       echo "    $target 已指向 wrapper, 跳过"; found=1; continue
     fi
     # 只改写 Exec 指向本次解析出的启动命令的桌面项,
@@ -149,6 +150,9 @@ if [ "$INSTALL_DESKTOP" = 1 ]; then
       cp "$d" "$target" 2>/dev/null || { echo "!! 无法复制 $d -> $target (需 sudo?)" >&2; continue; }
     fi
     if sed -i "s|^Exec=.*|Exec=$SELF --app $APP %U|" "$target" 2>/dev/null; then
+      # 补齐执行位: 系统桌面项复制过来时通常无执行位, 且 sed -i 会丢失执行位;
+      # 不可执行的脚本型桌面项会被 GNOME 从应用菜单隐藏
+      chmod +x "$target" 2>/dev/null || true
       echo "OK: $target 的 Exec 已切到本 wrapper (--app $APP)"
       found=1
     else
