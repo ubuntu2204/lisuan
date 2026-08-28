@@ -3,6 +3,36 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.08.28 — Qoder（国际版/国内版）显示修复落地与 Electron 43 新坑
+
+### 修复
+
+- **`--ozone-platform-hint=x11` 在 Electron 43（Qoder）上被忽略**：应用仍走 Wayland
+  原生（子进程命令行仍为 `--ozone-platform=wayland`），拖拽/缩放窗口残缺、花屏依旧。
+  `use-electron-gf.sh` 的 BASE_FLAGS 追加显式 `--ozone-platform=x11` 强制 XWayland
+  （与 hint 并存，兼容新旧 Chromium）。实测：Qoder CN 子进程变为 `ozone-platform=x11`，
+  窗口经 XWayland 正常渲染（`wmctrl -l` 可见）。
+- **`use-electron-gf.sh` 新增 `--app qoder-cn`**（解析国内版二进制与桌面项）；
+  `--app qoder` 未安装国际版时自动回退 `qoder-cn` 二进制；`--install-desktop` 按
+  桌面项 Exec 实际指向（`readlink -f` 精确比较）过滤，国际版/国内版不再互相误改。
+  已实测把 `qoder.desktop` / `qoder-cn.desktop` 用户级条目与桌面图标均切到 wrapper。
+- **`--install-desktop` 生成的桌面项被 GNOME 应用菜单隐藏**：从 `/usr/share` 复制的
+  条目无执行位、`sed -i` 也会丢执行位，脚本型桌面项无执行位时 GNOME 直接隐藏。
+  两处改写路径均补 `chmod +x`（幂等跳过分支也补，可自愈）。
+- **跨变体启动崩溃**：从另一个 Qoder 变体的内置终端启动时，环境带宿主注入的
+  `QODER_*`/`QODERCN_*`/`ELECTRON_PA_APP_NAME`（身份 `QODER_PRODUCT_ID`、鉴权
+  `QODER_SDK_AUTH_PAYLOAD_FILE` 等），新实例报"运行身份与产物身份不一致"崩溃或
+  `job_token_invalid`。wrapper 对 `qoder|qoder-cn` 启动前清理全部此类变量
+  （桌面图标启动走干净会话，本不受影响；此修覆盖跨终端场景）。
+
+### 新坑记录（防再踩）
+
+- 判定 Electron 应用实际走 X11 还是 Wayland：看 `--type=gpu-process` 子进程命令行的
+  `--ozone-platform=` 取值（hint 可能被忽略）；X11 窗口应出现在 `wmctrl -l`。
+- GNOME 对无执行位的脚本型 `.desktop` 直接从菜单隐藏；验证用
+  `desktop-file-validate` + Gio `should_show()`。
+- Qoder 内置终端环境含身份变量，启动另一变体前必须清理。
+
 ## 2026.08.25 — 随从大师（Minion Masters）进入主菜单
 
 ### 修复（文档固化，插件源码在 `/home/ubuntu/mm_patch/plugin/Patcher.cs`）

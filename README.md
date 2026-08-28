@@ -615,14 +615,22 @@ bash use-electron-gf.sh --appimage /path/to.appimage
 
 ```bash
 # 软件渲染(稳定, 默认 --no-hw)
-"$CMD" --no-sandbox --ozone-platform-hint=x11 --disable-gpu-compositing --disable-gpu
+"$CMD" --no-sandbox --ozone-platform=x11 --ozone-platform-hint=x11 --disable-gpu-compositing --disable-gpu
 
 # gf 硬件加速(默认)
 __GLX_VENDOR_LIBRARY_NAME=gf LIBGL_ALWAYS_SOFTWARE=0 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/gf_icd.x86_64.json \
-"$CMD" --no-sandbox --ozone-platform-hint=x11 --disable-gpu-compositing \
+"$CMD" --no-sandbox --ozone-platform=x11 --ozone-platform-hint=x11 --disable-gpu-compositing \
         --ignore-gpu-blocklist --enable-gpu-rasterization \
         --use-gl=angle --use-angle=gl --enable-features=Vulkan
 ```
+
+> 注：**Electron 43（Qoder）会忽略 `--ozone-platform-hint=x11`**，应用仍走 Wayland 原生
+> （子进程 `--ozone-platform=wayland`，拖拽/缩放窗口残缺），必须再加显式
+> `--ozone-platform=x11` 强制 XWayland；两个并存以兼容新旧 Chromium（未知开关被安全忽略）。
+> 判定方法：看 `gpu-process` 子进程命令行里的 `--ozone-platform=` 实际取值。
+> 另外从另一个 Qoder 变体的内置终端启动时，需先清掉宿主注入的 `QODER_*`/`QODERCN_*`
+> 身份/鉴权变量，否则报"运行身份与产物身份不一致"或 `job_token_invalid`
+> （`use-electron-gf.sh` 对 `qoder|qoder-cn` 已自动清理；桌面图标启动走干净会话，不受影响）。
 
 **验证 gf 是否真正生效**：启动后在应用内打开 DevTools（`F12` 或 `Ctrl+Shift+I`）→
 `chrome://gpu`，确认 `Graphics Feature Status` 下 `Canvas` / `WebGL` 显示

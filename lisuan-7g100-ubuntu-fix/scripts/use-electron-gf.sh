@@ -23,6 +23,7 @@
 # 用法:
 #   bash use-electron-gf.sh --app codebuddy
 #   bash use-electron-gf.sh --app qoder
+#   bash use-electron-gf.sh --app qoder-cn                  # Qoder 国内版
 #   bash use-electron-gf.sh --app codebuddy --no-hw        # 强制软件渲染(不稳定/白屏时回退)
 #   bash use-electron-gf.sh --app qoder --install-desktop   # 把应用菜单 Exec 切到本 wrapper
 #   bash use-electron-gf.sh --cmd /path/to/other-electron   # 任意 Electron 应用
@@ -37,8 +38,12 @@ GF_GLX_LIB="/usr/lib/x86_64-linux-gnu/libGLX_gf.so"
 GF_VK_ICD="/usr/share/vulkan/icd.d/gf_icd.x86_64.json"
 
 # ---- 通用基础开关 (修显示异常) ----
+# 注: 仅 --ozone-platform-hint=x11 在 Electron 43 (Qoder) 上被忽略, 应用仍走 wayland
+# 原生 (子进程 --ozone-platform=wayland, 拖拽/缩放窗口残缺), 需再加显式
+# --ozone-platform=x11 强制 XWayland; 两个并存以兼容新旧 Chromium (未知开关安全忽略)。
 BASE_FLAGS=(
   --no-sandbox
+  --ozone-platform=x11
   --ozone-platform-hint=x11
   --disable-gpu-compositing
 )
@@ -91,8 +96,14 @@ resolve_app() {
       DESKTOP_FILES=("$HOME/.local/share/applications/codebuddy.desktop"
                       "/usr/share/applications/codebuddy.desktop")
       ;;
-    qoder)
-      CMD="$(command -v qoder || echo /usr/bin/qoder)"
+    qoder|qoder-cn)
+      # --app qoder 优先国际版, 未安装时回退国内版 (qoder-cn);
+      # --app qoder-cn 只认国内版。桌面项按 Exec 实际指向过滤, 不会互相误改。
+      if [ "$APP" = "qoder-cn" ]; then
+        CMD="$(command -v qoder-cn || echo /usr/bin/qoder-cn)"
+      else
+        CMD="$(command -v qoder || command -v qoder-cn || echo /usr/bin/qoder)"
+      fi
       DESKTOP_FILES=("/usr/share/applications/qoder.desktop"
                       "/usr/share/applications/qoder-cn.desktop"
                       "$HOME/.local/share/applications/qoder.desktop"
@@ -103,7 +114,7 @@ resolve_app() {
       DESKTOP_FILES=("$HOME/.local/share/applications/zcode.desktop")
       ;;
     "") : ;; # 由 --cmd/--appimage 提供
-    *) echo "!! 未知 --app: $APP (支持 codebuddy|qoder|zcode, 或用 --cmd/--appimage)" >&2; exit 1 ;;
+    *) echo "!! 未知 --app: $APP (支持 codebuddy|qoder|qoder-cn|zcode, 或用 --cmd/--appimage)" >&2; exit 1 ;;
   esac
 }
 
@@ -166,6 +177,16 @@ fi
 
 # ---- 组装启动 ----
 EXTRA="${GF_EXTRA_FLAGS:-}"
+
+# 若本脚本从另一个 Qoder 变体的内置终端启动, 环境里会带宿主注入的
+# QODER_*/QODERCN_* 变量 (身份、鉴权 token、配置目录等), 会导致
+# "运行身份与产物身份不一致" 崩溃或 job_token_invalid; 启动新实例前全部清掉
+if [ "$APP" = "qoder" ] || [ "$APP" = "qoder-cn" ]; then
+  while IFS='=' read -r _qvar _; do
+    case "$_qvar" in QODER*|QODERCN*) unset "$_qvar" ;; esac
+  done < <(env)
+  unset ELECTRON_PA_APP_NAME
+fi
 
 if [ "$ACCEL" = 1 ]; then
   # gf 硬件加速: 注入 gf 驱动 env + Chromium GPU 加速开关
