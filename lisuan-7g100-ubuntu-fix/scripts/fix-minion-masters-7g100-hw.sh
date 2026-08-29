@@ -96,10 +96,15 @@ downgrade_dxvk() {
 
 # ---------- 4) MMPatch + doorstop 直载 ----------
 setup_mmpatch() {
-  cp "$ASSETS/MMPatch.dll" "$GAME/MMPatch.dll"
+  local src="$ASSETS/MMPatch.dll"
+  # bin/ 是 dotnet build 产物, 若比资产根目录副本新则优先部署
+  if [ -f "$ASSETS/bin/MMPatch.dll" ] && [ "$ASSETS/bin/MMPatch.dll" -nt "$src" ]; then
+    src="$ASSETS/bin/MMPatch.dll"
+  fi
+  cp "$src" "$GAME/MMPatch.dll"
   [ -f "$GAME/doorstop_config.ini.bak-bepinex" ] || cp "$GAME/doorstop_config.ini" "$GAME/doorstop_config.ini.bak-bepinex"
   sed -i 's|^target_assembly = .*|target_assembly = MMPatch.dll|' "$GAME/doorstop_config.ini"
-  say "MMPatch.dll 已部署，doorstop target 已指向它"
+  say "MMPatch.dll 已部署 ($(basename "$(dirname "$src")")/$(basename "$src"), $(stat -c %s "$src") B), doorstop target 已指向它"
 }
 
 # ---------- 5) Steam 配置：CompatToolMapping + LaunchOptions ----------
