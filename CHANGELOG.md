@@ -3,6 +3,42 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.08.29 — 随从大师硬件渲染链路打通（容器运行时更新适配）
+
+### 背景
+
+08-26 的 WoW64 + gf 硬件渲染方案在 Steam 容器运行时（steamrt4）与 Vulkan loader
+更新后全部回归（游戏 9 秒内必崩）。本轮逐层定位并修复，硬件渲染链路首次端到端打通。
+
+### 修复
+
+- **容器内 `/run/host/usr/lib` 不再可见**：gf ICD 库与 `libSC.so` 从该路径消失，
+  loader 静默丢弃驱动、`vkCreateDevice` 段错误。改为把两库复制到 `~/gf-compat/lib/`
+  （home 在容器内一定可见），自定义 `gf_icd.json` 经 `VK_ICD_FILENAMES` 注入，
+  libSC 软链改指 home 副本。
+- **新 Vulkan loader（1.4.309）丢弃老式 ICD + 严格校验实例扩展**：gf 协商版本 0、
+  只导出 3 个 `vk_icd*` 符号，被走"直接导出符号表"路径静默丢弃；厂商又裁掉了
+  `VK_KHR_external_semaphore_capabilities`，新 loader 严格校验直接拒绝
+  `vkCreateInstance`。新增**协商垫片 `libvulkan_gf_shim.so`**：对外报协商版本 5、
+  全程 `vk_icdGetInstanceProcAddr` 转发；枚举时补报被裁扩展，转发
+  `vkCreateInstance`/`vkCreateDevice` 前剔除真 ICD 不支持的实例/设备扩展。
+- **Steam overlay Vulkan 层绕过垫片直连真 ICD**（崩在 libc）→
+  `VK_LOADER_LAYERS_DISABLE` 禁用（容器内 overlay 本就不可用）。
+- **32 位低地址映射（坑 12 终结）**：实测游戏进程低 2GB 被 wine 占用 ~1.7GB
+  （`MAP_32BIT` 只剩 ~321MB），而 2~4GB 完全空闲。`osrelease_redirect.so` 内置
+  **低 4GB 重映射池**：`MAP_32BIT` 失败或映射落 >4GB 时用 `MAP_FIXED_NOREPLACE`
+  重映射到 2.25~4GB 空闲区。覆盖**所有** mmap 路径（含虚函数分发的未补丁路径），
+  实测 1300 次重定向全部成功；驱动单字节 `MAP_32BIT` 补丁由此变为可选优化。
+- 固化脚本 `fix-minion-masters-7g100-hw.sh` 升级：部署垫片/库副本、新启动选项、
+  状态项扩充（幂等）；资产 `assets/mm-gf-vulkan/` 新增 `libvulkan_gf_shim.c/.so`、
+  `gf_icd.json`，`osrelease_redirect.c/.so` 更新。
+
+### 实测
+
+- `Renderer: LISUAN 7G100 Series Graphics (ID=0x5006)`（D3D11 11.1 硬件渲染）+
+  场景加载 + 登录流程（8.2s）+ 进入登录队列；游戏存活 8 分钟以上（此前各轮 9 秒内崩溃）。
+- **剩余阻塞仅服务端**：`api.prod.mm21.../v1/*` 404（BetaDwarf 问题，本地无解，坑 3）。
+
 ## 2026.08.28 — Qoder（国际版/国内版）显示修复落地与 Electron 43 新坑
 
 ### 修复

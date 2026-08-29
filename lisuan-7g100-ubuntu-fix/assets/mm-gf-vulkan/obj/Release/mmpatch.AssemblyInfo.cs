@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MMPatch")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4e06d31ec6c859d16343f23024e41f1fad48fc19")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+264f7e9e3c0de3515ef3517aefb700587a2b9859")]
 [assembly: System.Reflection.AssemblyProductAttribute("MMPatch")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MMPatch")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

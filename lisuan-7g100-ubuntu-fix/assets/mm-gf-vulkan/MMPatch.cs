@@ -71,8 +71,7 @@ public static class MMPatch
         // 而把 LoginAsync+LogoutAsync patch 成空操作后，游戏等不到登录回调，
         // 停在 [ChatService] Starting LoginAsync 后直接退出（表现为"闪退"）。
         // 如需重新启用，取消下一行注释即可。
-        // try { PatchVivox(); } catch (Exception ex) { Log("[MMPatch] PatchVivox ex: " + ex); }
-        Log("[MMPatch] Vivox patch disabled (Vivox works natively under wine)");
+        try { PatchVivox(); } catch (Exception ex) { Log("[MMPatch] PatchVivox ex: " + ex); }
 
         try { PatchNewsDownloadFallback(); } catch (Exception ex) { Log("[MMPatch] PatchNews ex: " + ex); }
         Log("[MMPatch] done");

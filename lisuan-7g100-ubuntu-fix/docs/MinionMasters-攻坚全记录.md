@@ -272,3 +272,57 @@ LP_NUM_THREADS=16 __GLX_VENDOR_LIBRARY_NAME=mesa %command%
 | `/tmp/vk_dmabuf_32bit_test.c` | dmabuf 低位映射可行性验证程序 |
 | `~/project/lisuan/lisuan-7g100-ubuntu-fix/MinionMasters-成功运行报告.md` | llvmpipe 成功运行报告 |
 | `~/.local/share/Steam/steamapps/common/Proton - MM GF/` | 自定义 Proton（DXVK v2.3 + libSC） |
+
+---
+
+## 六、2026-08-29 补记：硬件渲染全链路打通（容器运行时更新适配）
+
+### 背景
+
+方案 B 之后，Steam 容器运行时（steamrt4）与 Vulkan loader 更新，硬件路径出现**新的一批回归**，
+全部定位并解决，硬件渲染链路首次端到端打通。
+
+### 新发现的四个回归及解法
+
+| # | 现象 | 根因 | 解法 |
+|---|---|---|---|
+| 14 | loader 找到 gf ICD 清单却从不加载库；`vkCreateDevice` 段错误 | 容器内 `/run/host/usr/lib` 不再可见，`libvulkan_gf.so`/`libSC.so` 从该路径消失 | 两库**复制到 `~/gf-compat/lib/`**（home 在容器内一定可见），自定义 `gf_icd.json` + `VK_ICD_FILENAMES` 指过去，libSC 软链改指 home 副本 |
+| 15 | `vkCreateInstance` 被拒：`VK_KHR_external_semaphore_capabilities not supported by available ICDs` | ① 新 loader（1.4.309）对 gf 这种**协商版本 0、只导出 3 个 `vk_icd*` 符号**的老 ICD 走"直接导出符号表"路径，静默丢弃；② 厂商裁掉了该实例扩展，新 loader 严格校验 | **协商垫片 `libvulkan_gf_shim.so`**：对外报协商版本 5、全程 `vk_icdGetInstanceProcAddr` 转发；枚举时补报被裁扩展，`vkCreateInstance`/`vkCreateDevice` 转发前剔除真 ICD 不支持的实例/设备扩展 |
+| 16 | 垫片生效后仍在 libc 段错误 | **Steam overlay Vulkan 层**经 `vk_icdGetPhysicalDeviceProcAddr` 直连真 ICD，绕过垫片 | `VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_64,...`（容器内 overlay 本就不可用） |
+| 17 | `MAP_32BIT` 补丁生效后仍 `VK_ERROR_MEMORY_MAP_FAILED`（坑 12 的后续） | 游戏进程**低 2GB 被 wine 占用 ~1.7GB**（实测 `0x1000a000-0x68000000` 1408MB 保留块，`MAP_32BIT` 只剩 ~321MB），而 **2~4GB 完全空闲** | `osrelease_redirect.so` 内置**低 4GB 重映射池**：`MAP_32BIT` 失败或映射落 >4GB 时，`munmap` 后用 `MAP_FIXED_NOREPLACE` 重映射到 2.25~4GB 区间（WoW64 thunk 可接 <4GB 任意指针）。**覆盖所有 mmap 路径**——包括虚函数分发的未补丁路径，坑 12 一并解决，无需再逐条改驱动 |
+
+### 实测结果（2026-08-29 19:10）
+
+```
+Renderer: LISUAN 7G100 Series Graphics (ID=0x5006)   ← D3D11 11.1 硬件渲染
+[ScopeLogger] Addressable scene load took 2088 ms      ← 场景加载
+[ScopeLogger] Login flow took 8214 ms                  ← 登录流程
+[LoginQueueService] Login queue entered ...            ← 登录队列
+InvalidOperationException: Http error code was 404     ← 已知服务端阻塞（坑 3）
+```
+
+低地址重定向统计：`MAP_32BIT` 失败回退 1228 次 + 高地址重定位 72 次，全部成功。
+游戏存活 8 分钟以上（此前各轮均 9 秒内崩溃）。**剩余阻塞仅服务端 404**。
+
+### 固化产物
+
+| 路径 | 说明 |
+|---|---|
+| `assets/mm-gf-vulkan/libvulkan_gf_shim.c/.so` | 协商垫片 ICD（坑 15） |
+| `assets/mm-gf-vulkan/gf_icd.json` | 垫片 ICD 清单（相对路径，部署时随 `VK_ICD_FILENAMES` 指向） |
+| `assets/mm-gf-vulkan/osrelease_redirect.c/.so` | hook 更新版：os-release 重定向 + 低 4GB 重映射池（坑 17） |
+| `scripts/fix-minion-masters-7g100-hw.sh` | 固化脚本升级：部署垫片/库副本、新启动选项、状态项扩充（幂等） |
+
+启动选项（固化脚本写入）：
+
+```
+PROTON_USE_WOW64=1 LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so
+__GLX_VENDOR_LIBRARY_NAME=mesa LIBGL_ALWAYS_SOFTWARE=1
+VK_ICD_FILENAMES=~/gf-compat/gf_icd.json
+VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_overlay_32
+%command%
+```
+
+> 坑 12 状态更新为**已解决**（低 4GB 重映射池）。方案 B 的驱动单字节补丁仍有效但变为**可选**：
+> 即使不打，hook 的高地址重定位也能兜住全部映射。
+> 注意：Proton Experimental / 容器运行时每次更新都可能再次冲掉 DXVK 降级与 libSC 链接，重跑固化脚本即可。

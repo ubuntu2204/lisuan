@@ -20,6 +20,24 @@
 #   另：winex11 在 wow64 下初始化 OpenGL 失败会导致 wine 崩 -> __GLX_VENDOR_LIBRARY_NAME=mesa
 #      + LIBGL_ALWAYS_SOFTWARE=1 让其走 llvmpipe GL（仅影响 winex11 探测，不影响 DXVK 用 7G100）。
 #
+# 2026-08-29 容器运行时（steamrt4）更新后新增的四层适配：
+#   5) 容器内 /run/host/usr/lib 不再可见 -> gf ICD 库与 libSC.so 从该路径消失，
+#      loader 静默丢弃驱动 / vkCreateDevice 段错误。改为把两库【复制到 $DEPLOY/lib】
+#      （home 在容器内一定可见），libSC 软链改指 home 副本。
+#   6) 新 Vulkan loader（1.4.x）对 gf 这类"协商版本 0、只导出 3 个 vk_icd* 符号"的
+#      老式 ICD 走直接导出符号表路径 -> 静默丢弃；且严格校验实例扩展（厂商裁掉了
+#      VK_KHR_external_semaphore_capabilities）-> vkCreateInstance 被拒。
+#      用【协商垫片 ICD】libvulkan_gf_shim.so：对外报协商版本 5、全程走
+#      vk_icdGetInstanceProcAddr 转发，枚举时补报被裁扩展、vkCreateInstance/
+#      vkCreateDevice 转发前剔除真 ICD 不支持的扩展。经自定义 gf_icd.json +
+#      VK_ICD_FILENAMES 喂给 loader。
+#   7) Steam overlay Vulkan 层经 vk_icdGetPhysicalDeviceProcAddr 直连真 ICD，
+#      绕过垫片 -> 崩在 libc。用 VK_LOADER_LAYERS_DISABLE 禁用（容器内 overlay 本就不可用）。
+#   8) 32 位地址宽度：游戏进程低 2GB 被 wine 占用 ~1.7GB（MAP_32BIT 常 ENOMEM），
+#      而 2~4GB 全空 -> LD_PRELOAD hook 内置【低 4GB 重映射池】：MAP_32BIT 失败或
+#      映射落 >4GB 时，重定向到 2.25~4GB 空闲区（WoW64 thunk 可接 <4GB 任意指针）。
+#      覆盖所有 mmap 路径（含虚函数分发的未补丁路径），无需再逐条改驱动。
+#
 # 用法：
 #   ./fix-minion-masters-7g100-hw.sh            # 安装/修复（幂等）
 #   ./fix-minion-masters-7g100-hw.sh --status   # 检查各环节状态
@@ -35,7 +53,7 @@ PFX="$HOME/.local/share/Steam/steamapps/compatdata/$APPID/pfx"
 CONFIG_VDF="$HOME/.local/share/Steam/config/config.vdf"
 LOCALCONFIG_VDF=$(ls ~/.local/share/Steam/userdata/*/config/localconfig.vdf 2>/dev/null | head -1)
 
-LAUNCHOPTS="PROTON_USE_WOW64=1 LD_PRELOAD=$DEPLOY/lib/osrelease_redirect.so __GLX_VENDOR_LIBRARY_NAME=mesa LIBGL_ALWAYS_SOFTWARE=1 %command%"
+LAUNCHOPTS="PROTON_USE_WOW64=1 LD_PRELOAD=$DEPLOY/lib/osrelease_redirect.so __GLX_VENDOR_LIBRARY_NAME=mesa LIBGL_ALWAYS_SOFTWARE=1 VK_ICD_FILENAMES=$DEPLOY/gf_icd.json VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_overlay_32 %command%"
 
 say() { echo "[mm-hw] $*"; }
 err() { echo "[mm-hw] !! $*" >&2; }
@@ -44,7 +62,7 @@ err() { echo "[mm-hw] !! $*" >&2; }
 [ -d "$PROTON8" ] || { err "未安装 Proton 8.0（提供 DXVK v2.3）"; exit 1; }
 [ -d "$GAME" ] || { err "未安装 Minion Masters"; exit 1; }
 
-# ---------- 1) 部署 os-release 重定向 hook ----------
+# ---------- 1) 部署 hook / 垫片 / 库副本 ----------
 deploy_hook() {
   mkdir -p "$DEPLOY/lib"
   cp "$ASSETS/os-release" "$DEPLOY/os-release"
@@ -58,17 +76,35 @@ deploy_hook() {
     gcc -shared -fPIC -o "$DEPLOY/lib/osrelease_redirect.so" "$DEPLOY/.osr.c" -ldl && rm -f "$DEPLOY/.osr.c"
   fi
   say "hook 已部署: $DEPLOY/lib/osrelease_redirect.so"
+
+  # 协商垫片 ICD + 清单（新容器里 /run/host/usr/lib 不可见，ICD 必须放 home）
+  if [ "$DEPLOY" = "$HOME/gf-compat" ]; then
+    cp "$ASSETS/libvulkan_gf_shim.so" "$DEPLOY/lib/libvulkan_gf_shim.so"
+  else
+    command -v gcc >/dev/null || { err "非默认 DEPLOY 需 gcc 重编 shim"; return 1; }
+    sed "s|/home/ubuntu/gf-compat|$DEPLOY|g" "$ASSETS/libvulkan_gf_shim.c" > "$DEPLOY/.shim.c"
+    gcc -shared -fPIC -o "$DEPLOY/lib/libvulkan_gf_shim.so" "$DEPLOY/.shim.c" && rm -f "$DEPLOY/.shim.c"
+  fi
+  cp "$ASSETS/gf_icd.json" "$DEPLOY/gf_icd.json"
+  say "垫片 ICD 已部署: $DEPLOY/lib/libvulkan_gf_shim.so (+ $DEPLOY/gf_icd.json)"
+
+  # 驱动库副本（容器内可见性以 home 为准；宿主机库含用户的低地址映射补丁则一并带入）
+  cp /usr/lib/x86_64-linux-gnu/libvulkan_gf.so "$DEPLOY/lib/libvulkan_gf.so"
+  cp /usr/lib/x86_64-linux-gnu/libSC.so "$DEPLOY/lib/libSC.so"
+  say "驱动库副本已更新: $DEPLOY/lib/{libvulkan_gf.so,libSC.so}"
 }
 
 # ---------- 2) libSC.so 软链进 Proton 库目录 ----------
 link_libsc() {
   local dst="$PROTON_EX/files/lib/x86_64-linux-gnu/libSC.so"
+  local want="$DEPLOY/lib/libSC.so"
   local cur
   cur=$(readlink "$dst" 2>/dev/null || true)
-  if [ "$cur" = "/run/host/usr/lib/x86_64-linux-gnu/libSC.so" ]; then
-    say "libSC.so 链接已存在"
+  if [ "$cur" = "$want" ]; then
+    say "libSC.so 链接已存在（-> home 副本）"
   else
-    ln -sf /run/host/usr/lib/x86_64-linux-gnu/libSC.so "$dst"
+    # 旧版曾指向 /run/host/...（新容器里已悬空），一律重指 home 副本
+    ln -sf "$want" "$dst"
     say "libSC.so 已链接 -> $dst"
   fi
 }
@@ -176,7 +212,10 @@ PY
 # ---------- 状态 ----------
 status() {
   echo "== hook ==";        ls -la "$DEPLOY/lib/osrelease_redirect.so" 2>/dev/null || echo "  缺失"
-  echo "== libSC ==";       readlink "$PROTON_EX/files/lib/x86_64-linux-gnu/libSC.so" 2>/dev/null || echo "  缺失"
+  echo "== shim ICD ==";    ls -la "$DEPLOY/lib/libvulkan_gf_shim.so" 2>/dev/null || echo "  缺失"
+  echo "== gf_icd.json =="; cat "$DEPLOY/gf_icd.json" 2>/dev/null || echo "  缺失"
+  echo "== 驱动库副本 ==";  ls -la "$DEPLOY/lib/libvulkan_gf.so" "$DEPLOY/lib/libSC.so" 2>/dev/null || echo "  缺失"
+  echo "== libSC 链接 ==";  readlink "$PROTON_EX/files/lib/x86_64-linux-gnu/libSC.so" 2>/dev/null || echo "  缺失"
   echo "== DXVK ==";        head -1 "$PROTON_EX/files/lib/wine/dxvk/version" 2>/dev/null
   echo "== MMPatch ==";     ls -la "$GAME/MMPatch.dll" 2>/dev/null || echo "  缺失"
   echo "== doorstop ==";    grep target_assembly "$GAME/doorstop_config.ini" 2>/dev/null
@@ -203,6 +242,10 @@ config_steam
 inject_winhttp || true
 
 say "完成。重启 Steam 后启动 Minion Masters 即走 7G100 硬件渲染。"
-say "注意: (1) Proton Experimental 更新会覆盖 libSC 链接与 DXVK 降级，更新后请重跑本脚本。"
-say "      (2) 游戏后端 api.prod.mm21.../v1/* 目前 404（厂商服务器问题，与显卡无关），"
-say "          游戏会推进到登录后自行退出；7G100 渲染本身已验证正常（Renderer: LISUAN 7G100）。"
+say "注意: (1) Proton Experimental / Steam 容器运行时更新会覆盖 libSC 链接与 DXVK 降级，"
+say "          更新后请重跑本脚本（幂等）。"
+say "      (2) 32 位低地址映射由 hook 的【低 4GB 重映射池】兜底；宿主机驱动若另打了"
+say "          MAP_32BIT 单字节补丁（~/project/lisuan/gf-lowmem-shim/patch_gf_map32.py）属锦上添花。"
+say "      (3) 游戏后端 api.prod.mm21.../v1/* 目前 404（厂商服务器问题，与显卡无关），"
+say "          游戏会推进到登录队列后卡住/自行退出；7G100 渲染链路已全程验证"
+say "          （Renderer: LISUAN 7G100 + 场景加载 + 登录流程）。"
