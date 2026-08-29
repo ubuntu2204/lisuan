@@ -66,12 +66,18 @@ public static class MMPatch
         if (domain == IntPtr.Zero) { Log("[MMPatch] il2cpp_domain_get timeout, abort"); return; }
         Log($"[MMPatch] domain ready @0x{domain.ToInt32():X}, applying patches");
 
-        // Vivox patch 已于 2026-08-28 停用：
-        // 实测 Vivox 在 wine 下能正常 Initializing / 拿到 token / OnLoginStateChanged: LoggedIn；
-        // 而把 LoginAsync+LogoutAsync patch 成空操作后，游戏等不到登录回调，
-        // 停在 [ChatService] Starting LoginAsync 后直接退出（表现为"闪退"）。
-        // 如需重新启用，取消下一行注释即可。
-        try { PatchVivox(); } catch (Exception ex) { Log("[MMPatch] PatchVivox ex: " + ex); }
+        /*
+         * Vivox patch【必须保持停用】（2026-08-29 再次确认）：
+         * Vivox 在 wine 下本来就能正常工作——成功日志里有完整的
+         *   [VivoxChatServiceAdapter] Initializing Vivox / Login started with token e30... /
+         *   OnLoginStateChanged: LoggedIn
+         * 一旦把 LoginAsync+LogoutAsync 改掉（无论改空操作还是跳 trampoline），
+         * 游戏都会卡在 [ChatService] Starting LoginAsync 等不到回调
+         * （表现为空操作版直接退出、trampoline 版卡在"加载中"）。
+         * 另：日志中若看到 "PATCHED 2/2 Vivox async" 即说明本行没被注释掉，游戏必卡。
+         */
+        // try { PatchVivox(); } catch (Exception ex) { Log("[MMPatch] PatchVivox ex: " + ex); }
+        Log("[MMPatch] Vivox patch disabled (Vivox works natively under wine)");
 
         try { PatchNewsDownloadFallback(); } catch (Exception ex) { Log("[MMPatch] PatchNews ex: " + ex); }
         Log("[MMPatch] done");
