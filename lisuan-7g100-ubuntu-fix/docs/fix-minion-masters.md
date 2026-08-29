@@ -1,59 +1,100 @@
 # 随从大师（Minion Masters）修复
 
-> 适用机型：**砺算 7G100 GPU + Ubuntu 24.04 + Proton 8.0（Steam）**。
+> 适用机型：**砺算 7G100 GPU + Ubuntu 24.04 + Proton（Steam）**。
 > 现象：Steam 里启动 Minion Masters 先后崩在 Vivox 登录 / 黑屏（Zenject 异常循环）；
 > 修复后已能过 Vivox、Steam 验证、连上游戏服务器并**进入主菜单（BattleModeViewModel）**。
 > 修复脚本：`lisuan-7g100-ubuntu-fix/scripts/fix-minion-masters.sh`（Launcher 注入）；
-> 真正的崩溃修复是 BepInEx 插件 `MMSkipVivox.dll`（源码 `/home/ubuntu/mm_patch/plugin/Patcher.cs`）。
+> 真正的崩溃修复是运行时 IL2CPP patch：**当前为 `MMPatch.dll`**（doorstop 直载，纯 P/Invoke，
+> 源码 `assets/mm-gf-vulkan/MMPatch.cs`）。早期的 BepInEx 插件 `MMSkipVivox.dll`
+> （源码 `/home/ubuntu/mm_patch/plugin/Patcher.cs`）已于 2026-08-26 退役，见游戏坑 1。
+>
+> **渲染状态（2026-08-30）**：7G100 **硬件渲染**已打通，见文末「游戏坑 8」。
+> 本文只保留**可照做的成功方案**；失败尝试与排查弯路统一收在
+> `MinionMasters-攻坚全记录.md`。
+>
+> **编号约定**：本文的「**游戏坑 N**」指**游戏/应用层**问题（Vivox、证书、BepInEx、Proton 配置等）；
+> 显卡/渲染层问题用「**显卡坑 N**」，统一记录在 `MinionMasters-攻坚全记录.md`。
+> 两套数字会撞车但含义不同——例如**游戏坑 3 = 服务端 API 404**，
+> 而**显卡坑 3 = Steam 报内容文件损坏**，别看混。
 
 ---
 
 ## TL;DR
 
-随从大师是 Unity / IL2CPP 游戏，坑按排除顺序共四层：
+随从大师是 Unity / IL2CPP 游戏，坑按排除顺序共五层：
 
 1. **崩在 Vivox 语音登录**（已修复）：游戏在 `VivoxChatServiceAdapter.LoginAsync` 里 fire-and-forget
    调用未处理异常的 async（`UniTask` 的 `PublishUnobservedTaskException`），导致进程崩在 IL2CPP
-   机器码（GameAssembly.dll 内），无法按托管名 patch。修复 = BepInEx 6 插件，运行时把该函数的
-   prologue 改掉，让它立即返回（见坑 1）。
+   机器码（GameAssembly.dll 内），无法按托管名 patch。修复 = 运行时把该函数 prologue 改掉，
+   让它立即返回。**当前由 `MMPatch.dll` 经 doorstop 直载完成**（见游戏坑 1）；
+   早期的 BepInEx 插件方案已被取代，原因见游戏坑 8 障碍 4。
 2. **黑屏 + BepInEx 控制台无限刷 `NotSupportedException`**（已修复）：证书 patch
    （`CertificateHandler.ValidateCertificate`）反而破坏了 IL2CPP runtime 状态，引发 Zenject
    `ProjectContext` 重复创建 assert + `BootstrapInstaller.Start()` NullReference + 异常提取栈
-   死循环（见坑 2）。禁用证书 patch、改 patch `DownloadHandlerTexture.InternalGetTexture` 后解决。
+   死循环（见游戏坑 2）。禁用证书 patch、改 patch `DownloadHandlerTexture.InternalGetTexture` 后解决。
 3. **图片下载证书错误导致的致命 Texture 异常**（已修复）：`Curl error 60` →
    `Texture has not yet finished downloading` 异常沿 UniTask `TrySetException` 链传播。
-   修复 = 把 `InternalGetTexture` patch 成返回 null（见坑 1 的 patch c）。
+   修复 = 把 `InternalGetTexture` patch 成返回 null（见游戏坑 1 的 patch c）。
 4. **联网可达性**（外部环境，非配置可解）：游戏后端 `api.prod.mm21.minionmastersthegame.com`
    **所有 `/v1/*` API endpoint 返回 404**（`/health` 却返回 200 "Healthy"）→ `LoginQueueService.Post`
-   抛 `Http error code was 404`，登录队列进不去；另有 Azure IP `140.228.24.145:443` 封锁（见坑 3）。
+   抛 `Http error code was 404`，登录队列进不去；另有 Azure IP `140.228.24.145:443` 封锁（见游戏坑 3）。
+5. **渲染后端**：已能用 **7G100 硬件渲染**（不再是 llvmpipe）。要点是绕过 gf 的发行版白名单、
+   处理 `vkCreateDevice` 依赖的 `libSC.so`、把 DXVK 降到 v2.3、以及把落在 >4GB 的显存映射
+   重定位到 2~4GB（见游戏坑 8）。**系统驱动保持原版，改动隔离在 LD_PRELOAD**。
 
-当前状态（**2026-08-25 00:38 排查后**）：游戏能完整走完 IL2CPP 加载 → Steam 身份验证（拿到
+当前状态（**2026-08-30**）：游戏能完整走完 IL2CPP 加载 → Steam 身份验证（拿到
 Ticket、缓存 SteamID `76561198811581867`）→ WebSocket 连游戏服务器（`Connection opened`）→
 拉到 SteamShop 商品列表 → **进入主菜单 `BattleModeViewModel`**（PracticeDifficultyView、
-MetaTutorialStateService 均加载）。但游戏进程会在启动后 **~40–90 秒被移除**（Steam console_log
-`Game process removed: AppID 489520`），时间点在登录队列 404 之后——剩余阻塞见坑 3 / 坑 7。
+MetaTutorialStateService 均加载），**渲染后端为 7G100 硬件渲染**（2026-08-30 验证：
+buffer 错误 0、纹理错误 0、主菜单标记 29）。
+
+但游戏进程会在启动后 **~40–90 秒被移除**（Steam console_log
+`Game process removed: AppID 489520`），时间点在登录队列 404 之后——这是**服务端问题**，
+与显卡无关，剩余阻塞见游戏坑 3 / 游戏坑 7。
+
+**固化脚本（两个，分工不同——别用错）**：
+
+| 脚本 | 路线 | 当前是否该用 |
+|---|---|---|
+| `scripts/fix-minion-masters-7g100-hw.sh` | **7G100 硬件渲染** | ✅ **用这个** |
+| `scripts/fix-minion-masters.sh` | llvmpipe 软件渲染（早期路线） | ❌ 仅存档/对比 |
 
 ```bash
-sudo ./scripts/fix-minion-masters.sh            # 注入 Launcher（gate 逻辑）→ 宿主启动 mm.sh
-sudo ./scripts/fix-minion-masters.sh --uninstall
+sudo ./scripts/fix-minion-masters-7g100-hw.sh
 ```
 
-`mm.sh` 才是宿主启动器：先 kill 残留（Steam 进程残留），再 valve-run → 宿主 `steam -applaunch 489520`。
+> 早期笔记里提到的宿主启动器 `mm.sh`（先 kill 残留再 `valve-run` → `steam -applaunch 489520`）
+> **已不存在**，2026-08-30 核实无此文件。现在直接从 Steam 启动即可。
 
 ---
 
-## 坑 1：Vivox 登录崩溃 + Texture 异常（已修复，插件三件套）
+## 游戏坑 1：Vivox 登录崩溃 + Texture 异常（已修复，插件三件套）
 
 ### 根因
 游戏崩在 IL2CPP 机器码 `VivoxChatServiceAdapter.LoginAsync`（位于 GameAssembly.dll 内）。
 这是 fire-and-forget async 未处理异常（UniTask 的 `PublishUnobservedTaskException`）。
 该类型/方法**不在** Il2CppInterop 生成的 interop 程序集里，所以常规的 Harmony 按托管名 patch 行不通。
 
-### 修复方案（已验证成功，v1.1.1 = 当前部署 15360 bytes）
-BepInEx 6 + 自定义插件 `MMSkipVivox.dll`（源码 `/home/ubuntu/mm_patch/plugin/Patcher.cs`，
-编译目标 net6.0，引用 tools/bepinex 的 BepInEx.Core / BepInEx.Unity.IL2CPP / Il2CppInterop.Runtime）。
+### 修复方案（当前部署：`MMPatch.dll` 10752 B）
 
-插件在 `Load()` 中共做**三个 patch**（地址为 32 位 wine 运行时绝对 VA，实测跨启动稳定）：
+> **2026-08-30 更正**：本节原写的是 BepInEx 6 插件 `MMSkipVivox.dll`（v1.1.1 / 15360 B）。
+> 该方案在 new WoW64 下**已不加载**（BepInEx Chainloader 停在初始化，见游戏坑 8 障碍 4），
+> 已被 `MMPatch.dll` 取代。旧方案移记为「历史方案」保留在文末。
+
+**当前生效的注入链**：`winhttp.dll`（doorstop）→ `MMPatch.dll` → P/Invoke 直接打 patch。
+
+| 项 | 值 |
+| --- | --- |
+| 注入器 | `winhttp.dll`（doorstop 4，`/run/host` 无关），配置 `doorstop_config.ini` |
+| `target_assembly` | **`MMPatch.dll`**（`~/.local/share/Steam/steamapps/common/Minion Masters/`） |
+| 源码 | `assets/mm-gf-vulkan/MMPatch.cs`（netstandard2.1，纯 P/Invoke） |
+| 依赖 | **不依赖** BepInEx.Core / Il2CppInterop |
+| 触发时机 | `Doorstop.Entrypoint.Start` 起线程轮询 `il2cpp_domain_get()` 就绪后打 patch |
+
+之所以改用 doorstop 直载：new WoW64 下 Il2CppInterop 的 runtime-invoke hook 不触发，
+`Chainloader.Start()` 永不执行 → 插件不加载 → Vivox 崩溃回归。
+
+三个 patch **目标与地址不变**（32 位 wine 运行时绝对 VA，实测跨启动稳定）：
 
 | # | 目标 | 地址 | 改法 | 目的 |
 | --- | --- | --- | --- | --- |
@@ -69,7 +110,7 @@ Il2CppMethodInfo* → 读 `methodInfo + 0` = methodPointer（**注意**：wine �
 VA，**已被重定位**，不是 PE 镜像基址，不要套 PE 基址）→ `kernel32.VirtualProtect` 改页 R/W/E
 改 prologue。
 
-patch a 的 trampoline 演进（**重要教训**）：
+patch a 的 trampoline 演进（**重要教训**，源自 `MMSkipVivox` 时期，`MMPatch` 沿用其最终版）：
 
 - **v1.0.0（旧，有隐患）**：prologue 直接覆盖 `31 C0 31 D2 C3`（xor eax,eax; xor edx,edx; ret）
   返回**全零 struct**。游戏 **8/23 更新前**能跑；更新后 `ChatService.LoginAsync` 改为 `await`
@@ -79,6 +120,9 @@ patch a 的 trampoline 演进（**重要教训**）：
   本机 IL2CPP 没生成该 getter，**回退 xor 方案**（`31 C0 31 D2 C3` 的远跳版）。
   实测 8/24 版游戏下全零 UniTask 已不再致命（配合 patch b/c），故当前即为 xor 回退版在跑。
 
+> 完整演进（两次尝试的细节、`MMSkipVivox` 退役过程与现场文件痕迹）见
+> `MinionMasters-攻坚全记录.md` → 附录 B「已废弃方案：BepInEx 6 + `MMSkipVivox.dll`」。
+
 patch c 的异常传播链（为什么必须 patch 这里）：`Curl error 60`（证书校验失败）→
 `DownloadHandlerTexture.InternalGetTexture()` 抛 `InvalidOperationException: Texture has not
 yet finished downloading` → `NewsItemViewModel+<DownloadSpriteFromUrlAsync>d__56.MoveNext()` →
@@ -87,23 +131,29 @@ yet finished downloading` → `NewsItemViewModel+<DownloadSpriteFromUrlAsync>d__
 `HandleSafeFireAndForget`）→ Unity `Uploading Crash Report`。只 patch MoveNext 拦不住
 awaiter 链上的二次传播，**在异常源头（InternalGetTexture）返回 null 才彻底**。
 
-### 部署现状
-| 内容 | 位置 |
+### 部署现状（2026-08-30 核实）
+
+| 内容 | 位置 / 状态 |
 | --- | --- |
-| `MMSkipVivox.dll`（15360 B） | 游戏 `BepInEx/plugins/`（备份 `.bak-1002` = v1.0.0 8704 B） |
-| doorstop 注入 | winhttp.dll（已注入） |
-| `winhttp=n,b` 覆盖 | 游戏 `user.reg` |
+| `MMPatch.dll`（10752 B） | 游戏根目录 ✅ **当前生效** |
+| `MMPatch.dll.disabled-20260826`（10240 B） | 同目录，旧版已禁用 |
+| `doorstop_config.ini` | `target_assembly = MMPatch.dll` ✅ |
+| `doorstop_config.ini.bak-bepinex` | BepInEx 时代的备份 |
+| `winhttp.dll`（22016 B） | 游戏根目录，doorstop 注入器 ✅ |
+| `winhttp=n,b` 覆盖 | `pfx/user.reg` 第 982 行 ✅ |
+| `BepInEx/` | **已重命名为 `BepInEx.disabled-20260826/`**，plugins 为空 → 不再参与启动 |
+| `MMSkipVivox.dll` | 仅存于 `BepInEx.disabled-*/plugins/` 与 `~/mm_patch/backup/` → **已退役** |
 | dxgi / d3d11 | 已从游戏目录移除（避免 pressure-vessel 路径冲突） |
 
-验证：`BepInEx/LogOutput.log` 出现 3 条 `patched/ PATCHED`；Player.log 出现
-`BattleModeViewModel`、`MetaTutorialStateService loaded`；**不再出现**
-`Texture has not yet finished downloading`。
+验证：`Player.log` 出现 `BattleModeViewModel`、`MetaTutorialStateService loaded`；
+**不再出现** `Texture has not yet finished downloading`。
+（new WoW64 下不再有 `BepInEx/LogOutput.log`，插件日志改由 MMPatch 自身输出到 wine  stderr。）
 
 > 已排除的弯路：禁用 Vivox DLL 反而让游戏更早崩在登录队列；Vivox 必须"跳过"而非"禁用"。
 
 ---
 
-## 坑 2：证书 patch 回归——黑屏 + NotSupportedException 无限刷屏（已修复，重大教训）
+## 游戏坑 2：证书 patch 回归——黑屏 + NotSupportedException 无限刷屏（已修复，重大教训）
 
 **现象**：BepInEx 控制台持续刷 `NotSupportedException: Derived classes must provide an
 implementation`，主窗口黑屏，Player.log 停在异常循环（几万行），游戏进程最终消失。
@@ -123,7 +173,7 @@ true。实测该 patch **破坏 IL2CPP runtime 状态**：
 > 杀手是它后面跟着的 BootstrapInstaller NullReference 循环。
 
 **修复**：**彻底禁用 `PatchCertVerification`**（源码里只留注释）。证书问题的正确处理 =
-坑 1 的 patch b/c（跳过下载 + 异常源头返回 null）。经验：**patch Unity 内部 native 方法前先
+游戏坑 1 的 patch b/c（跳过下载 + 异常源头返回 null）。经验：**patch Unity 内部 native 方法前先
 确认它不是共享 helper**——`0x75D98C0` 原字节就是 `32 C0 C3 CC CC`（一个已被优化成
 "return false" 的共享 stub），patch 它会波及所有调用方。
 
@@ -133,7 +183,7 @@ true。实测该 patch **破坏 IL2CPP runtime 状态**：
 
 ---
 
-## 坑 3：联网可达性（外部环境，非配置可解）
+## 游戏坑 3：联网可达性（外部环境，非配置可解）
 
 两层问题（2026-08-25 实测 curl 复核）：
 
@@ -152,37 +202,71 @@ true。实测该 patch **破坏 IL2CPP runtime 状态**：
 
 ---
 
-## 坑 4：Proton 版本
+## 游戏坑 4：Proton 版本
 
-必须用 **Proton 8.0**（经 steamcmd 账号登录下载 AppID 218010，安装位置
-`~/.local/share/Steam/steamapps/common/Proton 8.0`）。Proton Experimental / wine 11.0 在
-7.0.0-30 内核下有 32 位地址空间回归（游戏崩在 `0x01160000`），Proton 8.0 绕过。
+> **⚠️ 本节结论于 2026-08-30 更正。** 原文"必须用 Proton 8.0"是 llvmpipe 软件渲染时期的结论，
+> 在 7G100 硬件渲染方案下**已不成立，且正好相反**。旧结论保留在下方"历史"小节备查。
+
+**当前结论：必须用支持 new WoW64 的 Proton（Experimental / wine 11.0 系）。**
+
+实测依据（`proton` 脚本中 `PROTON_USE_WOW64` 的出现次数）：
+
+| Proton | `PROTON_USE_WOW64` 次数 | 能否用于硬件渲染 |
+|---|---|---|
+| `Proton 8.0` | **0** | ❌ **不支持 new WoW64** |
+| `Proton - Experimental` | 3 | ✅ |
+| `Proton - MM GF`（本项目自定义副本） | 3 | ✅ |
+
+**原因**：32 位游戏要调 64 位 gf 驱动，必须经 new WoW64 thunk。Proton 8.0 只有传统 wow64
+（32 位 winevulkan），会去找**并不存在的 32 位 Vulkan ICD**（砺算无 i386 版，且 gf 闭源无法自编）。
+因此硬件渲染路径下 Proton 8.0 直接出局。
+
+**当前部署**：
+
+- CompatToolMapping `489520` → `proton_experimental`；
+- 或使用 `Proton - MM GF`（`version` = `experimental-11.0-20260826-x86_64`），
+  它是 Experimental 的**独立副本**（2026-08-28 复制，inode 不同），内置 DXVK v2.3 降级与
+  `libSC.so` 软链，**不会被 Experimental 的自动更新冲掉**——长期用更省心（见游戏坑 8）。
+- 启动选项须带 `PROTON_USE_WOW64=1`（Experimental 默认只对白名单游戏开 new WoW64）。
+
+> **注意用哪一份（2026-08-30 核实）**：CompatToolMapping 当前指向 `proton_experimental`，
+> 所以**实际生效的是 Experimental 那份 DXVK**，不是 `Proton - MM GF`。
+> 好消息是两份目前**内容一致**（`dxgi.dll` md5 均为 `fb6cf30d…`，版本串均含 `v2.3`），
+> 即降级在两处都已落地。若日后 Experimental 被 Steam 更新覆盖，游戏会退回 v3.x 而失败
+> （v3.0.2 硬要求 `VK_KHR_maintenance5`，gf 不支持）——届时把 CompatToolMapping 切到
+> `Proton - MM GF`，或重跑固化脚本即可。
+
+### 历史：为什么曾经推荐 Proton 8.0（旧结论，已失效）
+
+llvmpipe 软件渲染时期记录为："Proton Experimental / wine 11.0 在 7.0.0-30 内核下有
+32 位地址空间回归，游戏崩在 `0x01160000`，Proton 8.0 绕过。"
+
+**该归因后来被推翻**：那个崩溃的真正原因是 **winex11 的 64 位 OpenGL 初始化失败**
+（`libGL error: No driver found`）后崩进 `handle_syscall_fault` 死循环，与 Proton 版本无关。
+用 `__GLX_VENDOR_LIBRARY_NAME=mesa LIBGL_ALWAYS_SOFTWARE=1` 让 winex11 走 llvmpipe GL 即可绕过，
+且**只影响 winex11 的 GL 探测，不影响 DXVK 走 7G100**。详见游戏坑 8「附带」小节。
+
+保留此段是为了解释"为什么旧笔记里到处写着要用 Proton 8.0"——**那些笔记已过期**。
 
 ---
 
-## 坑 5：user_settings.py 注入无效（教训，不要再踩）
+## 游戏坑 5：user_settings.py 注入无效（教训，不要再踩）
 
-> Steam 平台层的通用说明（容器白名单、格式陷阱）见 [`docs/steam-on-lisuan.md` §7](./steam-on-lisuan.md)。
+**结论：不要用 `user_settings.py` 注入显卡相关的环境变量。**
 
-`~/.local/share/Steam/steamapps/common/Proton 8.0/user_settings.py` 的正确格式是**顶层键值对**：
+- 格式是顶层键值对，嵌套 `session_environment` 会 `TypeError` 导致游戏不启动；
+- 即便格式正确，自定义变量**不会进入 pressure-vessel 容器**（只传白名单 env），
+  注入 `VK_ICD_FILENAMES` / `WINEDLLOVERRIDES` 均无效。
 
-```python
-user_settings = {
-    "VK_ICD_FILENAMES": "/usr/share/vulkan/icd.d/gf_icd.x86_64.json",
-    "WINEDLLOVERRIDES": "winhttp=n,b",
-}
-```
+当前部署：**已移除自定义 user_settings.py**（保持默认）。显卡相关变量一律走
+Steam 启动选项（LaunchOptions）。
 
-**两个坑**：
-- ❌ 不能用嵌套 `session_environment`：嵌套 dict 会被 proton 当成 env 值 → `TypeError: expected str... not dict` → 游戏根本不启动。
-- ⚠️ 即便格式正确，`user_settings.py` 注入的自定义变量（VK_ICD_FILENAMES / WINEDLLOVERRIDES）**不会进入
-  pressure-vessel 容器环境**（pressure-vessel 只传白名单 env）。所以 user_settings.py 不是注入显卡驱动的可靠途径。
-
-当前部署：**已移除自定义 user_settings.py**（保持顶层默认），游戏用 llvmpipe 软件渲染。
+> Steam 平台层的通用说明（容器白名单、格式陷阱）见
+> [`docs/steam-on-lisuan.md` §7](./steam-on-lisuan.md)。
 
 ---
 
-## 坑 6：Steam "游戏运行中" 状态卡死
+## 游戏坑 6：Steam "游戏运行中" 状态卡死
 
 > 平台层通用说明见 [`docs/steam-on-lisuan.md` §5](./steam-on-lisuan.md)。
 
@@ -192,22 +276,20 @@ user_settings = {
 
 ---
 
-## 坑 7：游戏进程启动后 ~40–90 秒被移除（当前未解）
+## 游戏坑 7：游戏进程启动后 ~40–90 秒被移除（当前未解，与显卡无关）
 
 **现象**：游戏已能进入主菜单（`BattleModeViewModel` 出现在 Player.log），但 Steam
 console_log 在启动后 38–90 秒不等出现 `Game process removed: AppID 489520`，进程消失。
-Player.log 末尾停在 `[ChatService] Starting LoginAsync`（patch 跳过后的 Vivox 调用），
 无 crash dump、无 .NET 致命异常。
 
-**已排除**：
-- 不是 `CAPIJobRequestUserStats - Server response failed 2`——该错误从 8/24 13:34 起持续出现
-  （23 次），与游戏退出时刻无固定时间关联，且成功进入主菜单的运行里同样存在；
-- 不是 Zenject assert（良性，见坑 2）；
-- 不是 Texture 异常（已 patch，见坑 1c）。
+**主因怀疑**：登录队列 404（游戏坑 3）之后游戏自身超时退出——
+`LoginQueueService.EnterQueueAndWaitForTurn` 的 404 异常让流程走不下去。属服务端问题，
+本地无解，需等后端恢复后复测。
 
-**怀疑方向**：登录队列 404（坑 3.1）之后游戏自身超时退出，`DefaultModeInstaller` 构造里
-`LoginQueueService.EnterQueueAndWaitForTurn` 的 404 异常可能最终让流程走不下去。需等后端
-恢复后复测，或进一步 hook `LoginQueueService` 观察退出路径。
+**已排除**：`CAPIJobRequestUserStats` 报错、Zenject assert（良性，游戏坑 2）、Texture 异常（已 patch，游戏坑 1c）。
+
+> 排查细节（排除过程、观察退出路径的 hook 思路）见
+> `MinionMasters-攻坚全记录.md` → 附录 B「游戏层（非显卡）的教训与未解问题」。
 
 ---
 
@@ -227,36 +309,37 @@ cat ~/.steam/root/steamapps/common/Minion\ Masters/MinionMasters.sh | grep -A3 g
 #    - WebSocketSharpTransportService] Connection opened（连上游戏服务器）
 #    - [BattleModeViewModel] Updating invites 0（进入主菜单）
 #    - [MetaTutorialStateService] loaded meta tutorial state
-# 4) 渲染后端为 llvmpipe（软件，已知限制）
+# 4) 渲染后端（grep "Renderer:"）—— 应为硬件渲染：
+#      Renderer: LISUAN 7G100 Series Graphics (ID=0x5006)
+#    若为 llvmpipe / 其他，说明 7G100 未生效，按「游戏坑 8」逐项排查：
+#      - Steam 启动选项是否含 LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so
+#      - 是否 PROTON_USE_WOW64=1
+#      - libSC.so 软链是否被 Proton 更新冲掉（重跑固化脚本）
 ```
 
 若启动后崩在 Vivox（无 PATCHED 日志）：确认 `MMSkipVivox.dll` 在 `BepInEx/plugins/` 且 winhttp 覆盖生效。
-若黑屏 + BepInEx 控制台刷 NotSupportedException：确认插件是**禁用证书 patch 的版本**（见坑 2）。
-若进主菜单后 ~1 分钟进程消失：属坑 7（当前未解，先确认坑 3 的 API 404 状态）。
+若黑屏 + BepInEx 控制台刷 NotSupportedException：确认插件是**禁用证书 patch 的版本**（见游戏坑 2）。
+若进主菜单后 ~1 分钟进程消失：属游戏坑 7（当前未解，先确认游戏坑 3 的 API 404 状态）。
 
 **Player.log 排障技巧**：Unity 每次启动会把上次的 `Player.log` 轮转为 `Player-prev.log`；看
 `ls -la` 的 mtime 区分本次/上次运行，别拿旧日志下结论。日志被 NotSupportedException 刷屏时先
-用 grep -vE 过滤噪音（见坑 2 的排障技巧）。
+用 grep -vE 过滤噪音（见游戏坑 2 的排障技巧）。
 
 ---
 
-## 附录：渲染层与 Steam 登录层额外坑（与 Vivox 无关）
+## 附录 A：渲染层与 Steam 登录层额外坑（与 Vivox 无关）
+
+> 让 7G100 **硬件渲染**的突破在文末**「游戏坑 8」**（因其为最后追加，位置在附录之后），
+> 若你要找的是显卡相关配置，请直接跳到那里。
 
 > 这些坑在排障时容易和 Vivox 崩溃混淆，单独列出。细节亦见 README 第七章 7.2 / 7.3 / 7.4。
 
-### A1. `d3d11: failed to create factory`（渲染设备创建卡死）
+### A1. `d3d11: failed to create factory`（渲染设备创建卡死）—— **已过时，仅存档**
 
-DXVK 创建 D3D11 factory 失败时，游戏会卡在 `GfxDevice: creating device client` 然后退出
-（无 Player.log 或停在 creating device client）。修法：
-
-- **优先 `PROTON_USE_WINED3D=1`**：wined3d 走软件渲染（llvmpipe），能稳定过渲染关，
-  游戏可到 `Direct3D 11 llvmpipe` + 推 `LoginMainViewModel`。
-- 或在 Steam 默认启动下，让 pressure-vessel 自动注入 gf Vulkan（`VK_ICD_FILENAMES`
-  已含 `gf_icd.x86_64.json`），DXVK 才能拿到有效 Vulkan 后端。
-
-**注意**：不要手动在启动 wrapper（`run-mm.sh` 之类）里硬塞 `VK_ICD_FILENAMES` /
-`WINEDEBUG` 等 env——会破坏 Steam 注入的完整 env，反而让渲染卡死。清空 LaunchOptions、
-恢复 Steam 默认启动后通常就正常。
+> **2026-08-30 核实：本节在 7G100 硬件渲染方案下已不适用。**
+> 当前日志中 `failed to create factory` 出现 **0 次**，且本节建议的
+> `PROTON_USE_WINED3D=1`（wined3d 软件渲染）与硬件渲染目标**背道而驰**——照做会退回 llvmpipe。
+> 原始内容已移存 `MinionMasters-攻坚全记录.md` 附录 B，此处不再作为操作建议。
 
 ### A2. 无头环境 Steam 客户端登录（更新 2026-08-25：自动登录可自愈）
 
@@ -318,9 +401,9 @@ BepInEx 日志里 `Loading [MM Skip Vivox 1.0.0]` 显示的是**程序集版本*
 
 ---
 
-## 坑8（2026-08-26 突破）：让 7G100【硬件渲染】——new WoW64 + gf 发行版白名单绕过
+## 游戏坑 8（2026-08-26 突破）：让 7G100【硬件渲染】——new WoW64 + gf 发行版白名单绕过
 
-此前路线（坑1-7）游戏只能用 **llvmpipe 软件渲染**。本章记录让游戏真正用 **7G100 显卡渲染 D3D11** 的完整方案（固化脚本 `scripts/fix-minion-masters-7g100-hw.sh`，资产 `assets/mm-gf-vulkan/`）。
+此前路线（游戏坑 1-7）游戏只能用 **llvmpipe 软件渲染**。本章记录让游戏真正用 **7G100 显卡渲染 D3D11** 的完整方案（固化脚本 `scripts/fix-minion-masters-7g100-hw.sh`，资产 `assets/mm-gf-vulkan/`）。
 
 ### 根本矛盾：32 位游戏 vs 只有 64 位 gf 驱动
 
@@ -379,23 +462,117 @@ new WoW64 下 BepInEx 停在 `Chainloader initialized`——Il2CppInterop 的 ru
 patch），`doorstop_config.ini` 的 `target_assembly` 指向 `MMPatch.dll`。**完全不依赖**
 BepInEx.Core / Il2CppInterop。实测 wow64 下 patch 地址与传统模式一致（如 LoginAsync @0x75963BD0）。
 
-### 附带：winex11 GL 初始化崩溃（坑4"0x01160000"的真面目）
+### 附带：winex11 GL 初始化崩溃（游戏坑 4"0x01160000"的真面目）
 
 wine11 的 `winex11.drv` 在容器内初始化 64 位 OpenGL 失败（`libGL error: No driver found`）
-后会直接崩进 `handle_syscall_fault` 死循环（这就是坑4记录的"32 位地址空间回归"表象）。
+后会直接崩进 `handle_syscall_fault` 死循环（这就是游戏坑 4记录的"32 位地址空间回归"表象）。
 `__GLX_VENDOR_LIBRARY_NAME=mesa` + `LIBGL_ALWAYS_SOFTWARE=1` 让 winex11 走 llvmpipe GL
 即可绕过；**只影响 winex11 的 GL 探测，不影响 DXVK 走 7G100**。
+
+### 障碍 5（2026-08-29 突破）：显存映射落在 >4GB —— 最终解法
+
+**现象**：枚举、建 device 都过了，DXVK 一分配显存就失败：
+
+```
+err: D3D11: Failed to map memory ...
+d3d11: failed to create buffer (size 20) [0x80070057]
+d3d11: failed to create 2D texture width=4096 height=4096 ...
+```
+
+**根因**：gf 的 `vkMapMemory` 返回的 CPU 指针在高地址（实测 `0x740bdfaec000`）。
+wine 的 WoW64 thunk 无法把 `>4GB` 指针交给 32 位代码，于是主动 `unmap` 并合成
+`VK_ERROR_OUT_OF_HOST_MEMORY`。
+
+**解法**：在 `mmap` 层把 GPU 映射搬到 **2~4GB**。
+
+```c
+#define LOW4_START 0x90000000ULL   /* 2.25GB */
+#define LOW4_END   0x100000000ULL  /* 4GB    */
+
+void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off) {
+    void *r = real_mmap(addr, len, prot, flags, fd, off);
+    if (r == MAP_FAILED) return r;
+    if ((uintptr_t)r >= LOW4_END && fd >= 0 && (flags & MAP_SHARED) && is_gpu_fd(fd)) {
+        void *p = low4_map(len, prot, flags, fd, off);   /* 区内 MAP_FIXED bump 分配 */
+        if (p != MAP_FAILED) { munmap(r, len); return p; }
+    }
+    return r;
+}
+```
+
+两个关键点：
+
+1. **为什么锚定 2~4GB，而不是用 `MAP_32BIT`**：`MAP_32BIT` 的语义是"进程前 **2GB**"，
+   而游戏进程低 2GB 已被 wine 占满（实测 2043/2048MB），大纹理一映射就 `ENOMEM`；
+   2~4GB 区间基本空闲，实测单块可搬 **24MB**。
+2. **为什么判断条件是"结果地址 ≥4GB"，而不是"flags 含 MAP_32BIT"**：早期版本按 flags
+   判断（反汇编 `26eb: and $0x40,%eax`），导致必须给**系统驱动**打 `MAP_32BIT` 补丁才能触发
+   重定位——那是全局的，会让 64 位原生的《刀塔霸业》一启动就段错误。改成看结果地址后，
+   **驱动完全不需要改动**。
+
+`is_gpu_fd()` 用于避免误伤：只认 DRM 字符设备（主设备号 226）和 dma-buf 匿名文件，
+普通文件映射（加载 .so，都是 `MAP_PRIVATE`）和匿名内存不受影响。
+
+> 完整尝试历程（含在 Vulkan ICD 层拦截 `vkMapMemory` 等被放弃的支路）见
+> `MinionMasters-攻坚全记录.md` 阶段 9–13。
 
 ### 验证与最终配置
 
 - `Player.log`: `Renderer: LISUAN 7G100 Series Graphics (ID=0x5006)`，连续多次运行稳定。
-- LaunchOptions（固化脚本写入）：
-  `PROTON_USE_WOW64=1 LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so __GLX_VENDOR_LIBRARY_NAME=mesa LIBGL_ALWAYS_SOFTWARE=1 %command%`
-- CompatToolMapping: 489520 → `proton_experimental`。
+- 2026-08-30 验证（系统驱动为原版、未打补丁）：buffer 错误 0、纹理错误 0、主菜单标记 29、
+  日志 1564 行、低 4GB 重定位 10005 次。
+
+**LaunchOptions（最终，固化脚本写入）**：
+
+```
+LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so PROTON_USE_WOW64=1 %command%
+```
+
+- CompatToolMapping: 489520 → `proton_experimental`（或自定义 `Proton - MM GF`）。
+- `VK_ICD_FILENAMES` **已不再需要**——直接用系统原版驱动。
 - **注意**：Proton Experimental 每次更新都会覆盖 libSC 链接与 DXVK 降级，更新后需重跑固化脚本。
+
+**关于 Steam 里的实际 LaunchOptions（2026-08-30 核实）**：
+
+当前 Steam 存的是固化脚本早期写入的版本，比上面的最简形式多两个变量：
+
+```
+PROTON_USE_WOW64=1 LD_PRELOAD=/home/ubuntu/gf-compat/lib/osrelease_redirect.so
+__GLX_VENDOR_LIBRARY_NAME=mesa LIBGL_ALWAYS_SOFTWARE=1
+VK_ICD_FILENAMES=/home/ubuntu/gf-compat/gf_icd.json
+VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_overlay_32
+%command%
+```
+
+| 变量 | 是否仍需要 | 说明 |
+|---|---|---|
+| `PROTON_USE_WOW64=1` | ✅ 必需 | 32 位游戏调 64 位驱动的唯一途径 |
+| `LD_PRELOAD=…osrelease_redirect.so` | ✅ 必需 | 发行版白名单绕过 + 低 4GB 重定位 |
+| `__GLX_VENDOR_LIBRARY_NAME=mesa`<br>`LIBGL_ALWAYS_SOFTWARE=1` | ✅ 需要 | 让 **winex11** 的 GL 探测走 llvmpipe，避免其崩进 `handle_syscall_fault`；**不影响 DXVK 走 7G100** |
+| `VK_ICD_FILENAMES` | ⚠️ **冗余** | 2026-08-30 实测不带它也能用系统原版驱动跑通（见上文验证）。留着无害（指向 `gf-compat/gf_icd.json`），但精简配置时可去掉 |
+| `VK_LOADER_LAYERS_DISABLE` | ✅ 建议保留 | 禁用 Steam overlay 的 Vulkan 层——它会经 `vk_icdGetPhysicalDeviceProcAddr` 直连真 ICD 绕过垫片导致段错误（显卡坑 16） |
+
+> 若按最简形式改写后出现异常，把 `VK_ICD_FILENAMES` 与 `VK_LOADER_LAYERS_DISABLE` 加回去即可——
+> 这两个是"去掉可能出问题、留着绝不出问题"的类型。
+
+### 隔离性（重要）
+
+改动全部收敛在 LD_PRELOAD，而 LD_PRELOAD 是**按游戏配置**的，因此不影响其他游戏：
+
+```
+系统驱动 libvulkan_gf.so（原版，未打补丁）
+  ├── 随从大师 → 配了 LD_PRELOAD → 加载 hook → 重定位到 2~4GB → 7G100 渲染
+  └── 刀塔霸业 → 不配 LD_PRELOAD → 完全不加载 hook → 原样使用驱动
+```
+
+已验证：刀塔霸业进程内 `osrelease_redirect` 加载次数为 **0**，存活 44 秒无段错误
+（打全局驱动补丁时必崩）。
+
+- 系统驱动校验：`md5sum /usr/lib/x86_64-linux-gnu/libvulkan_gf.so{,.orig}` 应一致。
+- 补丁工具 `patch_gf_map32.py` 保留但**不再使用**，仅作调试对照。
 
 ### 剩余阻塞（与显卡无关）
 
 游戏后端 `api.prod.mm21.minionmastersthegame.com` 的 `/v1/*` API 仍 **404**（`/health` 200 Healthy，
-BetaDwarf 服务器端问题，坑7已记录）。游戏用 7G100 渲染推进到登录队列后，因 404 自行退出
+BetaDwarf 服务器端问题，游戏坑 7 已记录）。游戏用 7G100 渲染推进到登录队列后，因 404 自行退出
 （无 crash report 的主动退出）。**7G100 硬件渲染链路本身已完全打通并验证**。

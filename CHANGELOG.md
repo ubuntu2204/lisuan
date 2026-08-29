@@ -24,7 +24,7 @@
   `vkCreateInstance`/`vkCreateDevice` 前剔除真 ICD 不支持的实例/设备扩展。
 - **Steam overlay Vulkan 层绕过垫片直连真 ICD**（崩在 libc）→
   `VK_LOADER_LAYERS_DISABLE` 禁用（容器内 overlay 本就不可用）。
-- **32 位低地址映射（坑 12 终结）**：实测游戏进程低 2GB 被 wine 占用 ~1.7GB
+- **32 位低地址映射（显卡坑 12 终结）**：实测游戏进程低 2GB 被 wine 占用 ~1.7GB
   （`MAP_32BIT` 只剩 ~321MB），而 2~4GB 完全空闲。`osrelease_redirect.so` 内置
   **低 4GB 重映射池**：`MAP_32BIT` 失败或映射落 >4GB 时用 `MAP_FIXED_NOREPLACE`
   重映射到 2.25~4GB 空闲区。覆盖**所有** mmap 路径（含虚函数分发的未补丁路径），
@@ -37,7 +37,7 @@
 
 - `Renderer: LISUAN 7G100 Series Graphics (ID=0x5006)`（D3D11 11.1 硬件渲染）+
   场景加载 + 登录流程（8.2s）+ 进入登录队列；游戏存活 8 分钟以上（此前各轮 9 秒内崩溃）。
-- **剩余阻塞仅服务端**：`api.prod.mm21.../v1/*` 404（BetaDwarf 问题，本地无解，坑 3）。
+- **剩余阻塞仅服务端**：`api.prod.mm21.../v1/*` 404（BetaDwarf 问题，本地无解，游戏坑 3）。
 
 ## 2026.08.28 — Qoder（国际版/国内版）显示修复落地与 Electron 43 新坑
 

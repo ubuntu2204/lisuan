@@ -133,7 +133,7 @@ right headers.
 | `lisuan-7g100-ubuntu-fix/docs/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
 | `lisuan-7g100-ubuntu-fix/docs/fix-hygon-audio.md` | **音频修复文档**：海光板载 HDA（`1d94:14c9`）绑定 `snd_hda_intel`、三层根因、`driver_override` 原理与验证（与砺算 7G100 GPU 无关） |
 | `lisuan-7g100-ubuntu-fix/docs/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
-| `lisuan-7g100-ubuntu-fix/docs/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 8.0 选型、user_settings.py 注入无效教训、Steam 状态卡死坑 |
+| `lisuan-7g100-ubuntu-fix/docs/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染）、user_settings.py 注入无效教训、Steam 状态卡死坑 |
 | `lisuan-7g100-ubuntu-fix/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
 
 > 注意区分：`scripts/` 下的 verify-* 是**面向真机的体检工具**，与仓库根的
@@ -716,7 +716,7 @@ wpctl status                            # Sources: 下应显示 "HDA Intel 模�
 - [刀塔霸业（Dota Underlords）修复](./lisuan-7g100-ubuntu-fix/docs/fix-underlords-native.md)
   —— Source 2 原生 Linux 游戏在 Steam pressure-vessel 容器内崩溃，容器委托宿主直跑；libpng12 补齐、panorama 随机段错误智能重试与退出检测。
 - [随从大师（Minion Masters）修复](./lisuan-7g100-ubuntu-fix/docs/fix-minion-masters.md)
-  —— Unity/IL2CPP 游戏：Vivox 登录崩溃 + 图片下载 Texture 异常的 BepInEx 运行时 patch 三件套（Vivox `LoginAsync`、新闻下载状态机 `MoveNext`、`DownloadHandlerTexture.InternalGetTexture`）；证书 patch 反致黑屏（Zenject 异常循环）的回归教训；游戏后端 API 全 404 与 Azure IP 封锁；Proton 8.0 选型、user_settings.py 注入无效教训、Steam 状态卡死坑。
+  —— Unity/IL2CPP 游戏：Vivox 登录崩溃 + 图片下载 Texture 异常的 BepInEx 运行时 patch 三件套（Vivox `LoginAsync`、新闻下载状态机 `MoveNext`、`DownloadHandlerTexture.InternalGetTexture`）；证书 patch 反致黑屏（Zenject 异常循环）的回归教训；游戏后端 API 全 404 与 Azure IP 封锁；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染）、user_settings.py 注入无效教训、Steam 状态卡死坑。
 - [随从大师攻坚全记录](./lisuan-7g100-ubuntu-fix/docs/MinionMasters-攻坚全记录.md)
   —— 32 位游戏 × 只有 64 位 gf 驱动的完整攻坚：WoW64 路线、发行版白名单绕过、libSC 依赖、DXVK 降级、`vkMapMemory` 高地址 vs 32 位 thunk 的根因与驱动 `MAP_32BIT` 补丁。**2026-08-29 硬件渲染链路已端到端打通**（协商垫片 + 低 4GB 重映射池，`Renderer: LISUAN 7G100` + 登录流程）；剩余阻塞仅服务端 API 404。
 
@@ -727,7 +727,7 @@ wpctl status                            # Sources: 下应显示 "HDA Intel 模�
 > Steam 本身的全部坑集中在这里，游戏专属问题见上面的 6.1 / 6.2。
 
 - [Steam 在砺算 7G100 上的适配细节](./lisuan-7g100-ubuntu-fix/docs/steam-on-lisuan.md)
-  —— pressure-vessel 容器架构（gf Vulkan 容器内自动可用、PCI sysfs 被隐藏）；**gf env 不能污染 Steam 客户端**（致命坑）；CEF `gf_gbm` 段错误 + ANGLE 崩溃修复（`fix-steam-cef-lock.sh`）；无头环境 Steam 登录窗 GLX 崩溃需图形界面生成 `ssfn`；`applaunch` "游戏运行中"状态卡死；Proton 8.0 选型；`user_settings.py` 注入不进容器白名单；overlay 排障；排障速查表。
+  —— pressure-vessel 容器架构（gf Vulkan 容器内自动可用、PCI sysfs 被隐藏）；**gf env 不能污染 Steam 客户端**（致命坑）；CEF `gf_gbm` 段错误 + ANGLE 崩溃修复（`fix-steam-cef-lock.sh`）；无头环境 Steam 登录窗 GLX 崩溃需图形界面生成 `ssfn`；`applaunch` "游戏运行中"状态卡死；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染）；`user_settings.py` 注入不进容器白名单；overlay 排障；排障速查表。
 
 ---
 
@@ -765,19 +765,19 @@ wpctl status                            # Sources: 下应显示 "HDA Intel 模�
 | Steam/CEF | **全局 dri 软链 `lisuan_dri.so->gf_dri.so` / Steam 客户端 PRELOAD 使 Steam 客户端 double free**（致命坑） | 默认不建软链、不向 Steam wrap 注入 gf（`docs/steam-on-lisuan.md` §2/§3） |
 | Wine/DXVK | `d3d11: failed to create factory` 渲染卡死 | `PROTON_USE_WINED3D=1`（`docs/fix-minion-masters.md` 附录 A1） |
 | Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`docs/fix-minion-masters.md` 附录 A1） |
-| 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`docs/fix-minion-masters.md` 坑 1） |
-| 游戏逻辑 | **证书 patch（`CertificateHandler.ValidateCertificate`）反致黑屏**：Zenject 循环 + BootstrapInstaller NullReference + `NotSupportedException` 刷屏 | 禁用证书 patch，改 patch `DownloadHandlerTexture.InternalGetTexture` 返回 null（`docs/fix-minion-masters.md` 坑 1/坑 2） |
-| 游戏逻辑 | 图片下载 `Curl error 60` → `Texture has not yet finished downloading` 沿 UniTask `TrySetException` 链传播 | patch `InternalGetTexture` 返回 null（`docs/fix-minion-masters.md` 坑 1c） |
+| 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`docs/fix-minion-masters.md` 游戏坑 1） |
+| 游戏逻辑 | **证书 patch（`CertificateHandler.ValidateCertificate`）反致黑屏**：Zenject 循环 + BootstrapInstaller NullReference + `NotSupportedException` 刷屏 | 禁用证书 patch，改 patch `DownloadHandlerTexture.InternalGetTexture` 返回 null（`docs/fix-minion-masters.md` 游戏坑 1 / 游戏坑 2） |
+| 游戏逻辑 | 图片下载 `Curl error 60` → `Texture has not yet finished downloading` 沿 UniTask `TrySetException` 链传播 | patch `InternalGetTexture` 返回 null（`docs/fix-minion-masters.md` 游戏坑 1c） |
 | IL2CPP 插件 | **`il2cpp_class_get_methods` binding 签名错**（iterator 被当数组）→ count 垃圾值 → 0xC0000005 | 只用 `il2cpp_class_get_method_from_name`（`docs/fix-minion-masters.md` 附录 A4） |
-| 游戏逻辑 | `user_settings.py` 注入无效 | 用 Launch Options（`docs/fix-minion-masters.md` 坑 5） |
+| 游戏逻辑 | `user_settings.py` 注入无效 | 用 Launch Options（`docs/fix-minion-masters.md` 游戏坑 5） |
 | 音频 | 海光 HDA 三层根因 | `fix-hygon-audio.sh` + 开机自绑（`docs/fix-hygon-audio.md`） |
 
 ### 7.3 环境 / 网络类坑（索引）
 
 - **Steam 客户端登录态丢失（`steamid=0` 陈旧态）** → 登录过一次后（`AutoLoginUser` + `RememberPassword` 已写入）**重启 Steam 客户端即自动重登**，无需图形界面；首次登录仍需图形界面生成 ssfn（`docs/fix-minion-masters.md` 附录 A2 / `docs/steam-on-lisuan.md` §4）
-- **随从大师后端 API 全 404**（`api.prod.mm21.minionmastersthegame.com` 的 `/v1/*` 全 404、`/health` 却 200）→ `LoginQueueService.Post` 抛 404，登录队列进不去；服务端问题本地无解（`docs/fix-minion-masters.md` 坑 3）
-- **Azure IP `140.228.24.145:443`(及 `:33798`) 网络封锁** → 代理/VPN（`docs/fix-minion-masters.md` 坑 3）
-- **随从大师进程启动后 ~40–90 秒被移除**（进主菜单后消失，当前未解；疑似登录队列 404 后游戏自身退出）→ `docs/fix-minion-masters.md` 坑 7
+- **随从大师后端 API 全 404**（`api.prod.mm21.minionmastersthegame.com` 的 `/v1/*` 全 404、`/health` 却 200）→ `LoginQueueService.Post` 抛 404，登录队列进不去；服务端问题本地无解（`docs/fix-minion-masters.md` 游戏坑 3）
+- **Azure IP `140.228.24.145:443`(及 `:33798`) 网络封锁** → 代理/VPN（`docs/fix-minion-masters.md` 游戏坑 3）
+- **随从大师进程启动后 ~40–90 秒被移除**（进主菜单后消失，当前未解；疑似登录队列 404 后游戏自身退出）→ `docs/fix-minion-masters.md` 游戏坑 7
 - **Standard shader 不支持（画质告警，不致命）** → 忽略（`docs/fix-minion-masters.md` 附录 A3）
 
 ### 7.4 排查方法论（速查）
