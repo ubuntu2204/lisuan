@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# run-tests.sh — run the whole tests/ suite for lisuan-7g100-ubuntu-fix.
+# run-tests.sh — run the whole tests/ suite for the per-theme deliverables.
 #
 # Usage:
 #   ./tests/run-tests.sh            # run all tests

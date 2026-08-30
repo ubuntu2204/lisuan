@@ -3,6 +3,28 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.08.30 — 目录重构与海光音频迁出
+
+### 目录重构
+原 `lisuan-7g100-ubuntu-fix/{scripts,docs,patches,assets}` 扁平结构，改为**按主题分目录**：
+
+`steam/` `minion-masters/` `underlords/` `zcode/` `codebuddy/` `qoder/` `display/`。
+
+每个主题目录自带脚本与文档，不再区分 `scripts/` 与 `docs/`。
+README 的全部交叉链接已同步修正（断链校验 0 处）。
+
+### 海光音频 → 独立项目
+`hygon/` 下的海光板载音频修复**与砺算 7G100 GPU 无关**，已迁出为独立仓库：
+
+```
+/home/ubuntu/project/hygon/
+```
+
+lisuan 仓库中相关脚本、菜单项、文档章节与测试引用已同步移除。
+下方 2026.08.09 等历史条目中提到的 `hygon/…` 路径为**迁出前的记录**，请以上述新仓库为准。
+
+---
+
 ## 2026.08.29 — 随从大师硬件渲染链路打通（容器运行时更新适配）
 
 ### 背景
@@ -138,7 +160,7 @@
     Zen），才是本机真实可出声的声卡；但其 vendor id `1d94` 不在
     `snd_hda_intel` 内置 PCI id 表，内核不自动 probe → BAR 不启用 → 无
     `/dev/snd/card*`。
-  - 修复：`scripts/fix-hygon-audio.sh`（幂等，需 `sudo`）。完整根因链：
+  - 修复：`hygon/fix-hygon-audio.sh`（幂等，需 `sudo`）。完整根因链：
     1. `1d94` 不在 `snd_hda_intel` 的 PCI id 表 → `new_id` 返回 `-EINVAL`、
        `bind` 因 id 不匹配被静默拒绝。用 `driver_override` 绕过 id 表强制匹配。
     2. `snd_intel_dspcfg` 对未知 vendor 默认选 SOF/SST 路径，本机无固件 →
@@ -164,7 +186,7 @@
   原样转录（Makefile 保持出厂未补丁状态，附来源包 SHA-256）；
   闭源 blob（lisuan_proprietary.o.hex）与一切二进制产物不在其中。
   `patches/0001` 可在其上干净应用（新增 `tests/test-vendor-src.sh` 守护）。
-- **游戏修复安装器** `scripts/fix-underlords-native.sh`（幂等，菜单 14/15）：
+- **游戏修复安装器** `underlords/fix-underlords-native.sh`（幂等，菜单 14/15）：
   把此前散落在游戏目录的手工修复固化为可复现脚本，一键安装/修复/卸载：
   - `underlords.sh` 补丁：容器分支委托宿主 systemd 直跑（沙箱隐藏 PCI sysfs，
     厂商 Vulkan ICD 在容器内枚举 0 设备，shim 无法绕过——见 bug 报告 §4）；
@@ -188,14 +210,14 @@
 - **交互式修复索引** `lisuan-fix.sh`（仓库根）：自动检测系统环境并给出结论
   （GPU/内核/DKMS/vermagic/DRI/Steam 补丁状态），编号菜单执行单项修复、体检、
   卸载；支持 `--detect` 与直接传编号的非交互模式。
-- **开机自愈服务** `scripts/steam-cef-autofix.sh`：systemd 单元
+- **开机自愈服务** `steam/steam-cef-autofix.sh`：systemd 单元
   `lisuan-steam-autofix.service`，Steam 客户端更新还原 CEF 补丁后开机自动
   重新注入并锁定；`--uninstall` 卸载。
 - **卸载能力全覆盖**：每项注入均有对称、幂等的卸载入口——
-  - `scripts/uninstall-lisuan-gpu.sh`（撤销 DKMS Makefile 补丁）
-  - `scripts/uninstall-lisuan-mesa-driver-name.sh`（删除 DRI 驱动名软链）
-  - `scripts/fix-steam-cef-lock.sh --uninstall`（还原 Steam wrap.sh）
-  - `scripts/steam-cef-autofix.sh --uninstall`（卸载自愈服务）
+  - `display/uninstall-lisuan-gpu.sh`（撤销 DKMS Makefile 补丁）
+  - `display/uninstall-lisuan-mesa-driver-name.sh`（删除 DRI 驱动名软链）
+  - `steam/fix-steam-cef-lock.sh --uninstall`（还原 Steam wrap.sh）
+  - `steam/steam-cef-autofix.sh --uninstall`（卸载自愈服务）
 - **厂商 bug 报告** `docs/vendor-bug-report-gf-gbm-crash.md`：三个问题
   （gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失）的完整证据链、
   复现步骤、规避方案与修复建议，含规范化报告头（编号/日期/严重级别/状态）。
@@ -213,15 +235,15 @@
     段错误 → 注入 `GBM_BACKEND=dri` 规避；
   - 根因二：Steam 自带 ANGLE 被 `LD_LIBRARY_PATH=.` 优先加载，延迟绑定的
     GL 符号在容器内无 glapi 提供者 → `LD_PRELOAD` 厂商 `libglapi_gf.so.0` 规避；
-  - 载体：`scripts/fix-steam-cef-lock.sh` 注入 `steamwebhelper_sniper_wrap.sh`
+  - 载体：`steam/fix-steam-cef-lock.sh` 注入 `steamwebhelper_sniper_wrap.sh`
     并 `chattr +i` 锁定（抵御 Steam 启动校验还原；补 `chmod +x` 防丢执行位）。
 - **DRI 驱动加载失败**（`driver=(null)`）：DRM 注册名 `lisuan` 与用户态驱动名
-  `gf` 不一致 → `scripts/fix-lisuan-mesa-driver-name.sh` 建立
+  `gf` 不一致 → `display/fix-lisuan-mesa-driver-name.sh` 建立
   `lisuan_dri.so → gf_dri.so` 等软链。
 - **内核升级后驱动无法加载**（vermagic 错配/黑屏）：厂商 DKMS Makefile
   `KERNEL_VERSION`/`KERNELVER` 变量名错配 → 一行补丁
   （`patches/0001-dkms-makefile-honor-KERNELVER.patch`）+
-  `scripts/fix-lisuan-gpu.sh` 一键重编重装。
+  `display/fix-lisuan-gpu.sh` 一键重编重装。
 
 ### 实测更正（相对早期分析记录）
 

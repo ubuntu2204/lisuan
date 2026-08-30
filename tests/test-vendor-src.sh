@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # test-vendor-src.sh — checks on the verbatim vendor DKMS source transcription
-# (lisuan-7g100-ubuntu-fix/vendor-src/):
+# (display/vendor-src/):
 #   * provenance docs present (README.md + vendor copyright)
 #   * NO closed-source artifacts leaked in (*.o, *.ko, *.o.hex,
 #     lisuan_proprietary*, build logs)
@@ -13,7 +13,7 @@ set -uo pipefail
 # shellcheck source=lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-VS="${REPO_ROOT}/vendor-src"
+VS="${REPO_ROOT}/display/vendor-src"
 
 # --- 1. transcription present with provenance --------------------------------
 [[ -d "$VS" ]]

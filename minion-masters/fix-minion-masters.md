@@ -57,11 +57,11 @@ buffer 错误 0、纹理错误 0、主菜单标记 29）。
 
 | 脚本 | 路线 | 当前是否该用 |
 |---|---|---|
-| `scripts/fix-minion-masters-7g100-hw.sh` | **7G100 硬件渲染** | ✅ **用这个** |
-| `scripts/fix-minion-masters.sh` | llvmpipe 软件渲染（早期路线） | ❌ 仅存档/对比 |
+| `minion-masters/fix-minion-masters-7g100-hw.sh` | **7G100 硬件渲染** | ✅ **用这个** |
+| `minion-masters/fix-minion-masters.sh` | llvmpipe 软件渲染（早期路线） | ❌ 仅存档/对比 |
 
 ```bash
-sudo ./scripts/fix-minion-masters-7g100-hw.sh
+sudo ./minion-masters/fix-minion-masters-7g100-hw.sh
 ```
 
 > 早期笔记里提到的宿主启动器 `mm.sh`（先 kill 残留再 `valve-run` → `steam -applaunch 489520`）
@@ -404,7 +404,7 @@ BepInEx 日志里 `Loading [MM Skip Vivox 1.0.0]` 显示的是**程序集版本*
 
 ## 游戏坑 8（2026-08-26 突破）：让 7G100【硬件渲染】——new WoW64 + gf 发行版白名单绕过
 
-此前路线（游戏坑 1-7）游戏只能用 **llvmpipe 软件渲染**。本章记录让游戏真正用 **7G100 显卡渲染 D3D11** 的完整方案（固化脚本 `scripts/fix-minion-masters-7g100-hw.sh`，资产 `assets/mm-gf-vulkan/`）。
+此前路线（游戏坑 1-7）游戏只能用 **llvmpipe 软件渲染**。本章记录让游戏真正用 **7G100 显卡渲染 D3D11** 的完整方案（固化脚本 `minion-masters/fix-minion-masters-7g100-hw.sh`，资产 `assets/mm-gf-vulkan/`）。
 
 ### 根本矛盾：32 位游戏 vs 只有 64 位 gf 驱动
 

@@ -11,7 +11,7 @@ set -uo pipefail
 # --- 1. Required top-level files present -----------------------------------
 # LICENSE / NOTICE / .gitignore / README.md all live at the repo root
 # (REPO_ROOT here is the deliverables subtree, not a standalone repo).
-REPO_TOP="$(cd "${REPO_ROOT}/.." && pwd)"
+REPO_TOP="${REPO_ROOT}"
 for f in README.md; do
   [[ -f "${REPO_TOP}/$f" ]]
   t_assert_eq 0 $? "required file present: $f"
@@ -30,8 +30,10 @@ done
 
 # --- 3. Scripts are executable ---------------------------------------------
 # 交付子树与仓库根的所有 .sh 都必须带可执行位（否则用户直接 ./xxx.sh 会失败）
-for s in "${REPO_ROOT}"/scripts/*.sh "${REPO_TOP}"/*.sh; do
+for s in "${REPO_TOP}"/*.sh "${REPO_ROOT}"/*/*.sh; do
   [[ -f "$s" ]] || continue
+  # _work/ 是本机诊断草稿区，不是交付物，不参与可执行位检查
+  case "$s" in */_work/*) continue ;; esac
   [[ -x "$s" ]]
   t_assert_eq 0 $? "script is executable: $(basename "$s")"
 done
@@ -43,9 +45,9 @@ t_assert_grep "$PATCH_FILE" 'KERNELVER' "patch mentions KERNELVER"
 t_assert_grep "$PATCH_FILE" 'uname -r' "patch mentions uname -r"
 
 # --- 5. README references that exist in this repo ---------------------------
-for f in patches/0001-dkms-makefile-honor-KERNELVER.patch \
-         scripts/fix-lisuan-gpu.sh \
-         scripts/verify-lisuan-gpu.sh; do
+for f in display/patches/0001-dkms-makefile-honor-KERNELVER.patch \
+         display/fix-lisuan-gpu.sh \
+         display/verify-lisuan-gpu.sh; do
   grep -qF -- "$f" "${REPO_TOP}/README.md"
   t_assert_eq 0 $? "README references $f"
 done

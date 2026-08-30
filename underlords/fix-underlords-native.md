@@ -21,10 +21,10 @@
 `systemd-run --user` 在宿主启动游戏，并阻塞到游戏退出，Steam 的运行时长/退出检测依然有效。
 
 ```bash
-sudo ./scripts/fix-underlords-native.sh                  # 安装 / 修复（默认开启自动重启）
-sudo ./scripts/fix-underlords-native.sh --no-autorestart # 安装并彻底关闭自动重启
-sudo ./scripts/fix-underlords-native.sh --uninstall
-./scripts/fix-underlords-native.sh --status
+sudo ./underlords/fix-underlords-native.sh                  # 安装 / 修复（默认开启自动重启）
+sudo ./underlords/fix-underlords-native.sh --no-autorestart # 安装并彻底关闭自动重启
+sudo ./underlords/fix-underlords-native.sh --uninstall
+./underlords/fix-underlords-native.sh --status
 ```
 
 部署后从 Steam 库里点"开始游戏"即可正常玩；也可从桌面项
@@ -74,7 +74,7 @@ Ubuntu 24.04 已移除该库，Source 2 的 pango 模块会因找不到它崩溃
 - 启动参数加了 `-nobreakpad`：游戏自带 breakpad 会吞掉 SIGSEGV，关掉后崩溃才会产生
   内核 core（`/tmp/core.underlords.*`，需 core_pattern 指向 /tmp），可供 gdb 定位。
 
-**彻底关闭自动重启**：`sudo ./scripts/fix-underlords-native.sh --no-autorestart`
+**彻底关闭自动重启**：`sudo ./underlords/fix-underlords-native.sh --no-autorestart`
 会把游戏进程结束（正常退出或崩溃）即直接退出，不再拉起。副作用：panorama 随机段错误
 会让游戏直接闪退不可玩，按需选择。
 
@@ -83,7 +83,7 @@ Ubuntu 24.04 已移除该库，Source 2 的 pango 模块会因找不到它崩溃
 ## 验证
 
 ```bash
-./scripts/fix-underlords-native.sh --status
+./underlords/fix-underlords-native.sh --status
 # 期望: underlords.sh 已打补丁（容器委托 + 智能重试 + 退出检测）
 #       ul-host-run.sh / play-native.sh 就绪；libpng12.so.0 就绪；桌面项已安装
 ```

@@ -234,5 +234,5 @@ Steam 客户端即恢复。游戏进程树内的 gf env 注入不受此影响（
   （exit_code=139 段）
 - 游戏崩溃 stderr 样本（GLX 失败 + X Error）与 gdb 分析记录：见 §2/§4
 - 兼容性背景分析：`docs/system-mesa-analysis.md`
-- 修复脚本：`scripts/fix-steam-cef-lock.sh`（问题一、二的注入与锁定）
+- 修复脚本：`steam/fix-steam-cef-lock.sh`（问题一、二的注入与锁定）
 - 游戏宿主直跑命令：见 §4"规避"

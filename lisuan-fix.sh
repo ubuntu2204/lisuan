@@ -14,10 +14,10 @@
 # License: Apache-2.0
 set -uo pipefail
 
-# 路径锪定：本脚本在仓库根，所有单项脚本在 lisuan-7g100-ubuntu-fix/scripts/
+# 路径锚定：本脚本在仓库根，单项脚本按主题分布在 steam/ minion-masters/ underlords/ zcode/ codebuddy/ qoder/ display/
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SUB="$SCRIPT_DIR/lisuan-7g100-ubuntu-fix"
-S="$SUB/scripts"
+SUB="$SCRIPT_DIR"
+S="$SCRIPT_DIR"
 
 # ---------- 颜色（非终端输出时置空，避免日志里混入转义码） ----------
 if [[ -t 1 ]]; then
@@ -156,7 +156,7 @@ Description=Lisuan 7G100 Steam CEF patch auto-repair
 
 [Service]
 Type=oneshot
-ExecStart=$S/steam-cef-autofix.sh
+ExecStart=$S/steam/steam-cef-autofix.sh
 
 [Install]
 WantedBy=multi-user.target
@@ -183,12 +183,12 @@ remove_autofix() {   # 卸载自愈服务：停用并删除单元文件（幂等
 run_item() {
   case "$1" in
     1) detect ;;                                              # 重新检测
-    2) need_root bash "$S/fix-lisuan-gpu.sh" "${2:-}" ;;     # 可透传目标内核参数
-    3) bash "$S/verify-lisuan-gpu.sh" ;;                     # 只读体检
-    4) need_root bash "$S/fix-lisuan-mesa-driver-name.sh" ;; # DRI 驱动名软链
-    5) need_root bash "$S/fix-steam-cef-lock.sh" ;;          # Steam 补丁注入+锁定
-    6) need_root bash "$S/fix-steam-cef-lock.sh" --unlock ;; # Steam 更新前解锁
-    7) bash "$S/verify-system-mesa.sh" ;;                    # Mesa 兼容性体检
+    2) need_root bash "$S/display/fix-lisuan-gpu.sh" "${2:-}" ;;     # 可透传目标内核参数
+    3) bash "$S/display/verify-lisuan-gpu.sh" ;;                     # 只读体检
+    4) need_root bash "$S/display/fix-lisuan-mesa-driver-name.sh" ;; # DRI 驱动名软链
+    5) need_root bash "$S/steam/fix-steam-cef-lock.sh" ;;          # Steam 补丁注入+锁定
+    6) need_root bash "$S/steam/fix-steam-cef-lock.sh" --unlock ;; # Steam 更新前解锁
+    7) bash "$S/display/verify-system-mesa.sh" ;;                    # Mesa 兼容性体检
     8)
       # 宿主直跑 Underlords（容器内 GLX 无解，见 bug 报告 §4）
       local ul="$HOME/.local/share/Steam/steamapps/common/Underlords/game/play-native.sh"
@@ -201,17 +201,17 @@ run_item() {
       fi ;;
     9) install_autofix ;;    # 安装开机自愈
     10) remove_autofix ;;    # 卸载开机自愈
-    11) need_root bash "$S/uninstall-lisuan-gpu.sh" ;;                 # 撤销 DKMS 补丁
-    12) need_root bash "$S/uninstall-lisuan-mesa-driver-name.sh" ;;    # 删 DRI 软链
-    13) need_root bash "$S/fix-steam-cef-lock.sh" --uninstall ;;       # 还原 Steam wrap.sh
-    14) need_root bash "$S/fix-underlords-native.sh" ;;                # 安装/修复游戏补丁集
-    15) bash "$S/fix-underlords-native.sh" --status ;;                 # 游戏修复状态
-    16) bash "$S/use-zcode.sh" ;;                                      # 启动 ZCode (显示异常修复)
-    17) bash "$S/use-zcode.sh" --install-desktop ;;                    # 把 zcode 桌面项切到 wrapper
-    18) bash "$S/use-codebuddy.sh" ;;                                   # 启动 CodeBuddy (gf 加速)
-    19) bash "$S/use-codebuddy.sh" --install-desktop ;;                # CodeBuddy 桌面项切到 wrapper
-    20) bash "$S/use-qoder.sh" ;;                                       # 启动 Qoder (gf 加速)
-    21) bash "$S/use-qoder.sh" --install-desktop ;;                    # Qoder 桌面项切到 wrapper
+    11) need_root bash "$S/display/uninstall-lisuan-gpu.sh" ;;                 # 撤销 DKMS 补丁
+    12) need_root bash "$S/display/uninstall-lisuan-mesa-driver-name.sh" ;;    # 删 DRI 软链
+    13) need_root bash "$S/steam/fix-steam-cef-lock.sh" --uninstall ;;       # 还原 Steam wrap.sh
+    14) need_root bash "$S/underlords/fix-underlords-native.sh" ;;                # 安装/修复游戏补丁集
+    15) bash "$S/underlords/fix-underlords-native.sh" --status ;;                 # 游戏修复状态
+    16) bash "$S/zcode/use-zcode.sh" ;;                                      # 启动 ZCode (显示异常修复)
+    17) bash "$S/zcode/use-zcode.sh" --install-desktop ;;                    # 把 zcode 桌面项切到 wrapper
+    18) bash "$S/codebuddy/use-codebuddy.sh" ;;                                   # 启动 CodeBuddy (gf 加速)
+    19) bash "$S/codebuddy/use-codebuddy.sh" --install-desktop ;;                # CodeBuddy 桌面项切到 wrapper
+    20) bash "$S/qoder/use-qoder.sh" ;;                                       # 启动 Qoder (gf 加速)
+    21) bash "$S/qoder/use-qoder.sh" --install-desktop ;;                    # Qoder 桌面项切到 wrapper
     *) bad "无效选项：$1"; return 1 ;;
   esac
 }

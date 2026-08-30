@@ -376,7 +376,7 @@ InvalidOperationException: Http error code was 404     ← 已知服务端阻塞
 | `assets/mm-gf-vulkan/libvulkan_gf_shim.c/.so` | 协商垫片 ICD（显卡坑 15） |
 | `assets/mm-gf-vulkan/gf_icd.json` | 垫片 ICD 清单（相对路径，部署时随 `VK_ICD_FILENAMES` 指向） |
 | `assets/mm-gf-vulkan/osrelease_redirect.c/.so` | hook 更新版：os-release 重定向 + 低 4GB 重映射池（显卡坑 17） |
-| `scripts/fix-minion-masters-7g100-hw.sh` | 固化脚本升级：部署垫片/库副本、新启动选项、状态项扩充（幂等） |
+| `minion-masters/fix-minion-masters-7g100-hw.sh` | 固化脚本升级：部署垫片/库副本、新启动选项、状态项扩充（幂等） |
 
 启动选项（固化脚本写入）：
 

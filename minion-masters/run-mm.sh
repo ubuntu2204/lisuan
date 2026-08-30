@@ -6,7 +6,7 @@
 # 当前环境用默认 proton 渲染即可。
 #
 # 用法 (Steam 启动选项):
-#   bash /home/ubuntu/project/lisuan/lisuan-7g100-ubuntu-fix/scripts/run-mm.sh %command%
+#   bash /home/ubuntu/project/lisuan/minion-masters/run-mm.sh %command%
 
 # 代理: 游戏登录 REST/HTTPS 后端 140.228.24.145:443 在网络被封时走代理。
 # 仅作环境注入, 实测 wine 下游戏可能不读 http_proxy (改用 user.reg 的 WinHTTP 代理)。

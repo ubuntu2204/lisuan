@@ -19,11 +19,11 @@ fi
 
 # 收集全部脚本：交付子树 scripts/、测试套件自身、仓库根入口脚本
 SCRIPTS=()
-for f in "${REPO_ROOT}"/scripts/*.sh; do [[ -f "$f" ]] && SCRIPTS+=("$f"); done
+for f in "${REPO_ROOT}"/*/*.sh; do [[ -f "$f" ]] && SCRIPTS+=("$f"); done
 for f in "${TESTS_DIR}"/test-*.sh "${TESTS_DIR}"/lib.sh "${TESTS_DIR}"/run-tests.sh; do
   [[ -f "$f" ]] && SCRIPTS+=("$f")
 done
-for f in "${REPO_ROOT}"/../*.sh; do [[ -f "$f" ]] && SCRIPTS+=("$f"); done
+for f in "${REPO_ROOT}"/*.sh; do [[ -f "$f" ]] && SCRIPTS+=("$f"); done
 
 # -S warning：只报 warning 及以上（style 级别噪音过多，豁免）；
 # SC1091（source 外部文件无法跟踪）对本项目无意义，一并豁免

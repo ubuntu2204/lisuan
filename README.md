@@ -72,12 +72,11 @@ right headers.
   - [4.1 通用 Electron 硬件加速 wrapper（CodeBuddy / Qoder 共用）](#41-通用-electron-硬件加速-wrappercodebuddy--qoder-共用)
   - [4.2 CodeBuddy 国内版](#42-codebuddy-国内版)
   - [4.3 Qoder 国内版](#43-qoder-国内版)
-- [五、海光板载音频修复](#五海光板载音频修复)
-- [六、游戏修复文档](#六游戏修复文档)
+- [五、游戏修复文档](#五游戏修复文档)
   - [6.1 刀塔霸业（Dota Underlords）修复](#61-刀塔霸业dota-underlords-修复)
   - [6.2 随从大师（Minion Masters）修复](#62-随从大师minion-masters-修复)
 - [Steam 平台适配细节（容器 / CEF / 登录 / Proton）](#steam-平台适配细节容器--cef--登录--proton)
-- [七、踩坑经验总览与砺算技术要点](#七踩坑经验总览与砺算技术要点)
+- [六、踩坑经验总览与砺算技术要点](#六踩坑经验总览与砺算技术要点)
   - [7.1 砺算 7G100 技术要点（必读）](#71-砺算-7g100-技术要点必读)
   - [7.2 踩坑清单（按层分类）](#72-踩坑清单按层分类)
   - [7.3 环境/网络类坑](#73-环境网络类坑)
@@ -96,7 +95,6 @@ right headers.
 | 目录 | 主题 | 内容 |
 |---|---|---|
 | `steam/` | Steam 平台 | 容器 CEF 崩溃修复、开机自愈、容器架构说明 |
-| `hygon/` | 海光 CPU / 驱动 | 板载音频修复（输出+输入）、DKMS 驱动补丁与装载、体检 |
 | `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3 |
 | `underlords/` | 刀塔霸业 | 容器委托宿主直跑、libpng12 补齐、崩溃智能重试 |
 | `zcode/` | ZCode | Electron AppImage 显示异常 wrapper |
@@ -110,22 +108,20 @@ right headers.
 
 | 路径 | 说明 |
 |---|---|
-| `hygon/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
-| `hygon/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
+| `display/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
+| `display/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `display/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
 | `steam/fix-steam-cef-lock.sh` | **Steam 修复主入口**：向容器内注入 `GBM_BACKEND=dri` + `LD_PRELOAD` glapi 并 `chattr +i` 锁定（详见[三](#三steam-适配)） |
 | `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 智能重试/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载、`--no-autorestart` 彻底关闭自动重启（游戏中途崩溃也直接退出，菜单 14/15） |
 | `steam/steam-cef-autofix.sh` | 开机自愈（root/systemd 调用）：发现 Steam 更新还原了补丁就自动重新注入锁定，由 `./lisuan-fix.sh` 菜单 9 安装为系统服务；`--uninstall` 卸载服务 |
-| `hygon/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
+| `display/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 | `display/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
-| `hygon/fix-hygon-audio.sh` | **板载音频修复（输出 + 输入）**：海光（Hygon）`1d94:14c9` HDA 控制器不在 `snd_hda_intel` 默认 id 表、且被 `snd_intel_dspcfg` 误选 SOF/SST 路径、codec (ALC222) 上电慢，导致声音设置只有"虚拟输出"。脚本用 `driver_override` 强制匹配 + `dsp_driver=1` + `probe_mask=0xff delay=2000` 绑定并注册真实声卡，落地 `hygon-audio.conf`/`hygon-audio-bind.service` 开机自绑；并额外修复**声音输入**——把 ALC222 的 `Mic Boost` 提到 ~20 dB、`Capture` 音量拉到 ~80% 并取消静音、将海光 `analog-stereo` 输入源设为 PipeWire 默认（注：与砺算 7G100 GPU 无关，7G100 的 HDMI 音频是 `gf` 驱动内部透明 codec，不创建 ALSA 卡） |
-| `hygon/diag-hygon-audio.sh` | 诊断脚本：在加载 `snd-intel-dspcfg dsp_driver=1` 后用 `driver_override`+`bind` 绑定海光 HDA，并打印 `aplay -l`/dmesg 以确认 codec 是否枚举成功 |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
 
 | 路径 | 说明 |
 |---|---|
-| `hygon/verify-lisuan-gpu.sh` | 驱动体检：lspci/lsmod/modinfo/DRM 节点 |
+| `display/verify-lisuan-gpu.sh` | 驱动体检：lspci/lsmod/modinfo/DRM 节点 |
 | `display/verify-system-mesa.sh` | 系统 Mesa 兼容性体检（zink 回退、GBM dri 后端等） |
 
 **工具类（use）**——按需包装单个应用的环境：
@@ -144,7 +140,6 @@ right headers.
 |---|---|
 | `display/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
 | `display/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
-| `hygon/fix-hygon-audio.md` | **音频修复文档**：海光板载 HDA（`1d94:14c9`）绑定 `snd_hda_intel`、三层根因、`driver_override` 原理与验证（与砺算 7G100 GPU 无关） |
 | `underlords/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
 | `minion-masters/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染）、user_settings.py 注入无效教训、Steam 状态卡死坑 |
 | `display/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
@@ -158,7 +153,7 @@ right headers.
 |---|---|
 | `CHANGELOG.md` | 更新日志：每个版本的新增/修复/实测更正，均实机验证 |
 | `lisuan-fix.sh` | **交互式修复索引**：自动检测系统环境并给出结论，输入编号执行单项修复/体检（`./lisuan-fix.sh --detect` 仅检测） |
-| `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为各主题目录（`steam/` `hygon/` `minion-masters/` `underlords/` `display/` 等） |
+| `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为各主题目录（`steam/` `minion-masters/` `underlords/` `display/` 等） |
 | `.workflow/gitee-go-test.yml` | Gitee Go 流水线：push/PR 时自动跑 `tests/` |
 | `_work/` | 本地诊断草稿区（构建日志、探针程序、解包的厂商 DKMS 源码树、Mesa 官方源码等）。仅本机排查用，**不是交付物**；其中的厂商文件不得再分发 |
 | `lisuangpu-*.deb` | 厂商驱动包原件（已被 `.gitignore` 排除，不入库），仅本机留存 |
@@ -176,40 +171,35 @@ right headers.
 或手动执行单项：
 
 ```bash
-cd hygon
-
 # 1) 内核升级后驱动加载失败（vermagic 错配 / 黑屏）
 sudo ./fix-lisuan-gpu.sh
-./scripts/verify-lisuan-gpu.sh
+./display/verify-lisuan-gpu.sh
 
 # 2) GL/EGL 找不到驱动（driver=(null)）、DRI 加载失败
-sudo ./scripts/fix-lisuan-mesa-driver-name.sh
+sudo ./display/fix-lisuan-mesa-driver-name.sh
 
 # 3) Steam 界面起不来（cef_log.txt 大量 exit_code=139/11）
-sudo ./scripts/fix-lisuan-mesa-driver-name.sh
-sudo ./scripts/fix-steam-cef-lock.sh
+sudo ./display/fix-lisuan-mesa-driver-name.sh
+sudo ./steam/fix-steam-cef-lock.sh
 MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
 
 # 4) 想让某个应用走系统 Mesa（25.2.x，zink）而非厂商 Mesa 22.0.4
-./scripts/use-system-mesa.sh --print-env
-./scripts/use-system-mesa.sh glxinfo -B
-./scripts/verify-system-mesa.sh
+./display/use-system-mesa.sh --print-env
+./display/use-system-mesa.sh glxinfo -B
+./display/verify-system-mesa.sh
 
 # 5) Electron 类应用 (ZCode) 显示异常: 界面空白 / 花屏 / 黑块
-./scripts/use-zcode.sh                       # 启动 (含 --no-sandbox 等修复)
-./scripts/use-zcode.sh --install-desktop     # 把应用菜单的 Exec 切到本 wrapper
+./zcode/use-zcode.sh                       # 启动 (含 --no-sandbox 等修复)
+./zcode/use-zcode.sh --install-desktop     # 把应用菜单的 Exec 切到本 wrapper
 
 # 5b) Electron 类应用 gf 硬件加速 (CodeBuddy / Qoder 国内版等)
-./scripts/use-codebuddy.sh                   # CodeBuddy 国内版 (gf 加速, 默认)
-./scripts/use-codebuddy.sh --no-hw           # 回退软件渲染(白屏/花屏时)
-./scripts/use-codebuddy.sh --install-desktop # 应用菜单直启即带加速
-./scripts/use-qoder.sh                        # Qoder 国内版 (gf 加速, 默认)
-./scripts/use-qoder.sh --no-hw                # 回退软件渲染
-./scripts/use-qoder.sh --install-desktop      # 应用菜单直启即带加速
+./codebuddy/use-codebuddy.sh                   # CodeBuddy 国内版 (gf 加速, 默认)
+./codebuddy/use-codebuddy.sh --no-hw           # 回退软件渲染(白屏/花屏时)
+./codebuddy/use-codebuddy.sh --install-desktop # 应用菜单直启即带加速
+./qoder/use-qoder.sh                        # Qoder 国内版 (gf 加速, 默认)
+./qoder/use-qoder.sh --no-hw                # 回退软件渲染
+./qoder/use-qoder.sh --install-desktop      # 应用菜单直启即带加速
 
-# 6) 声音设置只有"虚拟输出"、没有真实声卡（海光板载 HDA，与 7G100 GPU 无关）
-sudo ./scripts/fix-hygon-audio.sh            # 绑定海光 1d94:14c9 + 开机自启
-sudo ./scripts/fix-hygon-audio.sh --status   # 只看绑定/声卡状态
 ```
 
 ---
@@ -284,7 +274,7 @@ LINUXDIR ?= /lib/modules/$(KERNEL_VERSION)/build
 CRC 全部错配，模块被内核拒绝加载，显卡因此没有驱动。
 
 **修复**：让 `Makefile` 认 `KERNELVER`（DKMS 的约定变量），仅在手动 `make` 时回退到
-`uname -r`。改动仅一行，见 [`hygon/patches/0001-dkms-makefile-honor-KERNELVER.patch`](./hygon/patches/0001-dkms-makefile-honor-KERNELVER.patch)：
+`uname -r`。改动仅一行，见 [`display/patches/0001-dkms-makefile-honor-KERNELVER.patch`](./display/patches/0001-dkms-makefile-honor-KERNELVER.patch)：
 
 ```diff
  ifndef KERNEL_VERSION
@@ -310,15 +300,15 @@ CRC 全部错配，模块被内核拒绝加载，显卡因此没有驱动。
 
 ```bash
 # 修复当前运行内核
-sudo ./hygon/fix-lisuan-gpu.sh
+sudo ./display/fix-lisuan-gpu.sh
 
 # 或：为指定内核构建（例如装了新内核但尚未重启进入）
-sudo ./hygon/fix-lisuan-gpu.sh 7.0.0-28-generic
+sudo ./display/fix-lisuan-gpu.sh 7.0.0-28-generic
 ```
 
 脚本会：① 幂等地给 `/usr/src/lisuangpu-dkms-*/Makefile` 打补丁（保留 `.bak`）→
 ② `dkms remove/build/install` 针对目标内核重编重装 → ③ `depmod` + `modprobe gf` →
-④ 打印验证报告。随后可运行只读体检脚本 `hygon/verify-lisuan-gpu.sh`。
+④ 打印验证报告。随后可运行只读体检脚本 `display/verify-lisuan-gpu.sh`。
 
 ### 手动修复步骤
 
@@ -329,7 +319,7 @@ sudo apt-get install -y dkms "linux-headers-$(uname -r)"
 # 1) 打补丁（从 DKMS 源码根目录）
 cd /usr/src/lisuangpu-dkms-262.2.0.56          # 版本号以实际为准
 sudo cp -a Makefile Makefile.bak
-sudo patch -p1 < /path/to/hygon/patches/0001-dkms-makefile-honor-KERNELVER.patch
+sudo patch -p1 < /path/to/display/patches/0001-dkms-makefile-honor-KERNELVER.patch
 
 # 2) 针对当前内核重编重装
 sudo dkms remove  -m lisuangpu-dkms -v 262.2.0.56 -k "$(uname -r)" || true
@@ -382,7 +372,7 @@ vermagic: 7.0.0-28-generic SMP preempt mod_unload modversions   # ← 与运行�
 
 | 注入 | 卸载方式 |
 |---|---|
-| DKMS Makefile 补丁 | `sudo hygon/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 11） |
+| DKMS Makefile 补丁 | `sudo display/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 11） |
 | DRI 驱动名软链 | `sudo display/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 12） |
 | Steam 容器补丁 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 13） |
 | 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 10） |
@@ -445,8 +435,8 @@ sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
 ### 修复（已实测稳定）
 
 ```bash
-sudo ./scripts/fix-lisuan-mesa-driver-name.sh   # 先修驱动名
-sudo ./scripts/fix-steam-cef-lock.sh            # 注入并 chattr +i 锁定
+sudo ./display/fix-lisuan-mesa-driver-name.sh   # 先修驱动名
+sudo ./steam/fix-steam-cef-lock.sh            # 注入并 chattr +i 锁定
 MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
 ```
 
@@ -470,7 +460,7 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 - 建议安装开机自愈：`./lisuan-fix.sh` 选 **9**（或
   `sudo steam/steam-cef-autofix.sh` 手动验证）。
   之后 Steam 客户端更新还原补丁时，下次开机自动重新注入，菜单 5/6 不再需要。
-- 不装自愈服务时：Steam 客户端更新前先 `sudo ./scripts/fix-steam-cef-lock.sh --unlock`，
+- 不装自愈服务时：Steam 客户端更新前先 `sudo ./steam/fix-steam-cef-lock.sh --unlock`，
   更新后重跑注入。
 - 手动编辑 wrap.sh 后务必 `chmod +x`（`sed -i` 会丢执行位，容器内 pv-adverb 会报
   Permission denied）。
@@ -492,7 +482,7 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
   Steam 的运行时长/退出检测依然有效。相关文件（游戏目录下）：
   `ul-host-run.sh`（委托器）、`play-native.sh`（宿主启动器，含残留
   `LS_SHARE_MEMORY_*` 清理）、`underlords.sh`（容器分支 + 启动崩溃重试）。
-  整套文件由 `scripts/fix-underlords-native.sh`（菜单 14）安装/修复/卸载，
+  整套文件由 `underlords/fix-underlords-native.sh`（菜单 14）安装/修复/卸载，
   Steam 更新游戏后可重跑修复。
 - 首次部署需要把 `libpng12.so.0` 放进游戏 `bin/linuxsteamrt64/` 目录
   （Ubuntu 24.04 已移除该库，可从 18.04 归档取），否则 Source 2 的
@@ -510,7 +500,7 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
   崩溃才会产生内核 core（`/tmp/core.underlords.*`，需 core_pattern 指向 /tmp），
   可供 gdb 定位。
 - **彻底关闭自动重启**：若不想保留"游戏中途崩溃自动重开"（例如遇到退出误重开
-  又不想区分），用 `sudo scripts/fix-underlords-native.sh --no-autorestart`
+  又不想区分），用 `sudo underlords/fix-underlords-native.sh --no-autorestart`
   重打补丁——游戏进程结束（正常退出或崩溃）即直接退出，不再拉起。副作用：
   panorama 随机段错误会让游戏**直接闪退不可玩**，按需选择（菜单外手动执行）。
 - 已知限制：宿主直跑的游戏没有 Steam 游戏内覆盖（Shift+Tab）；被 `kill -9`
@@ -574,7 +564,7 @@ bash use-zcode.sh --install-desktop     # 把系统 zcode.desktop 的 Exec 切�
 ### 验证
 
 ```bash
-ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash scripts/use-zcode.sh
+ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash zcode/use-zcode.sh
 # 正常应看到 GPU 进程 fallback 到软件渲染, 无 "GPU process isn't usable" 致命错误
 ```
 
@@ -582,14 +572,14 @@ ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash scripts/use-zcode.sh
 
 - 若换回纯 X11 会话（`XDG_SESSION_TYPE=x11`），`--ozone-platform-hint=x11` 仍无害，
   可保留。
-- 想试恢复硬件加速流畅度：`ZCODE_EXTRA_FLAGS="--ignore-gpu-blocklist" bash scripts/use-zcode.sh`
+- 想试恢复硬件加速流畅度：`ZCODE_EXTRA_FLAGS="--ignore-gpu-blocklist" bash zcode/use-zcode.sh`
   （若出现花屏/白屏，去掉该标志回退默认即可）。
 - 本脚本只改"启动环境"，不触碰系统其它文件；撤销只需把桌面项 `Exec` 改回 AppImage
   本体，或删除 `use-zcode.sh`。
 
 ### 4.1 通用 Electron 硬件加速 wrapper（CodeBuddy / Qoder 共用）
 
-`scripts/use-electron-gf.sh` 是上一节 ZCode 修复思路的**通用化 + gf 硬件加速版**：
+`display/use-electron-gf.sh` 是上一节 ZCode 修复思路的**通用化 + gf 硬件加速版**：
 同一套"显示异常三件套"（`--no-sandbox` / `--ozone-platform-hint=x11` /
 `--disable-gpu-compositing`）保证能开，另提供 **gf 驱动 GPU 加速**替代默认软件渲染，
 让 AI 编码助手这类重 UI 应用更流畅。
@@ -697,32 +687,8 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 
 ---
 
-## 五、海光板载音频修复
 
-> 注意：此问题与**砺算 7G100 GPU 无关**。机器上有两个音频 PCI 功能 —— 砺算 7G100 的伴生
-> 音频（`4c54:5010`，`05:00.1`）是 `gf` 显示驱动内部的透明 codec，不创建 ALSA 卡；真正能出声的
-> 是**海光（Hygon）板载 HDA 控制器**（`1d94:14c9`，`07:00.6`）。
-
-现象：声音设置里只有"虚拟输出 / Dummy Output"，没有任何真实声卡。修复脚本
-`scripts/fix-hygon-audio.sh`，完整根因（三层叠加）、`driver_override` 强制匹配原理与验证见
-[音频修复文档](./hygon/fix-hygon-audio.md)：
-
-- 海光 `1d94` 不在 `snd_hda_intel` PCI id 表 → 用 `driver_override` 强制匹配；
-- `snd_intel_dspcfg` 对未知 vendor 默认走 SOF/SST（本机无固件）→ 先 `modprobe snd-intel-dspcfg dsp_driver=1` 强制原生 HDA；
-- codec（ALC222）上电慢 `azx_get_response` 超时 → `probe_mask=0xff delay=2000`。
-
-修复后 `aplay -l` 出现 `card 0: Intel [HDA Intel], device 0: ALC222 Analog`。
-
-**声音输入（麦克风 / 录音）**：绑定驱动只解决输出，捕获链路还需额外配置——ALC222 的 `Mic Boost` 默认 0 dB、主 `Capture` 通道默认偏低/静音、且 PipeWire 默认输入源可能不指向海光卡。脚本在重启音频服务后自动执行 `fix_input`：把 `Front/Rear Mic Boost` 提到 ~20 dB、`Capture` 音量拉到 ~80% 并取消静音、将海光 `analog-stereo` 输入源设为 PipeWire 默认。验证：
-
-```bash
-arecord -D hw:0,0 -f cd -d 3 test.wav   # 录 3 秒，对着麦说话 RMS 应明显抬升
-wpctl status                            # Sources: 下应显示 "HDA Intel 模拟立体声"
-```
-
----
-
-## 六、游戏修复文档
+## 五、游戏修复文档
 
 针对具体游戏的完整修复文档（根因、规避方案、部署、验证）独立成篇：
 
@@ -744,7 +710,7 @@ wpctl status                            # Sources: 下应显示 "HDA Intel 模�
 
 ---
 
-## 七、踩坑经验总览与砺算技术要点
+## 六、踩坑经验总览与砺算技术要点
 
 > 本章把前面各章分散的"坑"与"砺算技术背景"汇成一份速查表，便于**排障时直接对照**，
 > 也便于向砺算驱动团队反馈。逐项的完整论证见对应章节与 `docs/`。
@@ -783,7 +749,6 @@ wpctl status                            # Sources: 下应显示 "HDA Intel 模�
 | 游戏逻辑 | 图片下载 `Curl error 60` → `Texture has not yet finished downloading` 沿 UniTask `TrySetException` 链传播 | patch `InternalGetTexture` 返回 null（`docs/fix-minion-masters.md` 游戏坑 1c） |
 | IL2CPP 插件 | **`il2cpp_class_get_methods` binding 签名错**（iterator 被当数组）→ count 垃圾值 → 0xC0000005 | 只用 `il2cpp_class_get_method_from_name`（`docs/fix-minion-masters.md` 附录 A4） |
 | 游戏逻辑 | `user_settings.py` 注入无效 | 用 Launch Options（`docs/fix-minion-masters.md` 游戏坑 5） |
-| 音频 | 海光 HDA 三层根因 | `fix-hygon-audio.sh` + 开机自绑（`docs/fix-hygon-audio.md`） |
 
 ### 7.3 环境 / 网络类坑（索引）
 
@@ -835,7 +800,7 @@ sudo apt-get install -y ./lisuangpu-dkms-262.2.0.56_amd64.deb ./lisuangpu-lib-26
 
 仓库根目录的 `tests/` 自带一套**离线、无硬件依赖**的测试
 （Gitee Go 流水线 `.workflow/gitee-go-test.yml` 自动执行），
-检验对象是各主题目录的交付物（`steam/` `hygon/` `minion-masters/` `underlords/` `zcode/` `codebuddy/` `qoder/` `display/`）：
+检验对象是各主题目录的交付物（`steam/` `minion-masters/` `underlords/` `zcode/` `codebuddy/` `qoder/` `display/`）：
 
 ```bash
 ./tests/run-tests.sh        # 运行全部

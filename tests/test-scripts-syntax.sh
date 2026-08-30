@@ -7,8 +7,8 @@ set -uo pipefail
 # shellcheck source=lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-SCRIPT_DIR="${REPO_ROOT}/scripts"
-for f in "${SCRIPT_DIR}"/*.sh; do
+SCRIPT_DIR="${REPO_ROOT}"
+for f in "${SCRIPT_DIR}"/*.sh "${SCRIPT_DIR}"/*/*.sh; do
   [[ -f "$f" ]] || continue
   bash -n "$f" 2>/dev/null
   t_assert_eq 0 $? "bash -n $(basename "$f")"
