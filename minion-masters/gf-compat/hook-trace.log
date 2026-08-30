@@ -1,0 +1,140 @@
+[shim] pid=66441 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66441 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66441 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66441 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66441 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66441 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66441 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66441 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66441 gapq inst=NULL name=vkEnumerateInstanceVersion
+[shim] pid=66441 strip unsupported instance ext: VK_KHR_external_semaphore_capabilities
+[shim] pid=66441 gapq inst=I name=vkCreateDevice
+[shim] pid=66492 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66492 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66492 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66492 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66492 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66492 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66492 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66492 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66492 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66492 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66492 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66492 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66492 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66492 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66492 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66492 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66492 gapq inst=NULL name=vkEnumerateInstanceVersion
+[shim] pid=66492 strip unsupported instance ext: VK_KHR_external_semaphore_capabilities
+[shim] pid=66492 gapq inst=I name=vkCreateDevice
+[shim] pid=66498 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66498 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66498 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66498 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66498 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66498 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66498 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66498 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66498 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66498 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66498 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66498 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66498 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66498 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66498 gapq inst=NULL name=vkCreateInstance
+[shim] pid=66498 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=66498 gapq inst=NULL name=vkEnumerateInstanceVersion
+[shim] pid=66498 strip unsupported instance ext: VK_KHR_external_semaphore_capabilities
+[shim] pid=66498 gapq inst=I name=vkCreateDevice
+[shim] pid=66498 CD step0 physdev=0x55558bb5d900 ci=0x1000fdca0 inst=0x55558bb0f190
+[shim] pid=66498 DE enum ret=0 n=102
+[shim] pid=66498 CD step2 dev_exts=102
+[shim] pid=66498 CD step3 ec=14 en=0x1000fdbb0
+[shim] pid=66498 vkCreateDevice enter (exts 14 -> 14)
+[shim] pid=66498 vkCreateDevice exit ret=-1
+[shim] pid=66498 CD step0 physdev=0x55558bb5d900 ci=0x1000fdca0 inst=0x55558bb0f190
+[shim] pid=66498 CD step2 dev_exts=102
+[shim] pid=66498 CD step3 ec=14 en=0x1000fdbb0
+[shim] pid=66498 vkCreateDevice enter (exts 14 -> 14)
+[shim] pid=66498 vkCreateDevice exit ret=-1
+[shim] pid=66498 CD step0 physdev=0x55558bb5d900 ci=0x1000fdca0 inst=0x55558bb0f190
+[shim] pid=66498 CD step2 dev_exts=102
+[shim] pid=66498 CD step3 ec=14 en=0x1000fdbb0
+[shim] pid=66498 vkCreateDevice enter (exts 14 -> 14)
+[shim] pid=66498 vkCreateDevice exit ret=-1
+[shim] pid=66498 CD step0 physdev=0x55558bb5d900 ci=0x1000fdca0 inst=0x55558bb0f190
+[shim] pid=66498 CD step2 dev_exts=102
+[shim] pid=66498 CD step3 ec=14 en=0x1000fdbb0
+[shim] pid=66498 vkCreateDevice enter (exts 14 -> 14)
+[shim] pid=66498 vkCreateDevice exit ret=-1
+[shim] pid=68870 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68870 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68870 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68870 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68870 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68870 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68870 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68870 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68870 gapq inst=NULL name=vkEnumerateInstanceVersion
+[shim] pid=68870 strip unsupported instance ext: VK_KHR_external_semaphore_capabilities
+[shim] pid=68870 gapq inst=I name=vkCreateDevice
+[shim] pid=68920 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68920 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68920 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68920 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68920 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68920 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68920 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68920 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68920 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68920 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68920 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68920 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68920 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68920 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68920 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68920 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68920 gapq inst=NULL name=vkEnumerateInstanceVersion
+[shim] pid=68920 strip unsupported instance ext: VK_KHR_external_semaphore_capabilities
+[shim] pid=68920 gapq inst=I name=vkCreateDevice
+[shim] pid=68926 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68926 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68926 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68926 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68926 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68926 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68926 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68926 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68926 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68926 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68926 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68926 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68926 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68926 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68926 gapq inst=NULL name=vkCreateInstance
+[shim] pid=68926 gapq inst=NULL name=vkEnumerateInstanceExtensionProperties
+[shim] pid=68926 gapq inst=NULL name=vkEnumerateInstanceVersion
+[shim] pid=68926 strip unsupported instance ext: VK_KHR_external_semaphore_capabilities
+[shim] pid=68926 gapq inst=I name=vkCreateDevice
+[shim] pid=68926 CD step0 physdev=0x5555599f76e0 ci=0x1000fdca0 inst=0x5555599a8b30
+[shim] pid=68926 DE enum ret=0 n=102
+[shim] pid=68926 CD step2 dev_exts=102
+[shim] pid=68926 CD step3 ec=14 en=0x1000fdbb0
+[shim] pid=68926 vkCreateDevice enter (exts 14 -> 14)
+[shim] pid=68926 vkCreateDevice exit ret=-1
+[shim] pid=68926 CD step0 physdev=0x5555599f76e0 ci=0x1000fdca0 inst=0x5555599a8b30
+[shim] pid=68926 CD step2 dev_exts=102
+[shim] pid=68926 CD step3 ec=14 en=0x1000fdbb0
+[shim] pid=68926 vkCreateDevice enter (exts 14 -> 14)
+[shim] pid=68926 vkCreateDevice exit ret=-1
+[shim] pid=68926 CD step0 physdev=0x5555599f76e0 ci=0x1000fdca0 inst=0x5555599a8b30
+[shim] pid=68926 CD step2 dev_exts=102
+[shim] pid=68926 CD step3 ec=14 en=0x1000fdbb0
+[shim] pid=68926 vkCreateDevice enter (exts 14 -> 14)
+[shim] pid=68926 vkCreateDevice exit ret=-1
+[shim] pid=68926 CD step0 physdev=0x5555599f76e0 ci=0x1000fdca0 inst=0x5555599a8b30
+[shim] pid=68926 CD step2 dev_exts=102
+[shim] pid=68926 CD step3 ec=14 en=0x1000fdbb0
+[shim] pid=68926 vkCreateDevice enter (exts 14 -> 14)
+[shim] pid=68926 vkCreateDevice exit ret=-1
