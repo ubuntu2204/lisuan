@@ -9,4 +9,4 @@
 #   bash use-qoder.sh --install-desktop
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$DIR/../common/use-electron-gf.sh" --app qoder "$@"
+exec "$DIR/use-electron-gf.sh" --app qoder "$@"

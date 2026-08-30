@@ -8,7 +8,7 @@
 ### 目录重构
 原 `lisuan-7g100-ubuntu-fix/{scripts,docs,patches,assets}` 扁平结构，改为**按主题分目录**：
 
-`steam/` `minion-masters/` `underlords/` `zcode/` `codebuddy/` `qoder/` `display/`。
+`steam/` `minion-masters/` `underlords/` `electron/` `electron/` `electron/` `display/`。
 
 每个主题目录自带脚本与文档，不再区分 `scripts/` 与 `docs/`。
 README 的全部交叉链接已同步修正（断链校验 0 处）。

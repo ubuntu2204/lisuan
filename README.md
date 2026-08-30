@@ -90,24 +90,22 @@ right headers.
 
 ## 仓库结构
 
-按**主题**分为 10 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）：
+按**主题**分为 6 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）：
 
 | 目录 | 主题 | 内容 |
 |---|---|---|
 | `steam/` | Steam 平台 | 容器 CEF 崩溃修复、开机自愈、容器架构说明 |
 | `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3 |
 | `underlords/` | 刀塔霸业 | 容器委托宿主直跑、libpng12 补齐、崩溃智能重试 |
-| `zcode/` | ZCode | Electron AppImage 显示异常 wrapper |
-| `codebuddy/` | CodeBuddy | 国内版加速启动 wrapper |
-| `qoder/` | Qoder | 国内版加速启动 wrapper |
+| `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder 三个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
 | `display/` | 显示 / 显卡驱动 | GPU 驱动装载与卸载、体检、DKMS 补丁、厂商源码与 bug 报告 |
 | `mesa/` | Mesa 图形栈 | 驱动名修复（`lisuan` vs `gf`）、系统 Mesa 兼容、切换与体检、源码级分析 |
-| `common/` | 公共基座 | 被多个 wrapper 复用的通用脚本（`use-electron-gf.sh`） |
 
 其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）、`lisuan-fix.sh`（交互式索引）。
 
-> `common/` 存放**跨主题复用**的脚本，不属于任何单一应用。
-> 目前 `codebuddy/`、`qoder/` 的 wrapper 均通过 `../common/use-electron-gf.sh` 调用它。
+> `electron/` 内部分工：`use-electron-gf.sh` 是**通用基座**（通用 Electron/Chromium 修复
+> + gf 硬件加速），三个应用 wrapper（`use-zcode.sh` / `use-codebuddy.sh` / `use-qoder.sh`）
+> 均通过 `exec "$DIR/use-electron-gf.sh" --app <name>` 转调它。同目录引用，无跨目录耦合。
 
 **修复类（fix）**——在目标机器上执行，会修改系统状态（均幂等）：
 
@@ -134,10 +132,10 @@ right headers.
 | 路径 | 说明 |
 |---|---|
 | `mesa/use-system-mesa.sh` | 让指定应用运行在系统 Mesa（zink）之上，绕开厂商 Mesa 22.0.4 分叉 |
-| `zcode/use-zcode.sh` | **ZCode（Electron AppImage）显示异常修复**：`--no-sandbox` + `--ozone-platform-hint=x11` + 禁用 GPU 合成；`--install-desktop` 把桌面项切到本 wrapper |
-| `common/use-electron-gf.sh` | **通用 Electron / Chromium 应用 gf 硬件加速 wrapper**：显示异常三件套 + gf 驱动 GPU 加速（默认开），`--no-hw` 回退软件渲染；支持 `--app codebuddy\|qoder\|zcode` / `--cmd` / `--appimage` |
-| `codebuddy/use-codebuddy.sh` | **CodeBuddy 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
-| `qoder/use-qoder.sh` | **Qoder 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
+| `electron/use-zcode.sh` | **ZCode（Electron AppImage）显示异常修复**：`--no-sandbox` + `--ozone-platform-hint=x11` + 禁用 GPU 合成；`--install-desktop` 把桌面项切到本 wrapper |
+| `electron/use-electron-gf.sh` | **通用 Electron / Chromium 应用 gf 硬件加速 wrapper**：显示异常三件套 + gf 驱动 GPU 加速（默认开），`--no-hw` 回退软件渲染；支持 `--app codebuddy\|qoder\|zcode` / `--cmd` / `--appimage` |
+| `electron/use-codebuddy.sh` | **CodeBuddy 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
+| `electron/use-qoder.sh` | **Qoder 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
 
 **文档（docs）**：
 
@@ -194,16 +192,16 @@ MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
 ./mesa/verify-system-mesa.sh
 
 # 5) Electron 类应用 (ZCode) 显示异常: 界面空白 / 花屏 / 黑块
-./zcode/use-zcode.sh                       # 启动 (含 --no-sandbox 等修复)
-./zcode/use-zcode.sh --install-desktop     # 把应用菜单的 Exec 切到本 wrapper
+./electron/use-zcode.sh                       # 启动 (含 --no-sandbox 等修复)
+./electron/use-zcode.sh --install-desktop     # 把应用菜单的 Exec 切到本 wrapper
 
 # 5b) Electron 类应用 gf 硬件加速 (CodeBuddy / Qoder 国内版等)
-./codebuddy/use-codebuddy.sh                   # CodeBuddy 国内版 (gf 加速, 默认)
-./codebuddy/use-codebuddy.sh --no-hw           # 回退软件渲染(白屏/花屏时)
-./codebuddy/use-codebuddy.sh --install-desktop # 应用菜单直启即带加速
-./qoder/use-qoder.sh                        # Qoder 国内版 (gf 加速, 默认)
-./qoder/use-qoder.sh --no-hw                # 回退软件渲染
-./qoder/use-qoder.sh --install-desktop      # 应用菜单直启即带加速
+./electron/use-codebuddy.sh                   # CodeBuddy 国内版 (gf 加速, 默认)
+./electron/use-codebuddy.sh --no-hw           # 回退软件渲染(白屏/花屏时)
+./electron/use-codebuddy.sh --install-desktop # 应用菜单直启即带加速
+./electron/use-qoder.sh                        # Qoder 国内版 (gf 加速, 默认)
+./electron/use-qoder.sh --no-hw                # 回退软件渲染
+./electron/use-qoder.sh --install-desktop      # 应用菜单直启即带加速
 
 ```
 
@@ -569,7 +567,7 @@ bash use-zcode.sh --install-desktop     # 把系统 zcode.desktop 的 Exec 切�
 ### 验证
 
 ```bash
-ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash zcode/use-zcode.sh
+ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash electron/use-zcode.sh
 # 正常应看到 GPU 进程 fallback 到软件渲染, 无 "GPU process isn't usable" 致命错误
 ```
 
@@ -577,14 +575,14 @@ ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash zcode/use-zcode.sh
 
 - 若换回纯 X11 会话（`XDG_SESSION_TYPE=x11`），`--ozone-platform-hint=x11` 仍无害，
   可保留。
-- 想试恢复硬件加速流畅度：`ZCODE_EXTRA_FLAGS="--ignore-gpu-blocklist" bash zcode/use-zcode.sh`
+- 想试恢复硬件加速流畅度：`ZCODE_EXTRA_FLAGS="--ignore-gpu-blocklist" bash electron/use-zcode.sh`
   （若出现花屏/白屏，去掉该标志回退默认即可）。
 - 本脚本只改"启动环境"，不触碰系统其它文件；撤销只需把桌面项 `Exec` 改回 AppImage
   本体，或删除 `use-zcode.sh`。
 
 ### 4.1 通用 Electron 硬件加速 wrapper（CodeBuddy / Qoder 共用）
 
-`common/use-electron-gf.sh` 是上一节 ZCode 修复思路的**通用化 + gf 硬件加速版**：
+`electron/use-electron-gf.sh` 是上一节 ZCode 修复思路的**通用化 + gf 硬件加速版**：
 同一套"显示异常三件套"（`--no-sandbox` / `--ozone-platform-hint=x11` /
 `--disable-gpu-compositing`）保证能开，另提供 **gf 驱动 GPU 加速**替代默认软件渲染，
 让 AI 编码助手这类重 UI 应用更流畅。
@@ -618,6 +616,25 @@ bash use-qoder.sh --install-desktop        # 桌面项改写到 ~/.local/share/a
 bash use-electron-gf.sh --cmd /path/to/electron-app
 bash use-electron-gf.sh --appimage /path/to.appimage
 ```
+
+> **硬件加速失效排查（`vkCreateInstance() failed: -7`）**
+>
+> 症状：`--hw` 模式下 Electron 报
+> `vkCreateInstance() failed: -7`（`VK_ERROR_INCOMPATIBLE_DRIVER`），界面白屏/花屏。
+>
+> 根因（与随从大师 `MinionMasters-攻坚全记录.md` 显卡坑 15 同源）：
+> gf 厂商**裁掉了**实例扩展 `VK_KHR_external_semaphore_capabilities` /
+> `VK_KHR_external_fence_capabilities`，而新版 Vulkan loader 严格校验
+> "请求的实例扩展必须由某个 ICD 暴露"；Electron/Chromium 会请求前者 → 直接被拒。
+> 用 `VK_LOADER_DEBUG=error,warn` 可看到：
+> `loader_validate_instance_extensions: Instance extension VK_KHR_external_semaphore_capabilities not supported`。
+>
+> 解法：使用**协商垫片** `~/gf-compat/gf_icd.json`（→ `libvulkan_gf_shim.so`），
+> 它对外报协商版本 5 并在枚举时补报被裁扩展。脚本已**自动优先选用垫片**
+> （存在时优先于原版 `gf_icd.x86_64.json`），外部 `VK_ICD_FILENAMES` 若已设置则不被覆盖。
+>
+> 另注：早期版本脚本会**无条件覆盖** `VK_ICD_FILENAMES` 为原版 ICD，
+> 导致外部指定垫片无效——现已改为"外部优先 + 垫片次之 + 原版兜底"三级回退。
 
 **加速模式实际开关**（`use-electron-gf.sh`，默认 `--hw`）：
 
@@ -805,7 +822,7 @@ sudo apt-get install -y ./lisuangpu-dkms-262.2.0.56_amd64.deb ./lisuangpu-lib-26
 
 仓库根目录的 `tests/` 自带一套**离线、无硬件依赖**的测试
 （Gitee Go 流水线 `.workflow/gitee-go-test.yml` 自动执行），
-检验对象是各主题目录的交付物（`steam/` `minion-masters/` `underlords/` `zcode/` `codebuddy/` `qoder/` `display/`）：
+检验对象是各主题目录的交付物（`steam/` `minion-masters/` `underlords/` `electron/` `electron/` `electron/` `display/`）：
 
 ```bash
 ./tests/run-tests.sh        # 运行全部

@@ -12,7 +12,7 @@ set -uo pipefail
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${TESTS_DIR}/.." && pwd)"
 # Per-theme directories holding the deliverables
-THEME_DIRS=(steam minion-masters underlords zcode codebuddy qoder display mesa common)
+THEME_DIRS=(steam minion-masters underlords display mesa electron)
 FIXTURES_DIR="${TESTS_DIR}/fixtures"
 PATCH_FILE="${REPO_ROOT}/display/patches/0001-dkms-makefile-honor-KERNELVER.patch"
 

@@ -13,7 +13,7 @@
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export CODEBUDDY_CMD="${CODEBUDDY_CMD:-}"
 if [ -n "${CODEBUDDY_CMD:-}" ]; then
-  exec "$DIR/../common/use-electron-gf.sh" --cmd "$CODEBUDDY_CMD" "$@"
+  exec "$DIR/use-electron-gf.sh" --cmd "$CODEBUDDY_CMD" "$@"
 else
-  exec "$DIR/../common/use-electron-gf.sh" --app codebuddy "$@"
+  exec "$DIR/use-electron-gf.sh" --app codebuddy "$@"
 fi

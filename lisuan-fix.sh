@@ -14,7 +14,7 @@
 # License: Apache-2.0
 set -uo pipefail
 
-# 路径锚定：本脚本在仓库根，单项脚本按主题分布在 steam/ minion-masters/ underlords/ zcode/ codebuddy/ qoder/ display/ mesa/ common/
+# 路径锚定：本脚本在仓库根，单项脚本按主题分布在 steam/ minion-masters/ underlords/ display/ mesa/ electron/
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUB="$SCRIPT_DIR"
 S="$SCRIPT_DIR"
@@ -206,12 +206,12 @@ run_item() {
     13) need_root bash "$S/steam/fix-steam-cef-lock.sh" --uninstall ;;       # 还原 Steam wrap.sh
     14) need_root bash "$S/underlords/fix-underlords-native.sh" ;;                # 安装/修复游戏补丁集
     15) bash "$S/underlords/fix-underlords-native.sh" --status ;;                 # 游戏修复状态
-    16) bash "$S/zcode/use-zcode.sh" ;;                                      # 启动 ZCode (显示异常修复)
-    17) bash "$S/zcode/use-zcode.sh" --install-desktop ;;                    # 把 zcode 桌面项切到 wrapper
-    18) bash "$S/codebuddy/use-codebuddy.sh" ;;                                   # 启动 CodeBuddy (gf 加速)
-    19) bash "$S/codebuddy/use-codebuddy.sh" --install-desktop ;;                # CodeBuddy 桌面项切到 wrapper
-    20) bash "$S/qoder/use-qoder.sh" ;;                                       # 启动 Qoder (gf 加速)
-    21) bash "$S/qoder/use-qoder.sh" --install-desktop ;;                    # Qoder 桌面项切到 wrapper
+    16) bash "$S/electron/use-zcode.sh" ;;                                      # 启动 ZCode (显示异常修复)
+    17) bash "$S/electron/use-zcode.sh" --install-desktop ;;                    # 把 zcode 桌面项切到 wrapper
+    18) bash "$S/electron/use-codebuddy.sh" ;;                                   # 启动 CodeBuddy (gf 加速)
+    19) bash "$S/electron/use-codebuddy.sh" --install-desktop ;;                # CodeBuddy 桌面项切到 wrapper
+    20) bash "$S/electron/use-qoder.sh" ;;                                       # 启动 Qoder (gf 加速)
+    21) bash "$S/electron/use-qoder.sh" --install-desktop ;;                    # Qoder 桌面项切到 wrapper
     *) bad "无效选项：$1"; return 1 ;;
   esac
 }

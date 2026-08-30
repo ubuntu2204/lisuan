@@ -36,6 +36,11 @@ set -u
 # ---- gf 驱动路径 (随环境调整) ----
 GF_GLX_LIB="/usr/lib/x86_64-linux-gnu/libGLX_gf.so"
 GF_VK_ICD="/usr/share/vulkan/icd.d/gf_icd.x86_64.json"
+# 协商垫片: gf 裁掉了 VK_KHR_external_semaphore_capabilities / _fence_capabilities,
+# 而新版 Vulkan loader 严格校验"请求的实例扩展必须由某个 ICD 暴露", Electron/Chromium
+# 会请求前者 -> vkCreateInstance 直接失败 (-7 VK_ERROR_INCOMPATIBLE_DRIVER)。
+# 垫片对外报协商版本 5 并补报被裁扩展, 故优先使用它。
+GF_VK_ICD_SHIM="${GF_VK_ICD_SHIM:-$HOME/gf-compat/gf_icd.json}"
 
 # ---- 通用基础开关 (修显示异常) ----
 # 注: 仅 --ozone-platform-hint=x11 在 Electron 43 (Qoder) 上被忽略, 应用仍走 wayland
@@ -192,8 +197,16 @@ if [ "$ACCEL" = 1 ]; then
   # gf 硬件加速: 注入 gf 驱动 env + Chromium GPU 加速开关
   export __GLX_VENDOR_LIBRARY_NAME=gf
   export LIBGL_ALWAYS_SOFTWARE=0
-  [ -e "$GF_VK_ICD" ] && export VK_ICD_FILENAMES="$GF_VK_ICD"
-  echo ">> 以 gf 硬件加速模式启动: $CMD"
+  # 外部已指定 ICD 时不覆盖(便于改用其它替代实现)
+  if [ -z "${VK_ICD_FILENAMES:-}" ]; then
+    if [ -e "$GF_VK_ICD_SHIM" ]; then
+      # 优先协商垫片, 规避 gf 缺 external_semaphore_capabilities 导致的 -7
+      export VK_ICD_FILENAMES="$GF_VK_ICD_SHIM"
+    elif [ -e "$GF_VK_ICD" ]; then
+      export VK_ICD_FILENAMES="$GF_VK_ICD"
+    fi
+  fi
+  echo ">> 以 gf 硬件加速模式启动: $CMD (ICD=${VK_ICD_FILENAMES:-默认})"
   exec env "$CMD" "${HW_FLAGS[@]}" $EXTRA "$@"
 else
   echo ">> 以软件渲染(稳定)模式启动: $CMD"
