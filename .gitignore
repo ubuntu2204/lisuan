@@ -22,6 +22,13 @@ _work/
 *.order
 .tmp_versions/
 
+# ---- .NET / MSBuild 构建产物（随从大师 mmpatch 补丁工程）----
+# obj/ 内是 dotnet build 的中间产物与 NuGet 还原结果（含 *.assets.cache、
+# project.assets.json 等机器相关绝对路径），bin/ 是最终输出，均不入库。
+# 写成 [Bb]in/ [Oo]bj/ 是为了兼容不同 MSBuild 模板的大小写。
+[Bb]in/
+[Oo]bj/
+
 # ---- 测试草稿(测试本身在 /tmp 下 mktemp,此为保险) ----
 tests/.tmp/
 *.test.tmp

@@ -155,7 +155,10 @@ right headers.
 | 路径 | 说明 |
 |---|---|
 | `CHANGELOG.md` | 更新日志：每个版本的新增/修复/实测更正，均实机验证 |
-| `lisuan-fix.sh` | **交互式修复索引**：自动检测系统环境并给出结论，输入编号执行单项修复/体检（`./lisuan-fix.sh --detect` 仅检测） |
+| `lisuan_fix.py` | **交互式修复索引（推荐入口）**：Python 版，检测环境并给出结论，编号菜单执行单项修复/体检。装了 Textual 则为 TUI 界面，否则自动降级为纯文本菜单 |
+| `tui.py` | Textual TUI 实现（可选增强，被 `lisuan_fix.py` 自动加载） |
+| `pyrightconfig.json` | basedpyright 配置：把 `--user` 安装的 `textual` 加进搜索路径。缺它时 `tui.py` 会报 `reportMissingImports` 并级联出几十条 Unknown 类型警告。换机器后路径见文件内注释 |
+| `lisuan-fix.sh` | 旧版 bash 交互索引，功能等价，作为 Python 不可用时的回退保留 |
 | `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为各主题目录（`steam/` `minion-masters/` `underlords/` `display/` 等） |
 | `.workflow/gitee-go-test.yml` | Gitee Go 流水线：push/PR 时自动跑 `tests/` |
 | `_work/` | 本地诊断草稿区（构建日志、探针程序、解包的厂商 DKMS 源码树、Mesa 官方源码等）。仅本机排查用，**不是交付物**；其中的厂商文件不得再分发 |
@@ -166,10 +169,24 @@ right headers.
 不熟悉各脚本的话，直接用交互式索引（自动检测环境 + 编号菜单）：
 
 ```bash
-./lisuan-fix.sh             # 检测 + 菜单
-./lisuan-fix.sh --detect    # 只做环境检测
-./lisuan-fix.sh 2           # 直接执行第 2 项（修复 DKMS）
+python3 lisuan_fix.py              # 交互界面（有 Textual 用 TUI，否则纯文本菜单）
+python3 lisuan_fix.py --detect     # 只做环境检测并打印报告
+python3 lisuan_fix.py --detect --json   # JSON 输出，便于脚本化/排障
+python3 lisuan_fix.py 2            # 直接执行第 2 项（修复 DKMS）
 ```
+
+菜单项编号与旧版 `lisuan-fix.sh` **完全一致**，本文件各处提到的"菜单 [N]"对两个版本通用。
+
+**启用 TUI**（可选，需联网）：
+
+```bash
+python3 -m pip install --user --break-system-packages textual
+```
+
+未安装时自动降级为纯文本菜单，功能不变。
+
+> 注：Ubuntu 仓库里的 `python3-textual` 是 0.1.13（2021 年版本），API 与现在不兼容，
+> 请用 pip 安装。若提示 PEP 668，加 `--break-system-packages`（只装到用户目录，不碰系统 Python）。
 
 或手动执行单项：
 
