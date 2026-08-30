@@ -370,11 +370,28 @@ Player.log 停在 11 行或 135 行，进程崩溃。
 4. **必须从 Steam 启动**
    命令行直跑会因缺少 Steam 认证上下文，约 90 秒后自行退出。
 
-5. **Proton 更新会重置部分状态**
+5. **Proton 更新会重置部分状态**（**硬件渲染下必看**）
    Proton Experimental 更新时会覆盖：
-   - `libSC.so` 软链（gf 相关，软件渲染下不需要）
-   - 曾被降级的 DXVK（现已不再降级，无影响）
-   如更新后出问题，重新核对第四节配置即可。
+   - `libSC.so` 软链 —— gf 驱动的**着色器编译器伴侣库**，`vkCreateDevice` 依赖它。
+     悬空 → `Failed to initialize player` / `Failed to initialize graphics` /
+     `InitializeEngineGraphics failed`。
+   - **DXVK 降级** —— 被还原为新版（要求 `VK_KHR_load_store_op_none` 与
+     `VK_KHR_maintenance5`，gf 22.0.4 均不支持）→ DXVK 直接跳过 7G100。
+
+   > 2026-08-31 新增变化点：Proton **`experimental-11.0-20260826`** 起，库目录由
+   > `files/lib64/` 改为 `files/lib/`。旧加固若仍写死 `lib64` 会**全部静默失效**
+   > ——包括 `libSC.so` 软链与 DXVK 降级，症状就是上面两条。
+
+   **诊断**（更新后打不开游戏时，按顺序看这三项）：
+   ```bash
+   PE="$HOME/.local/share/Steam/steamapps/common/Proton - Experimental"
+   cat "$PE/version"                                              # 版本号
+   ls -l "$PE/files/lib/x86_64-linux-gnu/libSC.so"                # 是否悬空
+   head -1 "$PE/files/lib/wine/dxvk/version"                      # 应为 v2.3
+   ```
+
+   **修复**：重跑 `fix-minion-masters-7g100-hw.sh`（幂等，已适配 `files/lib/` 新路径）。
+   Steam 运行时改 vdf 会被覆盖，**建议先退出 Steam 再跑，跑完重启**。
 
 ---
 

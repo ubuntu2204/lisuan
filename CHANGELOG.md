@@ -3,6 +3,49 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.08.31 — Proton 11.0 目录重构致加固失效（启动失败修复）
+
+### 症状
+
+Steam 自动更新 Proton Experimental 至 `experimental-11.0-20260826` 后，
+《Minion Masters》无法启动：
+
+```
+Failed to initialize player
+Details: Failed to initialize graphics ... InitializeEngineGraphics failed
+```
+
+### 根因
+
+Proton 11.0 将库目录由 `files/lib64/` 改为 `files/lib/`，三处加固**静默失效**：
+
+| 加固项 | 失效表现 |
+|---|---|
+| `libSC.so` 软链 | 悬空（仍指向已删除的旧路径）→ gf `vkCreateDevice` 失败 |
+| DXVK 降级 | 还原为新版（要求 `VK_KHR_load_store_op_none`，gf 22.0.4 不支持）→ DXVK 跳过 7G100 |
+| hook 部署路径 | 指向失效 |
+
+`libSC.so` 是 gf 驱动的着色器编译器伴侣库，悬空是本例的直接致命原因。
+
+### 修复
+
+重跑 `minion-masters/fix-minion-masters-7g100-hw.sh`（幂等，已适配 `files/lib/` 新路径）。
+Steam 运行时改 vdf 会被覆盖，需**退出 Steam 后执行，跑完重启**。
+
+验证结果：`Renderer: LISUAN 7G100`，D3D11 设备创建失败 **0 次**（修复前每次运行多次失败），
+低 4GB 地址峰值 2.92 GiB / 4 GiB（72.9%）。
+
+### 工程改进
+
+- 新增 `minion-masters/gf-compat/variants/` 与 `build.sh`：hook 实验变体
+  （`baseline-64k` / `norecycle` / `main`）纳入版本管理并提供可复现构建，
+  不再在 `/tmp` 下临时编译——`/tmp` 会被清理、不进 git、构建不可复现。
+- `MinionMasters-成功运行报告.md` 第 5 条原为**软件渲染时期**的描述
+  （称 libSC「不需要」、DXVK 降级「无影响」），已按硬件渲染现状重写，
+  并补入 Proton 11.0 的目录变化点与三步诊断命令。
+
+---
+
 ## 2026.08.30 — 目录重构与海光音频迁出
 
 ### 目录重构
