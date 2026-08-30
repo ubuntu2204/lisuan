@@ -9,6 +9,11 @@ lisuangpu-lib-*.deb
 *.o.hex
 lisuan_proprietary*
 
+# 砺算厂商运行时库：gf-compat 的 Vulkan 兼容层直接依赖这两项，
+# 属 lisuangpu-lib 包内容，不入库。获取方式见 minion-masters/gf-compat/README.md
+minion-masters/gf-compat/lib/libSC.so
+minion-masters/gf-compat/lib/libvulkan_gf.so
+
 # ---- 本地诊断草稿区：构建日志、探针、解包的厂商源码等，整体不入库 ----
 _work/
 
@@ -28,6 +33,14 @@ _work/
 # 写成 [Bb]in/ [Oo]bj/ 是为了兼容不同 MSBuild 模板的大小写。
 [Bb]in/
 [Oo]bj/
+# 注：minion-masters/assets-mm-gf-vulkan/bin/ 下的 MMPatch.dll 是【已跟踪】的
+# 发布产物（游戏部署脚本直接取用它），已入库的文件不受本规则影响。
+# 若日后需要重新添加，用 git add -f 强制加入。
+
+# ---- 随从大师开发目录的第三方依赖（共 231MB，不入库）----
+# 内容、用途与获取方式见 minion-masters/mm-patch/README.md
+minion-masters/mm-patch/tools/
+minion-masters/mm-patch/backup/
 
 # ---- 测试草稿(测试本身在 /tmp 下 mktemp,此为保险) ----
 tests/.tmp/

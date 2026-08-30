@@ -61,4 +61,4 @@ else
 fi
 
 warn "提醒：补丁已撤销，但已安装的 gf.ko 不受影响；下次内核升级可能再次黑屏，"
-warn "届时重新运行 sudo display/fix-lisuan-gpu.sh 即可。"
+warn "届时重新运行 sudo dkms/fix-lisuan-gpu.sh 即可。"

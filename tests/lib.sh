@@ -14,7 +14,7 @@ REPO_ROOT="$(cd "${TESTS_DIR}/.." && pwd)"
 # Per-theme directories holding the deliverables
 THEME_DIRS=(steam minion-masters underlords display mesa electron)
 FIXTURES_DIR="${TESTS_DIR}/fixtures"
-PATCH_FILE="${REPO_ROOT}/display/patches/0001-dkms-makefile-honor-KERNELVER.patch"
+PATCH_FILE="${REPO_ROOT}/dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch"
 
 # Per-test temp dir (cleaned up by run-tests.sh, or on exit).
 TEST_TMP="$(mktemp -d "${TMPDIR:-/tmp}/lisuan-test.XXXXXX")"

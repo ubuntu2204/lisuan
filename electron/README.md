@@ -63,7 +63,7 @@ Electron/Chromium 会请求前者 → loader 直接拒绝创建实例。
 Instance extension VK_KHR_external_semaphore_capabilities not supported by available ICDs
 ```
 
-**解法：用协商垫片。** `~/gf-compat/gf_icd.json` → `libvulkan_gf_shim.so`，
+**解法：用协商垫片。** `minion-masters/gf-compat/gf_icd.json` → `libvulkan_gf_shim.so`，
 它对外报协商版本 5，并在枚举时补报被裁的两个扩展，令校验通过。
 
 脚本已**自动优先选用垫片**：
@@ -160,7 +160,7 @@ bash use-electron-gf.sh --app qoder --no-hw
 
 | 现象 | 检查 |
 |---|---|
-| 启动报 `-7` / 白屏 | ICD 是否为 `gf-compat/gf_icd.json`（垫片）？`~/gf-compat/` 是否被清理？ |
+| 启动报 `-7` / 白屏 | ICD 是否为 `gf-compat/gf_icd.json`（垫片）？`minion-masters/gf-compat/` 是否被清理？ |
 | 界面残缺/拖拽异常 | 是否同时给了 `--ozone-platform=x11`？（Electron 43 会忽略 hint） |
 | 双击图标无反应 | Exec 路径是否有效？是否 `gio set ... trusted`？ |
 | Steam 客户端 GLX 崩 | 是否把 gf env 设成了全局？应只作用于单个应用 |

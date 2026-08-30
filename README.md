@@ -44,7 +44,7 @@ GPU (PCI `4c54:5006`) on **Ubuntu 24.04 LTS** with vendor driver packages
 
 **This repo does not contain the vendor driver** — only independent patches,
 scripts, documentation and tests, under Apache-2.0. It also includes a
-fully-evidenced vendor bug report (`display/vendor-bug-report-gf-gbm-crash.md`)
+fully-evidenced vendor bug report (`dkms/vendor-bug-report-gf-gbm-crash.md`)
 covering the three container/ABI issues, intended for Lisuan's driver team.
 
 Quick entry point (interactive: environment detection + numbered menu):
@@ -95,10 +95,10 @@ right headers.
 | 目录 | 主题 | 内容 |
 |---|---|---|
 | `steam/` | Steam 平台 | 容器 CEF 崩溃修复、开机自愈、容器架构说明 |
-| `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3 |
+| `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3。其中 `gf-compat/` 是 Vulkan 兼容层（源码与运行时产物同处该目录，两个厂商专有 `.so` 不入库、获取方式见其 README），`mm-patch/` 是补丁开发工作目录（第三方依赖不入库），`assets-mm-gf-vulkan/` 是 C# 补丁工程（MMPatch） |
 | `underlords/` | 刀塔霸业 | 容器委托宿主直跑、libpng12 补齐、崩溃智能重试 |
 | `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder 三个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
-| `display/` | 显示 / 显卡驱动 | GPU 驱动装载与卸载、体检、DKMS 补丁、厂商源码与 bug 报告 |
+| `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |
 | `mesa/` | Mesa 图形栈 | 驱动名修复（`lisuan` vs `gf`）、系统 Mesa 兼容、切换与体检、源码级分析 |
 
 其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）、`lisuan-fix.sh`（交互式索引）。
@@ -111,20 +111,20 @@ right headers.
 
 | 路径 | 说明 |
 |---|---|
-| `display/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
-| `display/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
+| `dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
+| `dkms/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `mesa/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
 | `steam/fix-steam-cef-lock.sh` | **Steam 修复主入口**：向容器内注入 `GBM_BACKEND=dri` + `LD_PRELOAD` glapi 并 `chattr +i` 锁定（详见[三](#三steam-适配)） |
 | `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 智能重试/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载、`--no-autorestart` 彻底关闭自动重启（游戏中途崩溃也直接退出，菜单 14/15） |
 | `steam/steam-cef-autofix.sh` | 开机自愈（root/systemd 调用）：发现 Steam 更新还原了补丁就自动重新注入锁定，由 `./lisuan-fix.sh` 菜单 9 安装为系统服务；`--uninstall` 卸载服务 |
-| `display/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
+| `dkms/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 | `mesa/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
 
 | 路径 | 说明 |
 |---|---|
-| `display/verify-lisuan-gpu.sh` | 驱动体检：lspci/lsmod/modinfo/DRM 节点 |
+| `dkms/verify-lisuan-gpu.sh` | 驱动体检：lspci/lsmod/modinfo/DRM 节点 |
 | `mesa/verify-system-mesa.sh` | 系统 Mesa 兼容性体检（zink 回退、GBM dri 后端等） |
 
 **工具类（use）**——按需包装单个应用的环境：
@@ -142,10 +142,10 @@ right headers.
 | 路径 | 说明 |
 |---|---|
 | `mesa/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
-| `display/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
+| `dkms/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
 | `underlords/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
 | `minion-masters/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染）、user_settings.py 注入无效教训、Steam 状态卡死坑 |
-| `display/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
+| `dkms/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
 
 > 注意区分：`scripts/` 下的 verify-* 是**面向真机的体检工具**，与仓库根的
 > `tests/`（离线、无硬件依赖的 CI 自检）不是一回事。
@@ -159,7 +159,7 @@ right headers.
 | `tui.py` | Textual TUI 实现（可选增强，被 `lisuan_fix.py` 自动加载） |
 | `pyrightconfig.json` | basedpyright 配置：把 `--user` 安装的 `textual` 加进搜索路径。缺它时 `tui.py` 会报 `reportMissingImports` 并级联出几十条 Unknown 类型警告。换机器后路径见文件内注释 |
 | `lisuan-fix.sh` | 旧版 bash 交互索引，功能等价，作为 Python 不可用时的回退保留 |
-| `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为各主题目录（`steam/` `minion-masters/` `underlords/` `display/` 等） |
+| `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为各主题目录（`steam/` `minion-masters/` `underlords/` `electron/` `dkms/` `mesa/` 等） |
 | `.workflow/gitee-go-test.yml` | Gitee Go 流水线：push/PR 时自动跑 `tests/` |
 | `_work/` | 本地诊断草稿区（构建日志、探针程序、解包的厂商 DKMS 源码树、Mesa 官方源码等）。仅本机排查用，**不是交付物**；其中的厂商文件不得再分发 |
 | `lisuangpu-*.deb` | 厂商驱动包原件（已被 `.gitignore` 排除，不入库），仅本机留存 |
@@ -193,7 +193,7 @@ python3 -m pip install --user --break-system-packages textual
 ```bash
 # 1) 内核升级后驱动加载失败（vermagic 错配 / 黑屏）
 sudo ./fix-lisuan-gpu.sh
-./display/verify-lisuan-gpu.sh
+./dkms/verify-lisuan-gpu.sh
 
 # 2) GL/EGL 找不到驱动（driver=(null)）、DRI 加载失败
 sudo ./mesa/fix-lisuan-mesa-driver-name.sh
@@ -294,7 +294,7 @@ LINUXDIR ?= /lib/modules/$(KERNEL_VERSION)/build
 CRC 全部错配，模块被内核拒绝加载，显卡因此没有驱动。
 
 **修复**：让 `Makefile` 认 `KERNELVER`（DKMS 的约定变量），仅在手动 `make` 时回退到
-`uname -r`。改动仅一行，见 [`display/patches/0001-dkms-makefile-honor-KERNELVER.patch`](./display/patches/0001-dkms-makefile-honor-KERNELVER.patch)：
+`uname -r`。改动仅一行，见 [`dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch`](./dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch)：
 
 ```diff
  ifndef KERNEL_VERSION
@@ -320,15 +320,15 @@ CRC 全部错配，模块被内核拒绝加载，显卡因此没有驱动。
 
 ```bash
 # 修复当前运行内核
-sudo ./display/fix-lisuan-gpu.sh
+sudo ./dkms/fix-lisuan-gpu.sh
 
 # 或：为指定内核构建（例如装了新内核但尚未重启进入）
-sudo ./display/fix-lisuan-gpu.sh 7.0.0-28-generic
+sudo ./dkms/fix-lisuan-gpu.sh 7.0.0-28-generic
 ```
 
 脚本会：① 幂等地给 `/usr/src/lisuangpu-dkms-*/Makefile` 打补丁（保留 `.bak`）→
 ② `dkms remove/build/install` 针对目标内核重编重装 → ③ `depmod` + `modprobe gf` →
-④ 打印验证报告。随后可运行只读体检脚本 `display/verify-lisuan-gpu.sh`。
+④ 打印验证报告。随后可运行只读体检脚本 `dkms/verify-lisuan-gpu.sh`。
 
 ### 手动修复步骤
 
@@ -339,7 +339,7 @@ sudo apt-get install -y dkms "linux-headers-$(uname -r)"
 # 1) 打补丁（从 DKMS 源码根目录）
 cd /usr/src/lisuangpu-dkms-262.2.0.56          # 版本号以实际为准
 sudo cp -a Makefile Makefile.bak
-sudo patch -p1 < /path/to/display/patches/0001-dkms-makefile-honor-KERNELVER.patch
+sudo patch -p1 < /path/to/dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch
 
 # 2) 针对当前内核重编重装
 sudo dkms remove  -m lisuangpu-dkms -v 262.2.0.56 -k "$(uname -r)" || true
@@ -392,7 +392,7 @@ vermagic: 7.0.0-28-generic SMP preempt mod_unload modversions   # ← 与运行�
 
 | 注入 | 卸载方式 |
 |---|---|
-| DKMS Makefile 补丁 | `sudo display/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 11） |
+| DKMS Makefile 补丁 | `sudo dkms/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 11） |
 | DRI 驱动名软链 | `sudo mesa/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 12） |
 | Steam 容器补丁 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 13） |
 | 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 10） |
@@ -469,7 +469,7 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 
 效果：GPU 进程不再崩溃；它尝试硬件加速失败后（容器内 glvnd 的 EGL 分发
 拿不到厂商 EGL，见
-[`display/vendor-bug-report-gf-gbm-crash.md`](./display/vendor-bug-report-gf-gbm-crash.md) §3）
+[`dkms/vendor-bug-report-gf-gbm-crash.md`](./dkms/vendor-bug-report-gf-gbm-crash.md) §3）
 自动回退软渲染，Steam 界面正常。注意：容器内的原生 GLX 游戏仍无法启动
 （见[游戏兼容性](#游戏兼容性dota-underlords-实测)与报告 §4）。
 
@@ -485,7 +485,7 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 - 手动编辑 wrap.sh 后务必 `chmod +x`（`sed -i` 会丢执行位，容器内 pv-adverb 会报
   Permission denied）。
 - 三个问题的根因与修复建议已整理成厂商 bug 报告：
-  [`display/vendor-bug-report-gf-gbm-crash.md`](./display/vendor-bug-report-gf-gbm-crash.md)。
+  [`dkms/vendor-bug-report-gf-gbm-crash.md`](./dkms/vendor-bug-report-gf-gbm-crash.md)。
 
 ### 游戏兼容性（Dota Underlords 实测）
 
@@ -646,7 +646,7 @@ bash use-electron-gf.sh --appimage /path/to.appimage
 > 用 `VK_LOADER_DEBUG=error,warn` 可看到：
 > `loader_validate_instance_extensions: Instance extension VK_KHR_external_semaphore_capabilities not supported`。
 >
-> 解法：使用**协商垫片** `~/gf-compat/gf_icd.json`（→ `libvulkan_gf_shim.so`），
+> 解法：使用**协商垫片** `minion-masters/gf-compat/gf_icd.json`（→ `libvulkan_gf_shim.so`），
 > 它对外报协商版本 5 并在枚举时补报被裁扩展。脚本已**自动优先选用垫片**
 > （存在时优先于原版 `gf_icd.x86_64.json`），外部 `VK_ICD_FILENAMES` 若已设置则不被覆盖。
 >
@@ -779,7 +779,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 | 内核 | DKMS 变量名错配（`KERNEL_VERSION` vs `KERNELVER`）→ vermagic 错配 | 一行 Makefile 补丁 + `fix-lisuan-gpu.sh`（[一、内核模块](#一内核模块-gfko-编译与加载) / `patches/`） |
 | Mesa | 驱动名不一致（DRM `lisuan` vs 用户态 `gf`） | `fix-lisuan-mesa-driver-name.sh`（[三、Mesa/用户态](#三mesa用户态适配)） |
 | Mesa | 厂商 fork 22.0.4 vs 系统 25.2.x 不兼容 | `zink` 回退（`mesa/system-mesa-analysis.md`） |
-| Steam/CEF | `gf_gbm.so` 段错误 + ANGLE 惰性符号失败 | 仅游戏进程树注入（`display/vendor-bug-report-gf-gbm-crash.md`） |
+| Steam/CEF | `gf_gbm.so` 段错误 + ANGLE 惰性符号失败 | 仅游戏进程树注入（`dkms/vendor-bug-report-gf-gbm-crash.md`） |
 | Steam/CEF | **全局 dri 软链 `lisuan_dri.so->gf_dri.so` / Steam 客户端 PRELOAD 使 Steam 客户端 double free**（致命坑） | 默认不建软链、不向 Steam wrap 注入 gf（`steam/steam-on-lisuan.md` §2/§3） |
 | Wine/DXVK | `d3d11: failed to create factory` 渲染卡死 | `PROTON_USE_WINED3D=1`（`minion-masters/fix-minion-masters.md` 附录 A1） |
 | Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`minion-masters/fix-minion-masters.md` 附录 A1） |
@@ -817,7 +817,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 >
 > 例外：厂商 DKMS 包内的**内核源码**本身以 GPLv2 / Dual MIT/GPLv2 授权
 > （包内 `copyright` 与文件头声明），已按授权原样转录至
-> [`display/vendor-src/`](./display/vendor-src/README.md)
+> [`dkms/vendor-src/`](./dkms/vendor-src/README.md)
 > （含来源包 SHA-256；闭源 blob 与一切二进制产物不在其中）。
 
 本修复针对并验证于以下版本的驱动包，供你核对完整性（`sha256sum`）：
@@ -839,7 +839,7 @@ sudo apt-get install -y ./lisuangpu-dkms-262.2.0.56_amd64.deb ./lisuangpu-lib-26
 
 仓库根目录的 `tests/` 自带一套**离线、无硬件依赖**的测试
 （Gitee Go 流水线 `.workflow/gitee-go-test.yml` 自动执行），
-检验对象是各主题目录的交付物（`steam/` `minion-masters/` `underlords/` `electron/` `electron/` `electron/` `display/`）：
+检验对象是各主题目录的交付物（`steam/` `minion-masters/` `underlords/` `electron/` `dkms/` `mesa/`）：
 
 ```bash
 ./tests/run-tests.sh        # 运行全部

@@ -23,7 +23,7 @@ pkill -f "proton run MinionMasters" 2>/dev/null
 sleep 1
 
 cd "$GAME" || exit 1
-env LD_PRELOAD=/home/ubuntu/gf-compat/lib/osrelease_redirect.so \
+env LD_PRELOAD=/home/ubuntu/project/lisuan/minion-masters/gf-compat/lib/osrelease_redirect.so \
     PROTON_USE_WOW64=1 \
     STEAM_COMPAT_DATA_PATH="$PFX" \
     STEAM_COMPAT_CLIENT_INSTALL_PATH="$HOME/.local/share/Steam" \

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
 # test-fix-script.sh — verify the core patch logic embedded in
-# display/fix-lisuan-gpu.sh (the perl one-liner + "already patched" detection),
+# dkms/fix-lisuan-gpu.sh (the perl one-liner + "already patched" detection),
 # including idempotency, without needing root, dkms or the vendor driver.
 # License: Apache-2.0
 set -uo pipefail
 # shellcheck source=lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-# The exact perl one-liner used by display/fix-lisuan-gpu.sh.
+# The exact perl one-liner used by dkms/fix-lisuan-gpu.sh.
 PATCH_PERL='s/^KERNEL_VERSION := \$\(shell uname -r\)$/KERNEL_VERSION := \$(if \$(KERNELVER),\$(KERNELVER),\$(shell uname -r))/m'
 ALREADY_GREP='KERNEL_VERSION := $(if $(KERNELVER)'
 

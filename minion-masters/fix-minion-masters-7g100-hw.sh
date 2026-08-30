@@ -44,8 +44,11 @@
 #   ./fix-minion-masters-7g100-hw.sh --inject-winhttp   # pfx 重建后重新注入 winhttp=n,b
 set -u
 APPID=489520
-ASSETS="$(cd "$(dirname "$0")/../assets/mm-gf-vulkan" && pwd)"
-DEPLOY="$HOME/gf-compat"   # hook 放 $DEPLOY/lib/, 伪造 os-release 放 $DEPLOY/(hook 内路径写死为此)
+ASSETS="$(cd "$(dirname "$0")/assets-mm-gf-vulkan" && pwd)"
+# 运行时目录：2026-08-31 由 ~/gf-compat 并入仓库，与源码同处 minion-masters/gf-compat/。
+# 注意 osrelease_redirect.c / libvulkan_gf_shim.c 内的伪造路径写死为
+# /home/ubuntu/gf-compat，因此这里会对源码 sed 改写后重新编译（见 deploy_hook）。
+DEPLOY="$(cd "$(dirname "$0")/gf-compat" && pwd)"
 PROTON_EX="$HOME/.local/share/Steam/steamapps/common/Proton - Experimental"
 PROTON8="$HOME/.local/share/Steam/steamapps/common/Proton 8.0"
 GAME="$HOME/.steam/root/steamapps/common/Minion Masters"
@@ -66,7 +69,9 @@ err() { echo "[mm-hw] !! $*" >&2; }
 deploy_hook() {
   mkdir -p "$DEPLOY/lib"
   cp "$ASSETS/os-release" "$DEPLOY/os-release"
-  # hook 内写死的伪造文件路径是 /home/ubuntu/gf-compat/os-release；若 DEPLOY 不同则重编
+  # hook 内写死的伪造文件路径是 /home/ubuntu/gf-compat/os-release。
+  # DEPLOY 现为仓库内路径，故恒定走 else 重编分支（需要 gcc）；
+  # 保留该判断只为 DEPLOY 被显式指回 ~/gf-compat 时可直接用现成产物。
   if [ "$DEPLOY" = "$HOME/gf-compat" ]; then
     cp "$ASSETS/osrelease_redirect.so" "$DEPLOY/lib/osrelease_redirect.so"
   else
@@ -132,10 +137,16 @@ downgrade_dxvk() {
 
 # ---------- 4) MMPatch + doorstop 直载 ----------
 setup_mmpatch() {
-  local src="$ASSETS/MMPatch.dll"
-  # bin/ 是 dotnet build 产物, 若比资产根目录副本新则优先部署
-  if [ -f "$ASSETS/bin/MMPatch.dll" ] && [ "$ASSETS/bin/MMPatch.dll" -nt "$src" ]; then
-    src="$ASSETS/bin/MMPatch.dll"
+  # bin/ 是 dotnet build 产物，是唯一权威来源。
+  #
+  # 旧逻辑是在assets 根目录副本与 bin/ 之间用 -nt 比时间戳二选一，这不可靠：
+  # git 不保留 mtime，换机器 clone 后两者时间戳相同，-nt 判定失败，会误选
+  # 根目录那份 2026-08-26 的旧版（启用 Vivox patch，游戏必卡在登录）。
+  # 该旧版已归档到 _work/mm-patch-legacy-20260826/，此处固定取 bin/。
+  local src="$ASSETS/bin/MMPatch.dll"
+  if [ ! -f "$src" ]; then
+    err "找不到 $src —— 请先在 assets-mm-gf-vulkan/ 下执行 dotnet build"
+    return 1
   fi
   cp "$src" "$GAME/MMPatch.dll"
   [ -f "$GAME/doorstop_config.ini.bak-bepinex" ] || cp "$GAME/doorstop_config.ini" "$GAME/doorstop_config.ini.bak-bepinex"

@@ -313,7 +313,7 @@ cat ~/.steam/root/steamapps/common/Minion\ Masters/MinionMasters.sh | grep -A3 g
 # 4) 渲染后端（grep "Renderer:"）—— 应为硬件渲染：
 #      Renderer: LISUAN 7G100 Series Graphics (ID=0x5006)
 #    若为 llvmpipe / 其他，说明 7G100 未生效，按「游戏坑 8」逐项排查：
-#      - Steam 启动选项是否含 LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so
+#      - Steam 启动选项是否含 LD_PRELOAD=<仓库>/minion-masters/gf-compat/lib/osrelease_redirect.so
 #      - 是否 PROTON_USE_WOW64=1
 #      - libSC.so 软链是否被 Proton 更新冲掉（重跑固化脚本）
 ```
@@ -526,7 +526,7 @@ void *mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off) {
 **LaunchOptions（最终，固化脚本写入）**：
 
 ```
-LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so PROTON_USE_WOW64=1 %command%
+LD_PRELOAD=<仓库>/minion-masters/gf-compat/lib/osrelease_redirect.so PROTON_USE_WOW64=1 %command%
 ```
 
 - CompatToolMapping: 489520 → `proton_experimental`（或自定义 `Proton - MM GF`）。
@@ -538,9 +538,9 @@ LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so PROTON_USE_WOW64=1 %command%
 当前 Steam 存的是固化脚本早期写入的版本，比上面的最简形式多两个变量：
 
 ```
-PROTON_USE_WOW64=1 LD_PRELOAD=/home/ubuntu/gf-compat/lib/osrelease_redirect.so
+PROTON_USE_WOW64=1 LD_PRELOAD=<仓库>/minion-masters/gf-compat/lib/osrelease_redirect.so
 __GLX_VENDOR_LIBRARY_NAME=mesa LIBGL_ALWAYS_SOFTWARE=1
-VK_ICD_FILENAMES=/home/ubuntu/gf-compat/gf_icd.json
+VK_ICD_FILENAMES=<仓库>/minion-masters/gf-compat/gf_icd.json
 VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_overlay_32
 %command%
 ```

@@ -183,8 +183,8 @@ remove_autofix() {   # 卸载自愈服务：停用并删除单元文件（幂等
 run_item() {
   case "$1" in
     1) detect ;;                                              # 重新检测
-    2) need_root bash "$S/display/fix-lisuan-gpu.sh" "${2:-}" ;;     # 可透传目标内核参数
-    3) bash "$S/display/verify-lisuan-gpu.sh" ;;                     # 只读体检
+    2) need_root bash "$S/dkms/fix-lisuan-gpu.sh" "${2:-}" ;;     # 可透传目标内核参数
+    3) bash "$S/dkms/verify-lisuan-gpu.sh" ;;                     # 只读体检
     4) need_root bash "$S/mesa/fix-lisuan-mesa-driver-name.sh" ;; # DRI 驱动名软链
     5) need_root bash "$S/steam/fix-steam-cef-lock.sh" ;;          # Steam 补丁注入+锁定
     6) need_root bash "$S/steam/fix-steam-cef-lock.sh" --unlock ;; # Steam 更新前解锁
@@ -201,7 +201,7 @@ run_item() {
       fi ;;
     9) install_autofix ;;    # 安装开机自愈
     10) remove_autofix ;;    # 卸载开机自愈
-    11) need_root bash "$S/display/uninstall-lisuan-gpu.sh" ;;                 # 撤销 DKMS 补丁
+    11) need_root bash "$S/dkms/uninstall-lisuan-gpu.sh" ;;                 # 撤销 DKMS 补丁
     12) need_root bash "$S/mesa/uninstall-lisuan-mesa-driver-name.sh" ;;    # 删 DRI 软链
     13) need_root bash "$S/steam/fix-steam-cef-lock.sh" --uninstall ;;       # 还原 Steam wrap.sh
     14) need_root bash "$S/underlords/fix-underlords-native.sh" ;;                # 安装/修复游戏补丁集

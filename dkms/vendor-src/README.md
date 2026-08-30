@@ -35,4 +35,4 @@
 
 `Makefile` 读 `KERNEL_VERSION`（缺省 `uname -r`），而 `dkms.conf` 传的是
 `KERNELVER`——内核升级后 DKMS 会按运行内核编译、归档到目标内核目录，
-导致 vermagic 错配、模块无法加载。修复见上述补丁与 `display/fix-lisuan-gpu.sh`。
+导致 vermagic 错配、模块无法加载。修复见上述补丁与 `dkms/fix-lisuan-gpu.sh`。

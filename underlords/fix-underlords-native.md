@@ -34,7 +34,7 @@ sudo ./underlords/fix-underlords-native.sh --uninstall
 
 ## 根因与规避原理
 
-完整证据链见 [`vendor-bug-report-gf-gbm-crash.md`](../display/vendor-bug-report-gf-gbm-crash.md) §4。
+完整证据链见 [`vendor-bug-report-gf-gbm-crash.md`](../dkms/vendor-bug-report-gf-gbm-crash.md) §4。
 核心矛盾：pressure-vessel 容器内的图形栈三根支柱（Vulkan ICD 枚举、GLX vendor 注册、EGL/X11
 visual）在厂商驱动下全部失效，而宿主侧图形栈（X11 + 系统 Mesa / gf）完全正常。因此把游戏进程
 "委托给宿主" 是唯一干净路径 —— 这也是 README「Steam 适配 → 游戏兼容性」里记录的结论。

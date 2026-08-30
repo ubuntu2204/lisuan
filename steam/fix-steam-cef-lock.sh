@@ -30,7 +30,7 @@
 #      the host), then falls back to software rendering. The UI works.
 #      Full hardware compositing for the UI needs vendor-side container/EGL
 #      dispatch support, and in-container GLX for native games needs a GLX
-#      vendor registration (see display/vendor-bug-report-gf-gbm-crash.md §3/§4).
+#      vendor registration (see dkms/vendor-bug-report-gf-gbm-crash.md §3/§4).
 #
 # Note: sed -i recreates the file, so the executable bit is restored with
 # chmod +x afterwards — without it pv-adverb fails with "Permission denied".

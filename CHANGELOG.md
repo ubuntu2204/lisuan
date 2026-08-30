@@ -180,7 +180,7 @@ lisuan 仓库中相关脚本、菜单项、文档章节与测试引用已同步�
 
 ### 新增
 
-- **厂商 DKMS 内核源码开源转录** `display/vendor-src/`：
+- **厂商 DKMS 内核源码开源转录** `dkms/vendor-src/`：
   厂商包 lisuangpu-dkms 262.2.0.56 内的内核源码（69 个 .c + 99 个 .h）本身
   以 GPLv2 / Dual MIT/GPLv2 授权（包内 copyright 与文件头声明），按授权
   原样转录（Makefile 保持出厂未补丁状态，附来源包 SHA-256）；
@@ -214,7 +214,7 @@ lisuan 仓库中相关脚本、菜单项、文档章节与测试引用已同步�
   `lisuan-steam-autofix.service`，Steam 客户端更新还原 CEF 补丁后开机自动
   重新注入并锁定；`--uninstall` 卸载。
 - **卸载能力全覆盖**：每项注入均有对称、幂等的卸载入口——
-  - `display/uninstall-lisuan-gpu.sh`（撤销 DKMS Makefile 补丁）
+  - `dkms/uninstall-lisuan-gpu.sh`（撤销 DKMS Makefile 补丁）
   - `mesa/uninstall-lisuan-mesa-driver-name.sh`（删除 DRI 驱动名软链）
   - `steam/fix-steam-cef-lock.sh --uninstall`（还原 Steam wrap.sh）
   - `steam/steam-cef-autofix.sh --uninstall`（卸载自愈服务）
@@ -243,7 +243,7 @@ lisuan 仓库中相关脚本、菜单项、文档章节与测试引用已同步�
 - **内核升级后驱动无法加载**（vermagic 错配/黑屏）：厂商 DKMS Makefile
   `KERNEL_VERSION`/`KERNELVER` 变量名错配 → 一行补丁
   （`patches/0001-dkms-makefile-honor-KERNELVER.patch`）+
-  `display/fix-lisuan-gpu.sh` 一键重编重装。
+  `dkms/fix-lisuan-gpu.sh` 一键重编重装。
 
 ### 实测更正（相对早期分析记录）
 
