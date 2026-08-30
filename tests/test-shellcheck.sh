@@ -17,7 +17,7 @@ if ! command -v shellcheck >/dev/null 2>&1; then
   t_finish "test-shellcheck.sh"
 fi
 
-# 收集全部脚本：交付子树 scripts/、测试套件自身、仓库根入口脚本
+# 收集全部脚本：各主题目录(steam/ display/ ...)、测试套件自身、仓库根入口脚本
 SCRIPTS=()
 for f in "${REPO_ROOT}"/*/*.sh; do [[ -f "$f" ]] && SCRIPTS+=("$f"); done
 for f in "${TESTS_DIR}"/test-*.sh "${TESTS_DIR}"/lib.sh "${TESTS_DIR}"/run-tests.sh; do

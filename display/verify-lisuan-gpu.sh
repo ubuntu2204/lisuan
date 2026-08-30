@@ -28,7 +28,7 @@ if [[ -n "$KO" ]]; then
   # vermagic 是本仓库修复的核心指标：必须与运行内核完全一致
   VM="$(modinfo "$KO" 2>/dev/null | awk '/^vermagic:/{print $2}')"
   if [[ "$VM" == "$KVER" ]]; then ok "vermagic matches ($VM)  -> $KO"
-  else no "vermagic MISMATCH: module=$VM running=$KVER  -> run scripts/fix-lisuan-gpu.sh"; fi
+  else no "vermagic MISMATCH: module=$VM running=$KVER  -> run display/fix-lisuan-gpu.sh"; fi
 else
   no "no ${MODULE}.ko installed for ${KVER}"
 fi

@@ -215,7 +215,7 @@ lisuan 仓库中相关脚本、菜单项、文档章节与测试引用已同步�
   重新注入并锁定；`--uninstall` 卸载。
 - **卸载能力全覆盖**：每项注入均有对称、幂等的卸载入口——
   - `display/uninstall-lisuan-gpu.sh`（撤销 DKMS Makefile 补丁）
-  - `display/uninstall-lisuan-mesa-driver-name.sh`（删除 DRI 驱动名软链）
+  - `mesa/uninstall-lisuan-mesa-driver-name.sh`（删除 DRI 驱动名软链）
   - `steam/fix-steam-cef-lock.sh --uninstall`（还原 Steam wrap.sh）
   - `steam/steam-cef-autofix.sh --uninstall`（卸载自愈服务）
 - **厂商 bug 报告** `docs/vendor-bug-report-gf-gbm-crash.md`：三个问题
@@ -238,7 +238,7 @@ lisuan 仓库中相关脚本、菜单项、文档章节与测试引用已同步�
   - 载体：`steam/fix-steam-cef-lock.sh` 注入 `steamwebhelper_sniper_wrap.sh`
     并 `chattr +i` 锁定（抵御 Steam 启动校验还原；补 `chmod +x` 防丢执行位）。
 - **DRI 驱动加载失败**（`driver=(null)`）：DRM 注册名 `lisuan` 与用户态驱动名
-  `gf` 不一致 → `display/fix-lisuan-mesa-driver-name.sh` 建立
+  `gf` 不一致 → `mesa/fix-lisuan-mesa-driver-name.sh` 建立
   `lisuan_dri.so → gf_dri.so` 等软链。
 - **内核升级后驱动无法加载**（vermagic 错配/黑屏）：厂商 DKMS Makefile
   `KERNEL_VERSION`/`KERNELVER` 变量名错配 → 一行补丁

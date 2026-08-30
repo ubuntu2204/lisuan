@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # test-scripts-syntax.sh — bash -n syntax check on every shell script shipped
-# in scripts/ (and the test suite itself). No execution, purely static.
+# in the per-theme dirs (and the test suite itself). No execution, purely static.
 # License: Apache-2.0
 set -uo pipefail
 # shellcheck source=lib.sh

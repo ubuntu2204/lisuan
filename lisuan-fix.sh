@@ -14,7 +14,7 @@
 # License: Apache-2.0
 set -uo pipefail
 
-# 路径锚定：本脚本在仓库根，单项脚本按主题分布在 steam/ minion-masters/ underlords/ zcode/ codebuddy/ qoder/ display/
+# 路径锚定：本脚本在仓库根，单项脚本按主题分布在 steam/ minion-masters/ underlords/ zcode/ codebuddy/ qoder/ display/ mesa/ common/
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SUB="$SCRIPT_DIR"
 S="$SCRIPT_DIR"
@@ -185,10 +185,10 @@ run_item() {
     1) detect ;;                                              # 重新检测
     2) need_root bash "$S/display/fix-lisuan-gpu.sh" "${2:-}" ;;     # 可透传目标内核参数
     3) bash "$S/display/verify-lisuan-gpu.sh" ;;                     # 只读体检
-    4) need_root bash "$S/display/fix-lisuan-mesa-driver-name.sh" ;; # DRI 驱动名软链
+    4) need_root bash "$S/mesa/fix-lisuan-mesa-driver-name.sh" ;; # DRI 驱动名软链
     5) need_root bash "$S/steam/fix-steam-cef-lock.sh" ;;          # Steam 补丁注入+锁定
     6) need_root bash "$S/steam/fix-steam-cef-lock.sh" --unlock ;; # Steam 更新前解锁
-    7) bash "$S/display/verify-system-mesa.sh" ;;                    # Mesa 兼容性体检
+    7) bash "$S/mesa/verify-system-mesa.sh" ;;                    # Mesa 兼容性体检
     8)
       # 宿主直跑 Underlords（容器内 GLX 无解，见 bug 报告 §4）
       local ul="$HOME/.local/share/Steam/steamapps/common/Underlords/game/play-native.sh"
@@ -202,7 +202,7 @@ run_item() {
     9) install_autofix ;;    # 安装开机自愈
     10) remove_autofix ;;    # 卸载开机自愈
     11) need_root bash "$S/display/uninstall-lisuan-gpu.sh" ;;                 # 撤销 DKMS 补丁
-    12) need_root bash "$S/display/uninstall-lisuan-mesa-driver-name.sh" ;;    # 删 DRI 软链
+    12) need_root bash "$S/mesa/uninstall-lisuan-mesa-driver-name.sh" ;;    # 删 DRI 软链
     13) need_root bash "$S/steam/fix-steam-cef-lock.sh" --uninstall ;;       # 还原 Steam wrap.sh
     14) need_root bash "$S/underlords/fix-underlords-native.sh" ;;                # 安装/修复游戏补丁集
     15) bash "$S/underlords/fix-underlords-native.sh" --status ;;                 # 游戏修复状态

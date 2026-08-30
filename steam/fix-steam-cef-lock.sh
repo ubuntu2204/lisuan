@@ -14,7 +14,7 @@
 #      vendor backend gbm/gf_gbm.so (22.0.4 fork), which segfaults (jump to
 #      NULL) under the newer libgbm ABI. Core dumps of the crashing processes
 #      show the crash frames inside gf_gbm.so. Forcing the distro "dri"
-#      backend sidesteps it (see docs/system-mesa-analysis.md §5 landmine #1).
+#      backend sidesteps it (see mesa/system-mesa-analysis.md §5 landmine #1).
 #   2. `export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0` —
 #      Steam bundles its own ANGLE (libEGL.so/libGLESv2.so) in ubuntu12_64/,
 #      which LD_LIBRARY_PATH=. puts first. That ANGLE lazily resolves GL API
@@ -30,7 +30,7 @@
 #      the host), then falls back to software rendering. The UI works.
 #      Full hardware compositing for the UI needs vendor-side container/EGL
 #      dispatch support, and in-container GLX for native games needs a GLX
-#      vendor registration (see docs/vendor-bug-report-gf-gbm-crash.md §3/§4).
+#      vendor registration (see display/vendor-bug-report-gf-gbm-crash.md §3/§4).
 #
 # Note: sed -i recreates the file, so the executable bit is restored with
 # chmod +x afterwards — without it pv-adverb fails with "Permission denied".
@@ -88,7 +88,7 @@ fi
 
 # 重要（2026-08-24 修正）: 向 Steam 客户端 wrap 注入 gf PRELOAD/GBM 会让
 # **Steam 客户端自身** 走 gf glapi -> 无头/XWayland 下 double free 崩溃
-# (见 docs/steam-on-lisuan.md §2/§3)。故默认 **不再注入 Steam 客户端 wrap**。
+# (见 steam/steam-on-lisuan.md §2/§3)。故默认 **不再注入 Steam 客户端 wrap**。
 # 此脚本仅保留清理能力 (--unlock / --uninstall) 以移除历史注入。
 # 若确实需要给游戏进程树注入 gf GL, 请改用游戏 Launch Options 或 Proton
 # user_settings.py (仅游戏), 不要碰 Steam 客户端 wrap。
@@ -117,7 +117,7 @@ exit 1
 cat <<EOF
 
 注意: 本脚本默认不再向 Steam 客户端 wrap 注入 gf 环境变量 (该注入会导致 Steam 客户端
-double free 崩溃, 见 docs/steam-on-lisuan.md §2)。仅用于清理历史注入:
+double free 崩溃, 见 steam/steam-on-lisuan.md §2)。仅用于清理历史注入:
   sudo $0 --uninstall   移除 wrap 里的 gf 注入 (Steam 客户端恢复稳定)
   sudo $0 --unlock      仅解锁 (供 Steam 更新前)
 

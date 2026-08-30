@@ -33,7 +33,7 @@ GPU (PCI `4c54:5006`) on **Ubuntu 24.04 LTS** with vendor driver packages
 2. **Userspace graphics (Mesa)** — the DRM driver registers as `lisuan` while
    the userspace driver is named `gf`, so Mesa finds no DRI driver
    (`driver=(null)`); fixed with symlinks. A source-level analysis of the
-   vendor Mesa 22.0.4 fork vs system Mesa 25.2.x is in `docs/` (zink is the
+   vendor Mesa 22.0.4 fork vs system Mesa 25.2.x is in `mesa/system-mesa-analysis.md` (zink is the
    viable fallback path).
 3. **Applications (Steam)** — Steam's CEF crashes in its pressure-vessel
    container (two root causes: vendor `gf_gbm.so` segfaults under modern
@@ -44,7 +44,7 @@ GPU (PCI `4c54:5006`) on **Ubuntu 24.04 LTS** with vendor driver packages
 
 **This repo does not contain the vendor driver** — only independent patches,
 scripts, documentation and tests, under Apache-2.0. It also includes a
-fully-evidenced vendor bug report (`docs/vendor-bug-report-gf-gbm-crash.md`)
+fully-evidenced vendor bug report (`display/vendor-bug-report-gf-gbm-crash.md`)
 covering the three container/ABI issues, intended for Lisuan's driver team.
 
 Quick entry point (interactive: environment detection + numbered menu):
@@ -90,7 +90,7 @@ right headers.
 
 ## 仓库结构
 
-按**主题**分为 8 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）：
+按**主题**分为 10 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）：
 
 | 目录 | 主题 | 内容 |
 |---|---|---|
@@ -100,9 +100,14 @@ right headers.
 | `zcode/` | ZCode | Electron AppImage 显示异常 wrapper |
 | `codebuddy/` | CodeBuddy | 国内版加速启动 wrapper |
 | `qoder/` | Qoder | 国内版加速启动 wrapper |
-| `display/` | 显示 / 图形栈适配 | 通用 Electron wrapper、Mesa 驱动名修复、系统 Mesa 兼容性与厂商 bug 报告 |
+| `display/` | 显示 / 显卡驱动 | GPU 驱动装载与卸载、体检、DKMS 补丁、厂商源码与 bug 报告 |
+| `mesa/` | Mesa 图形栈 | 驱动名修复（`lisuan` vs `gf`）、系统 Mesa 兼容、切换与体检、源码级分析 |
+| `common/` | 公共基座 | 被多个 wrapper 复用的通用脚本（`use-electron-gf.sh`） |
 
 其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）、`lisuan-fix.sh`（交互式索引）。
+
+> `common/` 存放**跨主题复用**的脚本，不属于任何单一应用。
+> 目前 `codebuddy/`、`qoder/` 的 wrapper 均通过 `../common/use-electron-gf.sh` 调用它。
 
 **修复类（fix）**——在目标机器上执行，会修改系统状态（均幂等）：
 
@@ -110,27 +115,27 @@ right headers.
 |---|---|
 | `display/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
 | `display/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
-| `display/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
+| `mesa/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
 | `steam/fix-steam-cef-lock.sh` | **Steam 修复主入口**：向容器内注入 `GBM_BACKEND=dri` + `LD_PRELOAD` glapi 并 `chattr +i` 锁定（详见[三](#三steam-适配)） |
 | `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 智能重试/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载、`--no-autorestart` 彻底关闭自动重启（游戏中途崩溃也直接退出，菜单 14/15） |
 | `steam/steam-cef-autofix.sh` | 开机自愈（root/systemd 调用）：发现 Steam 更新还原了补丁就自动重新注入锁定，由 `./lisuan-fix.sh` 菜单 9 安装为系统服务；`--uninstall` 卸载服务 |
 | `display/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
-| `display/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
+| `mesa/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
 
 | 路径 | 说明 |
 |---|---|
 | `display/verify-lisuan-gpu.sh` | 驱动体检：lspci/lsmod/modinfo/DRM 节点 |
-| `display/verify-system-mesa.sh` | 系统 Mesa 兼容性体检（zink 回退、GBM dri 后端等） |
+| `mesa/verify-system-mesa.sh` | 系统 Mesa 兼容性体检（zink 回退、GBM dri 后端等） |
 
 **工具类（use）**——按需包装单个应用的环境：
 
 | 路径 | 说明 |
 |---|---|
-| `display/use-system-mesa.sh` | 让指定应用运行在系统 Mesa（zink）之上，绕开厂商 Mesa 22.0.4 分叉 |
+| `mesa/use-system-mesa.sh` | 让指定应用运行在系统 Mesa（zink）之上，绕开厂商 Mesa 22.0.4 分叉 |
 | `zcode/use-zcode.sh` | **ZCode（Electron AppImage）显示异常修复**：`--no-sandbox` + `--ozone-platform-hint=x11` + 禁用 GPU 合成；`--install-desktop` 把桌面项切到本 wrapper |
-| `display/use-electron-gf.sh` | **通用 Electron / Chromium 应用 gf 硬件加速 wrapper**：显示异常三件套 + gf 驱动 GPU 加速（默认开），`--no-hw` 回退软件渲染；支持 `--app codebuddy\|qoder\|zcode` / `--cmd` / `--appimage` |
+| `common/use-electron-gf.sh` | **通用 Electron / Chromium 应用 gf 硬件加速 wrapper**：显示异常三件套 + gf 驱动 GPU 加速（默认开），`--no-hw` 回退软件渲染；支持 `--app codebuddy\|qoder\|zcode` / `--cmd` / `--appimage` |
 | `codebuddy/use-codebuddy.sh` | **CodeBuddy 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
 | `qoder/use-qoder.sh` | **Qoder 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
 
@@ -138,7 +143,7 @@ right headers.
 
 | 路径 | 说明 |
 |---|---|
-| `display/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
+| `mesa/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
 | `display/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
 | `underlords/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
 | `minion-masters/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染）、user_settings.py 注入无效教训、Steam 状态卡死坑 |
@@ -176,17 +181,17 @@ sudo ./fix-lisuan-gpu.sh
 ./display/verify-lisuan-gpu.sh
 
 # 2) GL/EGL 找不到驱动（driver=(null)）、DRI 加载失败
-sudo ./display/fix-lisuan-mesa-driver-name.sh
+sudo ./mesa/fix-lisuan-mesa-driver-name.sh
 
 # 3) Steam 界面起不来（cef_log.txt 大量 exit_code=139/11）
-sudo ./display/fix-lisuan-mesa-driver-name.sh
+sudo ./mesa/fix-lisuan-mesa-driver-name.sh
 sudo ./steam/fix-steam-cef-lock.sh
 MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
 
 # 4) 想让某个应用走系统 Mesa（25.2.x，zink）而非厂商 Mesa 22.0.4
-./display/use-system-mesa.sh --print-env
-./display/use-system-mesa.sh glxinfo -B
-./display/verify-system-mesa.sh
+./mesa/use-system-mesa.sh --print-env
+./mesa/use-system-mesa.sh glxinfo -B
+./mesa/verify-system-mesa.sh
 
 # 5) Electron 类应用 (ZCode) 显示异常: 界面空白 / 花屏 / 黑块
 ./zcode/use-zcode.sh                       # 启动 (含 --no-sandbox 等修复)
@@ -373,7 +378,7 @@ vermagic: 7.0.0-28-generic SMP preempt mod_unload modversions   # ← 与运行�
 | 注入 | 卸载方式 |
 |---|---|
 | DKMS Makefile 补丁 | `sudo display/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 11） |
-| DRI 驱动名软链 | `sudo display/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 12） |
+| DRI 驱动名软链 | `sudo mesa/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 12） |
 | Steam 容器补丁 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 13） |
 | 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 10） |
 
@@ -396,12 +401,12 @@ sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
 内核 DRM 驱动注册名为 `lisuan`，而厂商用户态驱动叫 `gf_dri.so`。Mesa 的 DRI 加载器
 按 `drmGetVersion()` 返回的名字找驱动 → 找 `lisuan_dri.so` → 找不到 → `driver=(null)`。
 
-修复：`sudo ./display/fix-lisuan-mesa-driver-name.sh`
+修复：`sudo ./mesa/fix-lisuan-mesa-driver-name.sh`
 创建 `lisuan_dri.so → gf_dri.so` 等符号链接（幂等；重装厂商 lib 包后建议重跑）。
 
 ### 与系统 Mesa 25.2.x 的关系（要点）
 
-完整源码级分析见 [`docs/system-mesa-analysis.md`](./display/system-mesa-analysis.md)：
+完整源码级分析见 [`mesa/system-mesa-analysis.md`](./mesa/system-mesa-analysis.md)：
 
 - 厂商 GL 栈是**自包含的 Mesa 22.0.4 分叉**（`libGLX_gf`/`libEGL_gf` + `gf_dri.so`
   megadriver），系统 Mesa 25.2.x **架构上无法加载它**（无 megadriver 加载机制、
@@ -410,7 +415,7 @@ sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
   `libvulkan_gf.so` 之上）：GLX 自动回退可用（GL 3.0 上限）；
 - **地雷**：厂商 `gf_gbm.so` 在系统 libgbm 25.x 下段错误（ABI 漂移）——任何走
   系统 libgbm 默认后端解析的场景需 `GBM_BACKEND=dri` 规避；
-- 想让某应用走系统 Mesa：`./display/use-system-mesa.sh -- <cmd>`。
+- 想让某应用走系统 Mesa：`./mesa/use-system-mesa.sh -- <cmd>`。
 
 ---
 
@@ -435,7 +440,7 @@ sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
 ### 修复（已实测稳定）
 
 ```bash
-sudo ./display/fix-lisuan-mesa-driver-name.sh   # 先修驱动名
+sudo ./mesa/fix-lisuan-mesa-driver-name.sh   # 先修驱动名
 sudo ./steam/fix-steam-cef-lock.sh            # 注入并 chattr +i 锁定
 MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
 ```
@@ -449,7 +454,7 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 
 效果：GPU 进程不再崩溃；它尝试硬件加速失败后（容器内 glvnd 的 EGL 分发
 拿不到厂商 EGL，见
-[`docs/vendor-bug-report-gf-gbm-crash.md`](./display/vendor-bug-report-gf-gbm-crash.md) §3）
+[`display/vendor-bug-report-gf-gbm-crash.md`](./display/vendor-bug-report-gf-gbm-crash.md) §3）
 自动回退软渲染，Steam 界面正常。注意：容器内的原生 GLX 游戏仍无法启动
 （见[游戏兼容性](#游戏兼容性dota-underlords-实测)与报告 §4）。
 
@@ -465,7 +470,7 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号
 - 手动编辑 wrap.sh 后务必 `chmod +x`（`sed -i` 会丢执行位，容器内 pv-adverb 会报
   Permission denied）。
 - 三个问题的根因与修复建议已整理成厂商 bug 报告：
-  [`docs/vendor-bug-report-gf-gbm-crash.md`](./display/vendor-bug-report-gf-gbm-crash.md)。
+  [`display/vendor-bug-report-gf-gbm-crash.md`](./display/vendor-bug-report-gf-gbm-crash.md)。
 
 ### 游戏兼容性（Dota Underlords 实测）
 
@@ -579,7 +584,7 @@ ZCODE_EXTRA_FLAGS="--enable-logging=stderr --v=1" bash zcode/use-zcode.sh
 
 ### 4.1 通用 Electron 硬件加速 wrapper（CodeBuddy / Qoder 共用）
 
-`display/use-electron-gf.sh` 是上一节 ZCode 修复思路的**通用化 + gf 硬件加速版**：
+`common/use-electron-gf.sh` 是上一节 ZCode 修复思路的**通用化 + gf 硬件加速版**：
 同一套"显示异常三件套"（`--no-sandbox` / `--ozone-platform-hint=x11` /
 `--disable-gpu-compositing`）保证能开，另提供 **gf 驱动 GPU 加速**替代默认软件渲染，
 让 AI 编码助手这类重 UI 应用更流畅。
@@ -713,7 +718,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 ## 六、踩坑经验总览与砺算技术要点
 
 > 本章把前面各章分散的"坑"与"砺算技术背景"汇成一份速查表，便于**排障时直接对照**，
-> 也便于向砺算驱动团队反馈。逐项的完整论证见对应章节与 `docs/`。
+> 也便于向砺算驱动团队反馈。逐项的完整论证见对应章节与各主题目录下的文档。
 
 ### 7.1 砺算 7G100 技术要点（必读）
 
@@ -733,30 +738,30 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 
 ### 7.2 踩坑清单（按层索引）
 
-> 每条细节与修法见对应 `docs/` 文档（链接内为文档内小节）。本表仅为速查索引。
+> 每条细节与修法见对应主题目录下的文档（链接内为文档内小节）。本表仅为速查索引。
 
 | 层 | 坑 | 修法 / 细节文档 |
 | --- | --- | --- |
 | 内核 | DKMS 变量名错配（`KERNEL_VERSION` vs `KERNELVER`）→ vermagic 错配 | 一行 Makefile 补丁 + `fix-lisuan-gpu.sh`（[一、内核模块](#一内核模块-gfko-编译与加载) / `patches/`） |
 | Mesa | 驱动名不一致（DRM `lisuan` vs 用户态 `gf`） | `fix-lisuan-mesa-driver-name.sh`（[三、Mesa/用户态](#三mesa用户态适配)） |
-| Mesa | 厂商 fork 22.0.4 vs 系统 25.2.x 不兼容 | `zink` 回退（`docs/system-mesa-analysis.md`） |
-| Steam/CEF | `gf_gbm.so` 段错误 + ANGLE 惰性符号失败 | 仅游戏进程树注入（`docs/vendor-bug-report-gf-gbm-crash.md`） |
-| Steam/CEF | **全局 dri 软链 `lisuan_dri.so->gf_dri.so` / Steam 客户端 PRELOAD 使 Steam 客户端 double free**（致命坑） | 默认不建软链、不向 Steam wrap 注入 gf（`docs/steam-on-lisuan.md` §2/§3） |
-| Wine/DXVK | `d3d11: failed to create factory` 渲染卡死 | `PROTON_USE_WINED3D=1`（`docs/fix-minion-masters.md` 附录 A1） |
-| Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`docs/fix-minion-masters.md` 附录 A1） |
-| 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`docs/fix-minion-masters.md` 游戏坑 1） |
-| 游戏逻辑 | **证书 patch（`CertificateHandler.ValidateCertificate`）反致黑屏**：Zenject 循环 + BootstrapInstaller NullReference + `NotSupportedException` 刷屏 | 禁用证书 patch，改 patch `DownloadHandlerTexture.InternalGetTexture` 返回 null（`docs/fix-minion-masters.md` 游戏坑 1 / 游戏坑 2） |
-| 游戏逻辑 | 图片下载 `Curl error 60` → `Texture has not yet finished downloading` 沿 UniTask `TrySetException` 链传播 | patch `InternalGetTexture` 返回 null（`docs/fix-minion-masters.md` 游戏坑 1c） |
-| IL2CPP 插件 | **`il2cpp_class_get_methods` binding 签名错**（iterator 被当数组）→ count 垃圾值 → 0xC0000005 | 只用 `il2cpp_class_get_method_from_name`（`docs/fix-minion-masters.md` 附录 A4） |
-| 游戏逻辑 | `user_settings.py` 注入无效 | 用 Launch Options（`docs/fix-minion-masters.md` 游戏坑 5） |
+| Mesa | 厂商 fork 22.0.4 vs 系统 25.2.x 不兼容 | `zink` 回退（`mesa/system-mesa-analysis.md`） |
+| Steam/CEF | `gf_gbm.so` 段错误 + ANGLE 惰性符号失败 | 仅游戏进程树注入（`display/vendor-bug-report-gf-gbm-crash.md`） |
+| Steam/CEF | **全局 dri 软链 `lisuan_dri.so->gf_dri.so` / Steam 客户端 PRELOAD 使 Steam 客户端 double free**（致命坑） | 默认不建软链、不向 Steam wrap 注入 gf（`steam/steam-on-lisuan.md` §2/§3） |
+| Wine/DXVK | `d3d11: failed to create factory` 渲染卡死 | `PROTON_USE_WINED3D=1`（`minion-masters/fix-minion-masters.md` 附录 A1） |
+| Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`minion-masters/fix-minion-masters.md` 附录 A1） |
+| 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`minion-masters/fix-minion-masters.md` 游戏坑 1） |
+| 游戏逻辑 | **证书 patch（`CertificateHandler.ValidateCertificate`）反致黑屏**：Zenject 循环 + BootstrapInstaller NullReference + `NotSupportedException` 刷屏 | 禁用证书 patch，改 patch `DownloadHandlerTexture.InternalGetTexture` 返回 null（`minion-masters/fix-minion-masters.md` 游戏坑 1 / 游戏坑 2） |
+| 游戏逻辑 | 图片下载 `Curl error 60` → `Texture has not yet finished downloading` 沿 UniTask `TrySetException` 链传播 | patch `InternalGetTexture` 返回 null（`minion-masters/fix-minion-masters.md` 游戏坑 1c） |
+| IL2CPP 插件 | **`il2cpp_class_get_methods` binding 签名错**（iterator 被当数组）→ count 垃圾值 → 0xC0000005 | 只用 `il2cpp_class_get_method_from_name`（`minion-masters/fix-minion-masters.md` 附录 A4） |
+| 游戏逻辑 | `user_settings.py` 注入无效 | 用 Launch Options（`minion-masters/fix-minion-masters.md` 游戏坑 5） |
 
 ### 7.3 环境 / 网络类坑（索引）
 
-- **Steam 客户端登录态丢失（`steamid=0` 陈旧态）** → 登录过一次后（`AutoLoginUser` + `RememberPassword` 已写入）**重启 Steam 客户端即自动重登**，无需图形界面；首次登录仍需图形界面生成 ssfn（`docs/fix-minion-masters.md` 附录 A2 / `docs/steam-on-lisuan.md` §4）
-- **随从大师后端 API 全 404**（`api.prod.mm21.minionmastersthegame.com` 的 `/v1/*` 全 404、`/health` 却 200）→ `LoginQueueService.Post` 抛 404，登录队列进不去；服务端问题本地无解（`docs/fix-minion-masters.md` 游戏坑 3）
-- **Azure IP `140.228.24.145:443`(及 `:33798`) 网络封锁** → 代理/VPN（`docs/fix-minion-masters.md` 游戏坑 3）
-- **随从大师进程启动后 ~40–90 秒被移除**（进主菜单后消失，当前未解；疑似登录队列 404 后游戏自身退出）→ `docs/fix-minion-masters.md` 游戏坑 7
-- **Standard shader 不支持（画质告警，不致命）** → 忽略（`docs/fix-minion-masters.md` 附录 A3）
+- **Steam 客户端登录态丢失（`steamid=0` 陈旧态）** → 登录过一次后（`AutoLoginUser` + `RememberPassword` 已写入）**重启 Steam 客户端即自动重登**，无需图形界面；首次登录仍需图形界面生成 ssfn（`minion-masters/fix-minion-masters.md` 附录 A2 / `steam/steam-on-lisuan.md` §4）
+- **随从大师后端 API 全 404**（`api.prod.mm21.minionmastersthegame.com` 的 `/v1/*` 全 404、`/health` 却 200）→ `LoginQueueService.Post` 抛 404，登录队列进不去；服务端问题本地无解（`minion-masters/fix-minion-masters.md` 游戏坑 3）
+- **Azure IP `140.228.24.145:443`(及 `:33798`) 网络封锁** → 代理/VPN（`minion-masters/fix-minion-masters.md` 游戏坑 3）
+- **随从大师进程启动后 ~40–90 秒被移除**（进主菜单后消失，当前未解；疑似登录队列 404 后游戏自身退出）→ `minion-masters/fix-minion-masters.md` 游戏坑 7
+- **Standard shader 不支持（画质告警，不致命）** → 忽略（`minion-masters/fix-minion-masters.md` 附录 A3）
 
 ### 7.4 排查方法论（速查）
 
