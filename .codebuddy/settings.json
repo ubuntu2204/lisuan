@@ -1,9 +1,0 @@
-{
-  "enabledPlugins": {
-    "ardot-design-generator@cb_teams_marketplace": true,
-    "skill-creator@cb_teams_marketplace": true,
-    "debugging-toolkit@codebuddy-plugins-official": true,
-    "github@codebuddy-plugins-official": true,
-    "systems-programming@codebuddy-plugins-official": true
-  }
-}
