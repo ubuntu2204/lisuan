@@ -3,7 +3,8 @@
 > 适用机型：**砺算 7G100 GPU + Ubuntu 24.04 + Proton（Steam）**。
 > 现象：Steam 里启动 Minion Masters 先后崩在 Vivox 登录 / 黑屏（Zenject 异常循环）；
 > 修复后已能过 Vivox、Steam 验证、连上游戏服务器并**进入主菜单（BattleModeViewModel）**。
-> 修复脚本：`lisuan-7g100-ubuntu-fix/scripts/fix-minion-masters.sh`（Launcher 注入）；
+> 修复脚本：`./fix-minion-masters-7g100-hw.sh`（7G100 硬件渲染，**当前用这个**）；
+> 另有 `./fix-minion-masters.sh`（llvmpipe 软件渲染路线，早期方案，仅存档）；
 > 真正的崩溃修复是运行时 IL2CPP patch：**当前为 `MMPatch.dll`**（doorstop 直载，纯 P/Invoke，
 > 源码 `assets/mm-gf-vulkan/MMPatch.cs`）。早期的 BepInEx 插件 `MMSkipVivox.dll`
 > （源码 `/home/ubuntu/mm_patch/plugin/Patcher.cs`）已于 2026-08-26 退役，见游戏坑 1。
@@ -262,13 +263,13 @@ llvmpipe 软件渲染时期记录为："Proton Experimental / wine 11.0 在 7.0.
 Steam 启动选项（LaunchOptions）。
 
 > Steam 平台层的通用说明（容器白名单、格式陷阱）见
-> [`docs/steam-on-lisuan.md` §7](./steam-on-lisuan.md)。
+> [`docs/steam-on-lisuan.md` §7](../steam/steam-on-lisuan.md)。
 
 ---
 
 ## 游戏坑 6：Steam "游戏运行中" 状态卡死
 
-> 平台层通用说明见 [`docs/steam-on-lisuan.md` §5](./steam-on-lisuan.md)。
+> 平台层通用说明见 [`docs/steam-on-lisuan.md` §5](../steam/steam-on-lisuan.md)。
 
 每次 `pkill` 强杀游戏后，Steam 会卡在"游戏运行中"状态，后续 `steam -applaunch 489520` 被静默忽略，
 游戏起不来。必须 `steam -shutdown` 彻底重启 Steam 才能再次启动。调试时若发现 applaunch 拉不起游戏，
@@ -343,7 +344,7 @@ cat ~/.steam/root/steamapps/common/Minion\ Masters/MinionMasters.sh | grep -A3 g
 
 ### A2. 无头环境 Steam 客户端登录（更新 2026-08-25：自动登录可自愈）
 
-> Steam 平台层完整说明见 [`docs/steam-on-lisuan.md` §4](./steam-on-lisuan.md)。
+> Steam 平台层完整说明见 [`docs/steam-on-lisuan.md` §4](../steam/steam-on-lisuan.md)。
 
 本机缺失 `ssfn` 登录令牌（只有 16 字节 `steam.token` 不足）时，首次登录仍需图形界面。
 但**登录过一次后**（`config.vdf` 已有 `AutoLoginUser=godot0413301` + `RememberPassword=1`），

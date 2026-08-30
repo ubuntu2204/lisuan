@@ -158,7 +158,7 @@
 
 ### 新增
 
-- **厂商 DKMS 内核源码开源转录** `lisuan-7g100-ubuntu-fix/vendor-src/`：
+- **厂商 DKMS 内核源码开源转录** `display/vendor-src/`：
   厂商包 lisuangpu-dkms 262.2.0.56 内的内核源码（69 个 .c + 99 个 .h）本身
   以 GPLv2 / Dual MIT/GPLv2 授权（包内 copyright 与文件头声明），按授权
   原样转录（Makefile 保持出厂未补丁状态，附来源包 SHA-256）；

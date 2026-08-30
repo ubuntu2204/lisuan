@@ -2,7 +2,7 @@
 
 > 适用机型：**砺算 7G100 GPU + 海光（Hygon）整机**。
 > 现象：声音设置里只有"虚拟输出 / Dummy Output"，没有任何真实声卡。
-> 修复脚本：`lisuan-7g100-ubuntu-fix/scripts/fix-hygon-audio.sh`
+> 修复脚本：`./fix-hygon-audio.sh`
 
 ---
 

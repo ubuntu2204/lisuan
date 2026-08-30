@@ -114,7 +114,7 @@ dxvk.logLevel = info
 
 ### 4.3 MMPatch（自研 IL2CPP 补丁）
 
-- 源码：`~/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/MMPatch.cs`
+- 源码：`~/project/lisuan/minion-masters/assets-mm-gf-vulkan/MMPatch.cs`
 - 产物：`bin/MMPatch.dll` → 部署到游戏目录
 - 运行日志：`Minion Masters/BepInEx/MMPatch.log`
 - 编译：`dotnet build mmpatch.csproj -c Release`（netstandard2.1）
@@ -149,7 +149,7 @@ dxvk.logLevel = info
 | Proton 前缀 | `~/.local/share/Steam/steamapps/compatdata/489520/pfx` |
 | MMPatch 日志 | `Minion Masters/BepInEx/MMPatch.log` |
 | 崩溃转储 | `.../Temp/BetaDwarf ApS/Minion Masters/Crashes/` |
-| 切换脚本 | `~/project/lisuan/lisuan-7g100-ubuntu-fix/scripts/mm-render-switch.sh` |
+| 切换脚本 | `~/project/lisuan/minion-masters/mm-render-switch.sh` |
 
 ---
 
@@ -385,9 +385,9 @@ Player.log 停在 11 行或 135 行，进程崩溃。
 
 ### 查看/切换渲染后端
 ```bash
-~/project/lisuan/lisuan-7g100-ubuntu-fix/scripts/mm-render-switch.sh status   # 查看当前
-~/project/lisuan/lisuan-7g100-ubuntu-fix/scripts/mm-render-switch.sh soft     # 切到 llvmpipe（当前推荐）
-~/project/lisuan/lisuan-7g100-ubuntu-fix/scripts/mm-render-switch.sh gf       # 切到 7G100（会崩，仅备用）
+~/project/lisuan/minion-masters/mm-render-switch.sh status   # 查看当前
+~/project/lisuan/minion-masters/mm-render-switch.sh soft     # 切到 llvmpipe（当前推荐）
+~/project/lisuan/minion-masters/mm-render-switch.sh gf       # 切到 7G100（会崩，仅备用）
 ```
 
 > ⚠️ **Steam 运行时会把自己内存中的值写回 `localconfig.vdf`，覆盖脚本改动。**
@@ -413,7 +413,7 @@ grep -c  "OnLoginStateChanged: LoggedIn" "$LOG"  # 应 >= 1
 
 ### 重新编译 MMPatch（如需改补丁）
 ```bash
-cd ~/project/lisuan/lisuan-7g100-ubuntu-fix/assets/mm-gf-vulkan/
+cd ~/project/lisuan/minion-masters/assets-mm-gf-vulkan/
 # 编辑 MMPatch.cs 后：
 dotnet build mmpatch.csproj -c Release
 cp bin/MMPatch.dll "/home/ubuntu/.local/share/Steam/steamapps/common/Minion Masters/MMPatch.dll"

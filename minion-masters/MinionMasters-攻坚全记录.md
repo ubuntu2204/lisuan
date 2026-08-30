@@ -316,14 +316,14 @@ LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so PROTON_USE_WOW64=1 %command%
 
 | 路径 | 说明 |
 |---|---|
-| `~/project/lisuan/gf-lowmem-shim/gf_lowmem_icd.c` | Vulkan ICD shim（方案 A 实现，原生验证通过） |
-| `~/project/lisuan/gf-lowmem-shim/patch_gf_map32.py` | **驱动补丁工具**（带备份/回滚，方案 B；现已不再使用，保留作调试对照） |
-| `~/project/lisuan/gf-lowmem-shim/patch_soname.py` | 纯 Python 改 ELF SONAME |
-| `~/project/lisuan/gf-lowmem-shim/run-test.sh` | 多模式对照测试脚本 |
-| `~/project/lisuan/gf-lowmem-shim/analyze_lowmem.py` | 进程低地址空间占用分析 |
-| `~/project/lisuan/gf-lowmem-shim/verify_patch.py` | 容器内校验驱动补丁字节 |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/gf_lowmem_icd.c` | Vulkan ICD shim（方案 A 实现，原生验证通过） |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/patch_gf_map32.py` | **驱动补丁工具**（带备份/回滚，方案 B；现已不再使用，保留作调试对照） |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/patch_soname.py` | 纯 Python 改 ELF SONAME |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/run-test.sh` | 多模式对照测试脚本 |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/analyze_lowmem.py` | 进程低地址空间占用分析 |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/verify_patch.py` | 容器内校验驱动补丁字节 |
 | `/tmp/vk_dmabuf_32bit_test.c` | dmabuf 低位映射可行性验证程序 |
-| `~/project/lisuan/lisuan-7g100-ubuntu-fix/MinionMasters-成功运行报告.md` | llvmpipe 成功运行报告 |
+| `~/project/lisuan/minion-masters/MinionMasters-成功运行报告.md` | llvmpipe 成功运行报告 |
 | `~/.local/share/Steam/steamapps/common/Proton - MM GF/` | 自定义 Proton（DXVK v2.3 + libSC） |
 
 ### 最终方案使用的产出物（2026-08-30）
@@ -334,9 +334,9 @@ LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so PROTON_USE_WOW64=1 %command%
 | `~/gf-compat/lib/osrelease_redirect.so.bak-08292140` | 旧版 hook 备份（依赖 MAP_32BIT 的那一版） |
 | `~/gf-compat/lib/libvulkan_gf_shim.so` | 协商垫片 ICD（报版本 5 + 扩展补报/剔除） |
 | `~/gf-compat/gf_icd.json` | 垫片 ICD 清单（**现可不用**，系统驱动即可） |
-| `~/project/lisuan/gf-lowmem-shim/gf_icd_shim_orig.c` | **shim 源码**（原在 `/tmp/gf_icd_shim.c`，已归档；头部注释解释了版本 0 被 loader 丢弃的坑） |
-| `~/project/lisuan/gf-lowmem-shim/gf_shim_low4.so` | 已放弃的支路：ICD 层 `vkMapMemory` 拦截（见阶段 12） |
-| `~/project/lisuan/gf-lowmem-shim/gf_low4_icd.json` | 上述支路的 ICD 清单 |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/gf_icd_shim_orig.c` | **shim 源码**（原在 `/tmp/gf_icd_shim.c`，已归档；头部注释解释了版本 0 被 loader 丢弃的坑） |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/gf_shim_low4.so` | 已放弃的支路：ICD 层 `vkMapMemory` 拦截（见阶段 12） |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/gf_low4_icd.json` | 上述支路的 ICD 清单 |
 
 ---
 
@@ -416,7 +416,7 @@ VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_ov
 `nm` 确认 shim **没有 strip**，再拿反汇编里出现的两个独特函数名
 `init_real` / `my_gap_dispatch` 去全盘 grep，一击命中。
 
-源码已备份为 `~/project/lisuan/gf-lowmem-shim/gf_icd_shim_orig.c`。
+源码已备份为 `~/project/lisuan/minion-masters/gf-lowmem-shim/gf_icd_shim_orig.c`。
 
 其头部注释直接解释了我此前**所有** shim 尝试失败的根因：
 
@@ -552,10 +552,10 @@ VmRSS: 991196 kB
 
 | 路径 | 说明 |
 |---|---|
-| `~/project/lisuan/gf-lowmem-shim/gf_icd_shim_orig.c` | **shim 源码**（原在 `/tmp`，已归档，含关键注释） |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/gf_icd_shim_orig.c` | **shim 源码**（原在 `/tmp`，已归档，含关键注释） |
 | `~/gf-compat/lib/osrelease_redirect.so` | **重写版 hook**：os-release 重定向 + 按结果地址判断的重映射池 |
 | `~/gf-compat/lib/osrelease_redirect.so.bak-08292140` | 旧版 hook 备份（依赖 MAP_32BIT 的那一版） |
-| `~/project/lisuan/gf-lowmem-shim/gf_shim_low4.so` | 已放弃的 ICD 层映射拦截尝试（保留供参考） |
+| `~/project/lisuan/minion-masters/gf-lowmem-shim/gf_shim_low4.so` | 已放弃的 ICD 层映射拦截尝试（保留供参考） |
 
 **最终启动选项**（相比第六节可再精简——不再需要 `VK_ICD_FILENAMES`）：
 
