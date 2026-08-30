@@ -66,19 +66,77 @@ build_so() {
     ok "$out"
 }
 
-build_so "$SRC_DIR/osrelease_redirect.c" "$DEST/lib/osrelease_redirect.so"
+# osrelease_redirect 需要特殊处理：它内部把伪造的 os-release 路径写死成哨兵值
+# /home/ubuntu/gf-compat/os-release。必须按实际部署位置改写后再编译，否则
+# 驱动读不到白名单文件会拒绝初始化，表现为：
+#   err:vulkan:vulkan_init_once Failed to initialize instance extensions, res -1
+#   Required Vulkan extension VK_KHR_surface not supported
+#   DxvkInstance: Required instance extensions not supported
+build_osr() {
+    local src="$1"
+    local out="$2"
+    local tmp="$DEST/.osr.build.c"
+
+    if [ ! -f "$src" ]; then
+        warn "源文件缺失，跳过：$src"
+        return 0
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        printf '    sed "s|/home/ubuntu/gf-compat/os-release|%s/os-release|g" %s\n' \
+            "$DEST" "$src"
+        printf '    gcc -shared -fPIC -O2 -o %s <改写后源码> -ldl -lpthread\n' "$out"
+        return 0
+    fi
+    printf '  编译 %s（按部署位置改写 os-release 路径）\n' "$(basename "$src")"
+    sed "s|/home/ubuntu/gf-compat/os-release|$DEST/os-release|g" "$src" > "$tmp"
+    gcc -shared -fPIC -O2 -o "$out" "$tmp" -ldl -lpthread
+    rm -f "$tmp"
+    ok "$out"
+}
+
+# 协商垫片 ICD：内部 dlopen 厂商库的路径同样是哨兵值
+# /home/ubuntu/gf-compat/lib/libvulkan_gf.so，失效会导致垫片加载不了真驱动。
+# 源码随 C# 补丁工程放在 ../assets-mm-gf-vulkan/。
+build_shim() {
+    local src="$SRC_DIR/../assets-mm-gf-vulkan/libvulkan_gf_shim.c"
+    local out="$DEST/lib/libvulkan_gf_shim.so"
+    local tmp="$DEST/.shim.build.c"
+
+    if [ ! -f "$src" ]; then
+        warn "找不到垫片源码：$src"
+        return 0
+    fi
+    if [ "$DRY_RUN" -eq 1 ]; then
+        printf '    sed "s|/home/ubuntu/gf-compat|%s|g" %s\n' "$DEST" "$src"
+        printf '    gcc -shared -fPIC -O2 -o %s <改写后源码> -ldl\n' "$out"
+        return 0
+    fi
+    printf '  编译 %s（按部署位置改写 dlopen 路径）\n' "$(basename "$src")"
+    sed "s|/home/ubuntu/gf-compat|$DEST|g" "$src" > "$tmp"
+    gcc -shared -fPIC -O2 -o "$out" "$tmp" -ldl
+    rm -f "$tmp"
+    ok "$out"
+}
+
+build_osr "$SRC_DIR/osrelease_redirect.c" "$DEST/lib/osrelease_redirect.so"
+build_shim
 build_so "$SRC_DIR/hook.c" "$DEST/hook.so"
 build_so "$SRC_DIR/vkfix.c" "$DEST/vkfix.so"
 build_so "$SRC_DIR/vkspy.c" "$DEST/vkspy.so"
 
 # ---- 3. 配置与 Python 探针 ----
-say "复制配置与 Python 探针"
-run cp -f "$SRC_DIR/gf_icd.json" "$DEST/gf_icd.json"
-run cp -f "$SRC_DIR/os-release" "$DEST/os-release"
-run cp -f "$SRC_DIR/vkprobe.py" "$DEST/vkprobe.py"
-run cp -f "$SRC_DIR/vkdev.py" "$DEST/vkdev.py"
-run cp -f "$SRC_DIR/vkdev2.py" "$DEST/vkdev2.py"
-run cp -f "$SRC_DIR/drmname.py" "$DEST/drmname.py"
+# 默认 DEST 即 SRC_DIR（就地部署），此时复制会指向同一文件而报错
+if [ "$SRC_DIR" = "$DEST" ]; then
+  say "源与部署目录相同，跳过复制"
+else
+  say "复制配置与 Python 探针"
+  run cp -f "$SRC_DIR/gf_icd.json" "$DEST/gf_icd.json"
+  run cp -f "$SRC_DIR/os-release" "$DEST/os-release"
+  run cp -f "$SRC_DIR/vkprobe.py" "$DEST/vkprobe.py"
+  run cp -f "$SRC_DIR/vkdev.py" "$DEST/vkdev.py"
+  run cp -f "$SRC_DIR/vkdev2.py" "$DEST/vkdev2.py"
+  run cp -f "$SRC_DIR/drmname.py" "$DEST/drmname.py"
+fi
 
 # ---- 4. 厂商专有二进制检查（不随仓库分发）----
 say "检查厂商专有二进制"
