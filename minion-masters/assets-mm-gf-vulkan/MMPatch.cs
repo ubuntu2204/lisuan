@@ -1,6 +1,13 @@
 // MMPatch: doorstop 直载的 IL2CPP patch（不依赖 BepInEx Chainloader / Il2CppInterop）
-// 三个 patch（与原 MMSkipVivox 插件等效）：
+//
+// 【权威版本】本文件是唯一有效源码，构建产物 bin/MMPatch.dll 由部署脚本取用。
+// 历史副本 mm-patch/doorstop/MMPatch.cs（2026-08-26，Vivox patch 仍启用，部署后
+// 游戏会卡在登录）已随 mm-patch/ 目录于 2026-08-31 删除；git 历史可查，勿再还原。
+// 详见同目录 README.md。
+//
+// 三个 patch（与原 MMSkipVivox 插件等效，该 BepInEx 插件已退役）：
 //  a. VivoxChatServiceAdapter.LoginAsync/LogoutAsync -> jmp xor trampoline（全零 UniTask）
+//     【已停用】Vivox 在 wine 下原生可用，patch 反而卡登录，见下方 Run() 内注释
 //  b. NewsItemViewModel 下载状态机 MoveNext -> ret
 //  c. DownloadHandlerTexture.InternalGetTexture -> xor eax,eax; ret（返回 null）
 using System;

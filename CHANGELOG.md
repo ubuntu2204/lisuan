@@ -3,7 +3,7 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
-## 2026.08.31 — Proton 11.0 目录重构致加固失效（启动失败修复）
+## 2026.08.31 — Proton 更新致加固失效；改用 Proton 11.0 稳定版
 
 ### 症状
 
@@ -17,7 +17,9 @@ Details: Failed to initialize graphics ... InitializeEngineGraphics failed
 
 ### 根因
 
-Proton 11.0 将库目录由 `files/lib64/` 改为 `files/lib/`，三处加固**静默失效**：
+Proton **Experimental**（版本 `experimental-11.0-20260826`。注意它虽含 "11.0"
+字样，但与独立安装的稳定版《Proton 11.0》**不是同一个东西**）将库目录由
+`files/lib64/` 改为 `files/lib/`，三处加固**静默失效**：
 
 | 加固项 | 失效表现 |
 |---|---|
@@ -42,7 +44,47 @@ Steam 运行时改 vdf 会被覆盖，需**退出 Steam 后执行，跑完重启
   不再在 `/tmp` 下临时编译——`/tmp` 会被清理、不进 git、构建不可复现。
 - `MinionMasters-成功运行报告.md` 第 5 条原为**软件渲染时期**的描述
   （称 libSC「不需要」、DXVK 降级「无影响」），已按硬件渲染现状重写，
-  并补入 Proton 11.0 的目录变化点与三步诊断命令。
+  并补入 `experimental-11.0` 的目录变化点与三步诊断命令；同时标注该条
+  **仅适用于硬件渲染**（llvmpipe 软件渲染不涉及这两项）。
+- **删除 `minion-masters/mm-patch/`**（`git rm`，历史保留）。它是补丁开发的历史
+  工作目录，随 BepInEx 方案退役而整体失效：
+
+  | 子目录 | 失效原因 |
+  |---|---|
+  | `plugin/`（`MMSkipVivox`） | 从未运行过——游戏日志中 `BepInEx` **0 命中** |
+  | `doorstop/` | MMPatch 的**旧版副本**（08-26），Vivox patch 仍启用，误部署会卡登录 |
+  | `apicheck/` `metalib/` `typelist/` | 一次性诊断工具，目标 DLL 已不在位 |
+
+  连带清理 231MB 第三方依赖（`tools/` 97M + `backup/` 134M，原被 `.gitignore`
+  排除、**不在 git 内**）。`minion-masters/` 体积由约 295MB 降至 **64MB**。
+
+  删前已把关键知识迁至 `assets-mm-gf-vulkan/README.md`（新建）与 `MMPatch.cs`
+  头部：① **`MMPatch.cs` 以 `assets-mm-gf-vulkan/` 那份为唯一权威**；
+  ② **Vivox patch 必须停用** —— 日志出现 `PATCHED 2/2 Vivox async` 即中招，
+  症状是卡在登录，与显卡故障相似，极易误判。
+
+### 改用 Proton 11.0 稳定版（已验证，推荐）
+
+Experimental 更新频繁，每次更新都会打断加固。已验证稳定版《Proton 11.0》
+（`proton-11.0-2`）同样可跑通 7G100 硬件渲染，且更新频率低得多，更省心。
+
+用法：在 Steam 里为游戏手动选择《Proton 11.0》，再对该目录加固：
+
+```bash
+cd ~/project/lisuan/minion-masters
+MM_PROTON_DIR="$HOME/.local/share/Steam/steamapps/common/Proton 11.0" \
+  bash ./fix-minion-masters-7g100-hw.sh
+```
+
+脚本相应改动：
+
+- 新增 `MM_PROTON_DIR`：指定要加固的 Proton 目录，默认仍是 Experimental
+- 指定该变量时**跳过 `config_steam`** —— 该函数会硬写 `proton_experimental`，
+  不跳过就会把用户在 Steam 界面里的手动选择打回去
+- 不指定时行为与原先完全一致（兼容既有用法）
+
+另注：仓库内的 `Proton - MM GF`（自定义副本）**已失效** —— 其 `libSC.so` 指向
+容器内不可见的 `/run/host/usr/lib`，建议删除，或用 `MM_PROTON_DIR` 指向它重跑修复。
 
 ---
 

@@ -370,8 +370,11 @@ Player.log 停在 11 行或 135 行，进程崩溃。
 4. **必须从 Steam 启动**
    命令行直跑会因缺少 Steam 认证上下文，约 90 秒后自行退出。
 
-5. **Proton 更新会重置部分状态**（**硬件渲染下必看**）
-   Proton Experimental 更新时会覆盖：
+5. **Proton 更新会重置部分状态**
+   > ⚠️ 本条**仅适用于 7G100 硬件渲染**。本报告主体的 llvmpipe 软件渲染
+   > **不需要** `libSC.so`、`也不做` DXVK 降级，可整条跳过。
+
+   Proton 更新时会覆盖：
    - `libSC.so` 软链 —— gf 驱动的**着色器编译器伴侣库**，`vkCreateDevice` 依赖它。
      悬空 → `Failed to initialize player` / `Failed to initialize graphics` /
      `InitializeEngineGraphics failed`。
@@ -382,7 +385,20 @@ Player.log 停在 11 行或 135 行，进程崩溃。
    > `files/lib64/` 改为 `files/lib/`。旧加固若仍写死 `lib64` 会**全部静默失效**
    > ——包括 `libSC.so` 软链与 DXVK 降级，症状就是上面两条。
 
-   **诊断**（更新后打不开游戏时，按顺序看这三项）：
+   > 2026-08-31 验证：**Proton 11.0 稳定版**（`proton-11.0-2`）同样可跑通 7G100
+   > 硬件渲染，且**比 Experimental 更省心** —— 稳定版更新频率低，加固不易被
+   > Steam 更新打断。**推荐改用 Proton 11.0**：在 Steam 里为游戏手动选择它，
+   > 再对该目录加固：
+   > ```bash
+   > cd ~/project/lisuan/minion-masters
+   > MM_PROTON_DIR="$HOME/.local/share/Steam/steamapps/common/Proton 11.0" \
+   >   bash ./fix-minion-masters-7g100-hw.sh
+   > ```
+   > 指定 `MM_PROTON_DIR` 时脚本会**跳过 CompatToolMapping 写入**，从而保留你在
+   > Steam 界面里的手动选择；不指定时行为不变（仍加固 Experimental 并写
+   > `proton_experimental`）。
+
+   **诊断**（更新后打不开游戏时，按顺序看这三项，把 `PE` 换成你实际使用的 Proton）：
    ```bash
    PE="$HOME/.local/share/Steam/steamapps/common/Proton - Experimental"
    cat "$PE/version"                                              # 版本号

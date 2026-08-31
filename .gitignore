@@ -33,6 +33,12 @@ _work/
 *.order
 .tmp_versions/
 
+# ---- 运行时日志（调试产物，不入库）----
+# 每次运行都会重写，且含机器相关的绝对路径。
+# 例：minion-masters/gf-compat/hook-trace.log
+#     （osrelease_redirect hook 的低 4GB 重映射跟踪日志）
+*.log
+
 # ---- .NET / MSBuild 构建产物（随从大师 mmpatch 补丁工程）----
 # obj/ 内是 dotnet build 的中间产物与 NuGet 还原结果（含 *.assets.cache、
 # project.assets.json 等机器相关绝对路径），bin/ 是最终输出，均不入库。
@@ -42,11 +48,6 @@ _work/
 # 注：minion-masters/assets-mm-gf-vulkan/bin/ 下的 MMPatch.dll 是【已跟踪】的
 # 发布产物（游戏部署脚本直接取用它），已入库的文件不受本规则影响。
 # 若日后需要重新添加，用 git add -f 强制加入。
-
-# ---- 随从大师开发目录的第三方依赖（共 231MB，不入库）----
-# 内容、用途与获取方式见 minion-masters/mm-patch/README.md
-minion-masters/mm-patch/tools/
-minion-masters/mm-patch/backup/
 
 # ---- 测试草稿(测试本身在 /tmp 下 mktemp,此为保险) ----
 tests/.tmp/

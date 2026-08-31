@@ -49,7 +49,12 @@ ASSETS="$(cd "$(dirname "$0")/assets-mm-gf-vulkan" && pwd)"
 # 注意 osrelease_redirect.c / libvulkan_gf_shim.c 内的伪造路径写死为
 # /home/ubuntu/gf-compat，因此这里会对源码 sed 改写后重新编译（见 deploy_hook）。
 DEPLOY="$(cd "$(dirname "$0")/gf-compat" && pwd)"
-PROTON_EX="$HOME/.local/share/Steam/steamapps/common/Proton - Experimental"
+# 目标 Proton 目录。默认 Proton - Experimental。
+# 若 Steam 里已手动为游戏选择了其它 Proton（如稳定的 Proton 11.0），
+# 用 MM_PROTON_DIR 指向它即可对本目录做加固，且不会改写 CompatToolMapping
+# （保留用户在 Steam 界面里的选择）。例：
+#   MM_PROTON_DIR="$HOME/.local/share/Steam/steamapps/common/Proton 11.0" bash fix-...sh
+PROTON_EX="${MM_PROTON_DIR:-$HOME/.local/share/Steam/steamapps/common/Proton - Experimental}"
 PROTON8="$HOME/.local/share/Steam/steamapps/common/Proton 8.0"
 GAME="$HOME/.steam/root/steamapps/common/Minion Masters"
 PFX="$HOME/.local/share/Steam/steamapps/compatdata/$APPID/pfx"
@@ -249,7 +254,13 @@ deploy_hook
 link_libsc
 downgrade_dxvk
 setup_mmpatch
-config_steam
+if [ -n "${MM_PROTON_DIR:-}" ]; then
+  # 目标 Proton 由调用方指定（非 Experimental）时，CompatToolMapping 由用户在
+  # Steam 界面里手动选择，脚本不得改写，否则会把选择打回 proton_experimental。
+  say "MM_PROTON_DIR 已指定 -> 跳过 CompatToolMapping 写入，保留你在 Steam 里选择的 Proton"
+else
+  config_steam
+fi
 inject_winhttp || true
 
 say "完成。重启 Steam 后启动 Minion Masters 即走 7G100 硬件渲染。"

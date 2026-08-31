@@ -95,7 +95,7 @@ right headers.
 | 目录 | 主题 | 内容 |
 |---|---|---|
 | `steam/` | Steam 平台 | 容器 CEF 崩溃修复、开机自愈、容器架构说明 |
-| `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3。其中 `gf-compat/` 是 Vulkan 兼容层（源码与运行时产物同处该目录，两个厂商专有 `.so` 不入库、获取方式见其 README），`mm-patch/` 是补丁开发工作目录（第三方依赖不入库），`assets-mm-gf-vulkan/` 是 C# 补丁工程（MMPatch） |
+| `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3。其中 `gf-compat/` 是 Vulkan 兼容层（源码与运行时产物同处该目录，两个厂商专有 `.so` 不入库、获取方式见其 README），`assets-mm-gf-vulkan/` 是 C# 补丁工程（MMPatch 唯一权威源码所在；原开发工作目录 `mm-patch/` 已于 2026-08-31 删除，git 历史可查） |
 | `underlords/` | 刀塔霸业 | 容器委托宿主直跑、libpng12 补齐、崩溃智能重试 |
 | `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder 三个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
 | `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |
@@ -144,7 +144,7 @@ right headers.
 | `mesa/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
 | `dkms/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
 | `underlords/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
-| `minion-masters/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染）、user_settings.py 注入无效教训、Steam 状态卡死坑 |
+| `minion-masters/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染；**推荐 Proton 11.0 稳定版**，更新频率低于 Experimental）、user_settings.py 注入无效教训、Steam 状态卡死坑 |
 | `dkms/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
 
 > 注意区分：`scripts/` 下的 verify-* 是**面向真机的体检工具**，与仓库根的
@@ -734,7 +734,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 - [刀塔霸业（Dota Underlords）修复](./underlords/fix-underlords-native.md)
   —— Source 2 原生 Linux 游戏在 Steam pressure-vessel 容器内崩溃，容器委托宿主直跑；libpng12 补齐、panorama 随机段错误智能重试与退出检测。
 - [随从大师（Minion Masters）修复](./minion-masters/fix-minion-masters.md)
-  —— Unity/IL2CPP 游戏：Vivox 登录崩溃 + 图片下载 Texture 异常的 BepInEx 运行时 patch 三件套（Vivox `LoginAsync`、新闻下载状态机 `MoveNext`、`DownloadHandlerTexture.InternalGetTexture`）；证书 patch 反致黑屏（Zenject 异常循环）的回归教训；游戏后端 API 全 404 与 Azure IP 封锁；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染）、user_settings.py 注入无效教训、Steam 状态卡死坑。
+  —— Unity/IL2CPP 游戏：Vivox 登录崩溃 + 图片下载 Texture 异常的 BepInEx 运行时 patch 三件套（Vivox `LoginAsync`、新闻下载状态机 `MoveNext`、`DownloadHandlerTexture.InternalGetTexture`）；证书 patch 反致黑屏（Zenject 异常循环）的回归教训；游戏后端 API 全 404 与 Azure IP 封锁；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染；**推荐 Proton 11.0 稳定版**，更新频率低于 Experimental）、user_settings.py 注入无效教训、Steam 状态卡死坑。
 - [随从大师攻坚全记录](./minion-masters/MinionMasters-攻坚全记录.md)
   —— 32 位游戏 × 只有 64 位 gf 驱动的完整攻坚：WoW64 路线、发行版白名单绕过、libSC 依赖、DXVK 降级、`vkMapMemory` 高地址 vs 32 位 thunk 的根因与驱动 `MAP_32BIT` 补丁。**2026-08-29 硬件渲染链路已端到端打通**（协商垫片 + 低 4GB 重映射池，`Renderer: LISUAN 7G100` + 登录流程）；剩余阻塞仅服务端 API 404。
 
@@ -745,7 +745,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 > Steam 本身的全部坑集中在这里，游戏专属问题见上面的 6.1 / 6.2。
 
 - [Steam 在砺算 7G100 上的适配细节](./steam/steam-on-lisuan.md)
-  —— pressure-vessel 容器架构（gf Vulkan 容器内自动可用、PCI sysfs 被隐藏）；**gf env 不能污染 Steam 客户端**（致命坑）；CEF `gf_gbm` 段错误 + ANGLE 崩溃修复（`fix-steam-cef-lock.sh`）；无头环境 Steam 登录窗 GLX 崩溃需图形界面生成 `ssfn`；`applaunch` "游戏运行中"状态卡死；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染）；`user_settings.py` 注入不进容器白名单；overlay 排障；排障速查表。
+  —— pressure-vessel 容器架构（gf Vulkan 容器内自动可用、PCI sysfs 被隐藏）；**gf env 不能污染 Steam 客户端**（致命坑）；CEF `gf_gbm` 段错误 + ANGLE 崩溃修复（`fix-steam-cef-lock.sh`）；无头环境 Steam 登录窗 GLX 崩溃需图形界面生成 `ssfn`；`applaunch` "游戏运行中"状态卡死；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染；**推荐 Proton 11.0 稳定版**，更新频率低于 Experimental）；`user_settings.py` 注入不进容器白名单；overlay 排障；排障速查表。
 
 ---
 
