@@ -21,11 +21,21 @@
 `systemd-run --user` 在宿主启动游戏，并阻塞到游戏退出，Steam 的运行时长/退出检测依然有效。
 
 ```bash
-sudo ./underlords/fix-underlords-native.sh                  # 安装 / 修复（默认开启自动重启）
-sudo ./underlords/fix-underlords-native.sh --no-autorestart # 安装并彻底关闭自动重启
+sudo ./underlords/fix-underlords-native.sh                  # ★ 默认即关闭自动重启
+sudo ./underlords/fix-underlords-native.sh --autorestart    # 显式开启（需明确接受）
+sudo ./underlords/fix-underlords-native.sh --no-autorestart # 同默认（兼容旧用法）
 sudo ./underlords/fix-underlords-native.sh --uninstall
 ./underlords/fix-underlords-native.sh --status
 ```
+
+> **自动重启默认已关闭**（2026-08-31 起），依据
+> [`.codebuddy/rules/崩溃处理约定.md`](../.codebuddy/rules/崩溃处理约定.md)：
+> 自动重启会掩盖崩溃、阻碍根因定位，且可能导致「关不掉」。
+>
+> ⚠️ **不要**因为「游戏会闪退」就用 `--autorestart` 重新开启 ——
+> panorama 随机段错误导致的闪退在此策略下是**预期行为**，应转而定位根因。
+>
+> 本环境当前即为关闭状态（`--status` 显示「自动重启已关闭」）。
 
 部署后从 Steam 库里点"开始游戏"即可正常玩；也可从桌面项
 `dota-underlords-native.desktop` 不依赖 Steam 启动链路直接玩。
@@ -64,19 +74,24 @@ Ubuntu 24.04 已移除该库，Source 2 的 pango 模块会因找不到它崩溃
 实验：把游戏自带 scout pango 换成宿主新版反而变成"启动即崩"（确定性），已回滚到
 游戏自带 pango（备份在 `pango-scout-bak/`，勿删）。
 
-当前对策（`underlords.sh` 智能重试）：
+`underlords.sh` 内建的处理逻辑：
 
-- 段错误后自动清理残留 `LS_SHARE_MEMORY_*` 并重启（最多 10 次）；
-- 180 秒内连崩 3 次判定为崩溃循环，停止重试避免无限循环；
-- **退出检测**：退出时 panorama 析构也会段错误。脚本用日志里的
-  `CSteam3Client::Shutdown` 标记区分"退出时崩"与"游戏中崩"——前者不重启
-  （否则会出现"关一次游戏自动重开"的现象）；
+- 段错误后清理 stale `/dev/shm/LS_SHARE_MEMORY_*`；
 - 启动参数加了 `-nobreakpad`：游戏自带 breakpad 会吞掉 SIGSEGV，关掉后崩溃才会产生
-  内核 core（`/tmp/core.underlords.*`，需 core_pattern 指向 /tmp），可供 gdb 定位。
+  内核 core（`/tmp/core.underlords.*`，需 core_pattern 指向 /tmp），可供 gdb 定位；
+- **退出检测**（仅 `--autorestart` 模式下生效）：退出时 panorama 析构也会段错误。
+  脚本用日志里的 `CSteam3Client::Shutdown` 标记区分"退出时崩"与"游戏中崩"——
+  前者不重启（否则会出现"关一次游戏自动重开"的现象）。
 
-**彻底关闭自动重启**：`sudo ./underlords/fix-underlords-native.sh --no-autorestart`
-会把游戏进程结束（正常退出或崩溃）即直接退出，不再拉起。副作用：panorama 随机段错误
-会让游戏直接闪退不可玩，按需选择。
+### 自动重启：**默认关闭**（2026-08-31 起）
+
+按 [`.codebuddy/rules/崩溃处理约定.md`](../.codebuddy/rules/崩溃处理约定.md)，
+游戏进程结束（正常退出或崩溃）即直接退出，**不再拉起**。
+因此 panorama 随机段错误表现为**直接闪退** —— 这在此策略下是**预期行为**，
+应转而定位根因，而不是重新开启自动重启兜底。
+
+若明确接受"崩溃自动拉起"，用 `--autorestart` 安装：段错误后自动重启
+（最多 10 次；180 秒内连崩 3 次判定为崩溃循环则停止）。
 
 ---
 

@@ -16,8 +16,11 @@
 # What gets installed (all idempotent):
 #   1. underlords.sh patched:
 #      - container branch -> exec ul-host-run.sh (host delegation)
-#      - smart crash retry: segfault -> clean stale /dev/shm/LS_SHARE_MEMORY_*
-#        and restart (max 10; 3 crashes within 180s = crash loop -> stop)
+#      - stale shm cleanup: segfault -> clean stale /dev/shm/LS_SHARE_MEMORY_*
+#      - auto-restart is DISABLED by default
+#        (see .codebuddy/rules/崩溃处理约定.md — it hides crashes and hinders
+#        root-cause analysis). Pass --autorestart to enable: restart on segfault
+#        (max 10; 3 crashes within 180s = crash loop -> stop).
 #      - quit detection: exit-time teardown also segfaults (same engine bug);
 #        if CSteam3Client::Shutdown is in the session log, do NOT restart
 #      - -nobreakpad so crashes produce a kernel core for gdb analysis
@@ -29,8 +32,9 @@
 #   5. desktop entry    — "Dota Underlords (Lisuan native)"
 #
 # Usage:
-#   sudo ./fix-underlords-native.sh                  # install (or repair), 自动重启开启
-#   sudo ./fix-underlords-native.sh --no-autorestart # 安装并彻底关闭自动重启
+#   sudo ./fix-underlords-native.sh                  # install (or repair), 默认【关闭】自动重启
+#   sudo ./fix-underlords-native.sh --autorestart    # 安装并显式开启自动重启 (需明确接受)
+#   sudo ./fix-underlords-native.sh --no-autorestart # 同默认 (兼容旧用法)
 #   sudo ./fix-underlords-native.sh --uninstall
 #   ./fix-underlords-native.sh --status
 #
@@ -96,13 +100,20 @@ fi
 
 # ---- 1. patch underlords.sh --------------------------------------------------
 # 注入的重启策略:
-#   * 默认 (无 --no-autorestart): 游戏中途段错误 (139) 自动重开, 退出时崩不重开
-#   * --no-autorestart: 彻底关闭自动重启, 游戏进程结束 (无论正常退出还是崩溃)
-#     即直接退出, 副作用是 panorama 随机段错误会让游戏直接闪退不可玩
-NO_AUTORESTART=0
-[[ "${1:-}" == "--no-autorestart" ]] && NO_AUTORESTART=1
-# --no-autorestart 是 install 的修饰开关, 不参与后续 argv 透传, 清掉避免误判
-[[ "${1:-}" == "--no-autorestart" ]] && shift
+#   * 默认 = 【关闭】自动重启: 游戏进程结束 (无论正常退出还是崩溃) 即直接退出。
+#     依据 .codebuddy/rules/崩溃处理约定.md —— 自动重启会掩盖崩溃、阻碍根因定位，
+#     并可能造成"关不掉"。代价: panorama 随机段错误会让游戏直接闪退，
+#     这是**预期行为**, 应转而定位根因, 而非重新开启自动重启。
+#   * --autorestart: 显式开启 —— 游戏中途段错误 (139) 自动重开 (最多 10 次;
+#     180 秒内崩 3 次判定崩溃循环则停止), 退出时崩 (CSteam3Client::Shutdown) 不重开。
+#     仅在明确接受"崩溃自动拉起"时使用。
+#   * --no-autorestart: 兼容旧用法, 与默认行为一致。
+NO_AUTORESTART=1
+case "${1:-}" in
+  --autorestart)    NO_AUTORESTART=0; shift ;;
+  --no-autorestart) NO_AUTORESTART=1; shift ;;
+esac
+# 开关是 install 的修饰参数, 不参与后续 argv 透传, 清掉避免误判
 
 if grep -q "$MARKER" "$LAUNCHER"; then
   if [ "$NO_AUTORESTART" = 1 ]; then
