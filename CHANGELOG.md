@@ -86,6 +86,25 @@ MM_PROTON_DIR="$HOME/.local/share/Steam/steamapps/common/Proton 11.0" \
 另注：仓库内的 `Proton - MM GF`（自定义副本）**已失效** —— 其 `libSC.so` 指向
 容器内不可见的 `/run/host/usr/lib`，建议删除，或用 `MM_PROTON_DIR` 指向它重跑修复。
 
+### 里程碑：完整对战验证通过（可玩性闭环）
+
+2026-08-31 在 Proton 11.0 + 7G100 硬件渲染下**完整打完一局对战并获胜**，
+赛后奖励正常结算。`Player.log` 证据：
+
+```
+[BattleNetworkStateActive] Game ended with Completed
+[GameUnitService] Not removing winner master 'WitchQueen' to let win animation play
+[PostMatchViewModel] Displaying Battlepass reward card
+```
+
+匹配 → 对战 → 判定胜负 → 结算奖励，全链路通过。两项随之重新定性：
+
+- **游戏坑 3（后端 API 404）降级为已知噪音** —— 已非「全 404」：实测单次会话
+  仅 `LoginQueueService.Post` 一处 404，而 Steam 认证、WebSocket、商店数据、
+  档案数据、语音聊天（`ChatService` → `LoggedIn`）**全部正常**，且不影响对战。
+- **游戏坑 7（进程 40–90 秒后消失）已解决** —— 随 Proton 11.0 + 完整加固消失；
+  原「疑似登录队列 404 导致游戏退出」的猜测**排除**（404 依旧存在，但游戏不再退出）。
+
 ---
 
 ## 2026.08.30 — 目录重构与海光音频迁出

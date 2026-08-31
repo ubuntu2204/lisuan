@@ -36,9 +36,12 @@
 3. **图片下载证书错误导致的致命 Texture 异常**（已修复）：`Curl error 60` →
    `Texture has not yet finished downloading` 异常沿 UniTask `TrySetException` 链传播。
    修复 = 把 `InternalGetTexture` patch 成返回 null（见游戏坑 1 的 patch c）。
-4. **联网可达性**（外部环境，非配置可解）：游戏后端 `api.prod.mm21.minionmastersthegame.com`
-   **所有 `/v1/*` API endpoint 返回 404**（`/health` 却返回 200 "Healthy"）→ `LoginQueueService.Post`
-   抛 `Http error code was 404`，登录队列进不去；另有 Azure IP `140.228.24.145:443` 封锁（见游戏坑 3）。
+4. **联网可达性**（外部环境，非配置可解，**但不阻塞游玩**）：游戏后端
+   `api.prod.mm21.minionmastersthegame.com` 的 `/v1/*` API endpoint 返回 404
+   （`/health` 却返回 200 "Healthy"）→ `LoginQueueService.Post` 抛
+   `Http error code was 404`；另有 Azure IP `140.228.24.145:443` 封锁（见游戏坑 3）。
+   **2026-08-31 复测**：404 仅此一处，认证 / WebSocket / 商店 / 档案 / 语音登录均正常，
+   且已完整打完一局对战并结算，故**降级为已知噪音**。
 5. **渲染后端**：已能用 **7G100 硬件渲染**（不再是 llvmpipe）。要点是绕过 gf 的发行版白名单、
    处理 `vkCreateDevice` 依赖的 `libSC.so`、把 DXVK 降到 v2.3、以及把落在 >4GB 的显存映射
    重定位到 2~4GB（见游戏坑 8）。**系统驱动保持原版，改动隔离在 LD_PRELOAD**。
@@ -49,9 +52,14 @@ Ticket、缓存 SteamID `76561198811581867`）→ WebSocket 连游戏服务器�
 MetaTutorialStateService 均加载），**渲染后端为 7G100 硬件渲染**（2026-08-30 验证：
 buffer 错误 0、纹理错误 0、主菜单标记 29）。
 
-但游戏进程会在启动后 **~40–90 秒被移除**（Steam console_log
-`Game process removed: AppID 489520`），时间点在登录队列 404 之后——这是**服务端问题**，
-与显卡无关，剩余阻塞见游戏坑 3 / 游戏坑 7。
+> **2026-08-31 更新：下方「进程 ~40–90 秒被移除」已不再出现，本项目无剩余阻塞项。**
+> 改用 Proton 11.0 稳定版并做完整加固后，已实测**完整打完一局对战并获胜**，
+> 赛后奖励正常结算。原「进程消失由登录队列 404 导致」的猜测**已排除**
+> （404 依旧存在，但游戏不再退出），详见游戏坑 3 / 游戏坑 7。
+
+（以下为 2026-08-30 的历史记录）当时游戏进程会在启动后 **~40–90 秒被移除**
+（Steam console_log `Game process removed: AppID 489520`），时间点在登录队列 404 之后，
+彼时判断为服务端问题、本地无解。
 
 **固化脚本（两个，分工不同——别用错）**：
 
@@ -184,7 +192,7 @@ true。实测该 patch **破坏 IL2CPP runtime 状态**：
 
 ---
 
-## 游戏坑 3：联网可达性（外部环境，非配置可解）
+## 游戏坑 3：联网可达性（外部环境，非配置可解；2026-08-31 复测**不阻塞**）
 
 两层问题（2026-08-25 实测 curl 复核）：
 
@@ -197,6 +205,20 @@ true。实测该 patch **破坏 IL2CPP runtime 状态**：
    即服务器健康但后端 API 已下线/迁移（BetaDwarf 服务端问题，本地无解）。游戏内
    `BuildVersionToApiService` / `RemoteConfigurationService` 的请求却能成功（走的是仍存在的
    endpoint），说明是**部分路径**缺失。修复方向：等厂商恢复后端，或抓包确认新 API 路径。
+
+   > **2026-08-31 复测：本项降级为已知噪音，不再是阻塞项。**
+   >
+   > 在 Proton 11.0 + 7G100 硬件渲染下，单次会话中 404 **仅出现 1 次**，且只来自
+   > `LoginQueueService.Post`。与此同时 Steam 认证（`SteamAuthenticationService Ticket 2`）、
+   > WebSocket（`Connection opened`）、商店数据（`SteamShopService Update`）、档案数据
+   > （`Profile data request`）、语音聊天（`ChatService → LoggedIn`）**全部正常**。
+   >
+   > 决定性证据：同日**完整打完一局对战并获胜**，赛后奖励正常结算 ——
+   > `Game ended with Completed` / `Not removing winner master … to let win animation play` /
+   > `[PostMatchViewModel] Displaying Battlepass reward card`。
+   >
+   > 日志中 `Login queue entered with ticket 00000000-…`（ticket 全零）看似异常，
+   > 但实测不影响对战。故不再需要等厂商修复即可正常游玩。
 2. **Azure IP 封锁**：游戏需连 Azure 服务器 **`140.228.24.145:443`**（及 `:33798`），该 IP 的
    TCP 443 在当前网络环境被阻断（`SYN_SENT` 卡住、超时）。修复方向是等网络恢复或用 VPN/代理
    绕过封锁，**不是**改 Proton/游戏配置。
@@ -277,15 +299,22 @@ Steam 启动选项（LaunchOptions）。
 
 ---
 
-## 游戏坑 7：游戏进程启动后 ~40–90 秒被移除（当前未解，与显卡无关）
+## 游戏坑 7：游戏进程启动后 ~40–90 秒被移除（**2026-08-31 已解决**）
 
 **现象**：游戏已能进入主菜单（`BattleModeViewModel` 出现在 Player.log），但 Steam
 console_log 在启动后 38–90 秒不等出现 `Game process removed: AppID 489520`，进程消失。
 无 crash dump、无 .NET 致命异常。
 
-**主因怀疑**：登录队列 404（游戏坑 3）之后游戏自身超时退出——
-`LoginQueueService.EnterQueueAndWaitForTurn` 的 404 异常让流程走不下去。属服务端问题，
-本地无解，需等后端恢复后复测。
+**原主因怀疑（已排除）**：登录队列 404（游戏坑 3）之后游戏自身超时退出——
+`LoginQueueService.EnterQueueAndWaitForTurn` 的 404 异常让流程走不下去。
+
+> **2026-08-31：该猜测排除，现象已消失。**
+>
+> 改用 Proton 11.0 稳定版并做完整加固（`libSC.so` 链接 + DXVK v2.3）后，
+> 进程不再中途消失，已实测稳定打完整局对战并结算奖励。
+>
+> 关键反证：**404 依然存在**（见游戏坑 3），但游戏不再退出 ——
+> 二者无因果关系，进程消失另有原因，随 Proton 更换与加固一并消失。
 
 **已排除**：`CAPIJobRequestUserStats` 报错、Zenject assert（良性，游戏坑 2）、Texture 异常（已 patch，游戏坑 1c）。
 
@@ -318,9 +347,13 @@ cat ~/.steam/root/steamapps/common/Minion\ Masters/MinionMasters.sh | grep -A3 g
 #      - libSC.so 软链是否被 Proton 更新冲掉（重跑固化脚本）
 ```
 
-若启动后崩在 Vivox（无 PATCHED 日志）：确认 `MMSkipVivox.dll` 在 `BepInEx/plugins/` 且 winhttp 覆盖生效。
+若卡在登录（`Starting LoginAsync` 无回调）：查 `BepInEx/MMPatch.log` 是否出现
+  `PATCHED 2/2 Vivox async` —— 若有，说明 Vivox patch 被误启用，**必须停用**
+  （现行方案 Vivox 原生可用；详见 `assets-mm-gf-vulkan/README.md`）。
+  ⚠️ `MMSkipVivox.dll` / BepInEx 插件方案**已废弃**，勿再按此处旧描述部署。
 若黑屏 + BepInEx 控制台刷 NotSupportedException：确认插件是**禁用证书 patch 的版本**（见游戏坑 2）。
-若进主菜单后 ~1 分钟进程消失：属游戏坑 7（当前未解，先确认游戏坑 3 的 API 404 状态）。
+若进主菜单后 ~1 分钟进程消失：见游戏坑 7（**2026-08-31 已解决** —— 改用 Proton 11.0
+  并做完整加固后不再出现；注意它**不是** API 404 引起的，404 仍在但游戏不退出）。
 
 **Player.log 排障技巧**：Unity 每次启动会把上次的 `Player.log` 轮转为 `Player-prev.log`；看
 `ls -la` 的 mtime 区分本次/上次运行，别拿旧日志下结论。日志被 NotSupportedException 刷屏时先

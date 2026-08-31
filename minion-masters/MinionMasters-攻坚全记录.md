@@ -4,8 +4,12 @@
 > 目标：让 32 位游戏《Minion Masters》(AppID 489520) 用上砺算 7G100 **硬件渲染**，
 > 且**不影响其他游戏**
 > 结论：**已达成**。7G100 硬件渲染可用，系统驱动保持原版，改动隔离在 LD_PRELOAD
-> （按游戏生效）。剩余阻塞只有与显卡无关的服务端 404（`fix-minion-masters.md` 游戏坑 3，
-> 详见本文附录 B）。
+> （按游戏生效）。
+>
+> **2026-08-31 更新：已无阻塞项。** 此前记录的唯一剩余阻塞「服务端 404」
+> （`fix-minion-masters.md` 游戏坑 3）经实测**不影响游玩** —— 同日完成一局对战
+> 并获胜，赛后奖励正常结算，全链路（匹配→对战→判胜负→结算）通过。
+> 该 404 降级为已知噪音，详见附录 B。
 >
 > 本文记录**全部**尝试历程，包括失败的方向与走过的弯路；
 > 只想照着做请看 `fix-minion-masters.md`（只保留成功方案）。
@@ -326,7 +330,7 @@ LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so PROTON_USE_WOW64=1 %command%
 | `~/project/lisuan/minion-masters/gf-lowmem-shim/run-test.sh` | 多模式对照测试脚本 |
 | `~/project/lisuan/minion-masters/gf-lowmem-shim/analyze_lowmem.py` | 进程低地址空间占用分析 |
 | `~/project/lisuan/minion-masters/gf-lowmem-shim/verify_patch.py` | 容器内校验驱动补丁字节 |
-| `/tmp/vk_dmabuf_32bit_test.c` | dmabuf 低位映射可行性验证程序 |
+| ~~`/tmp/vk_dmabuf_32bit_test.c`~~ | dmabuf 低位映射可行性验证程序。**已丢失且不再需要** —— 该文件当时置于 `/tmp`，已被系统清理且未归档；其验证的 dmabuf 路线最终未被采用（现方案为 `osrelease_redirect.so` 的低 4GB 重映射池，不依赖 dmabuf），故未重建。教训：验证类程序也应落盘到项目内（参见 `gf-compat/variants/` 的做法） |
 | `~/project/lisuan/minion-masters/MinionMasters-成功运行报告.md` | llvmpipe 成功运行报告 |
 | `~/.local/share/Steam/steamapps/common/Proton - MM GF/` | 自定义 Proton（DXVK v2.3 + libSC） |
 
@@ -587,16 +591,43 @@ LD_PRELOAD=~/gf-compat/lib/osrelease_redirect.so PROTON_USE_WOW64=1 %command%
 > 以下内容与显卡无关，从 `fix-minion-masters.md` 移来（该文只保留可操作的成功方案）。
 > 编号沿用该文的「游戏坑 N」，与本文显卡层的"显卡坑 1–22"无关。
 
-### 游戏坑 3：后端 API 全 404（未解，服务端问题）
+### 游戏坑 3：`LoginQueueService.Post` 404（仍存在，但**不阻塞** —— 2026-08-31 复测）
 
 游戏后端 `api.prod.mm21.minionmastersthegame.com`：
 
 - `/health` 返回 **200 "Healthy"** —— 服务活着；
-- 但**所有 `/v1/*` endpoint 返回 404** —— `LoginQueueService.Post` 抛
+- 早期排查时**所有 `/v1/*` endpoint 返回 404**，`LoginQueueService.Post` 抛
   `Http error code was 404`，登录队列进不去。
 
-另有 Azure IP `140.228.24.145:443` 被封锁。属 BetaDwarf 服务端问题，**本地无解**，
-只能等后端恢复。这也是显卡坑 7（进程 40–90 秒后消失）的主因怀疑对象。
+> **2026-08-31 复测：「全 404」的描述已不准确，且本项不再是阻塞项。**
+
+在 Proton 11.0 + 7G100 硬件渲染下，单次会话中 404 **仅出现 1 次**，且只来自
+`LoginQueueService.Post`。与此同时以下功能**全部正常**：
+
+| 功能 | 日志证据 | 状态 |
+|---|---|---|
+| Steam 认证 | `[SteamAuthenticationService] Ticket 2` | ✅ |
+| WebSocket | `[WebSocketSharpTransportService] Connection opened` | ✅ |
+| 商店数据 | `[SteamShopService] Update (48, 58000, JPY)…` | ✅ |
+| 档案数据 | `[ScopeLogger] Profile data request took 1209 ms` | ✅ |
+| 语音聊天 | `[ChatService] OnLoginStateChanged: LoggedIn` | ✅ |
+
+**关键结论：该 404 不影响实际游玩。** 同日实测完成一局对战并获胜，赛后奖励正常结算：
+
+```
+[BattleNetworkStateActive] Game ended with Completed
+[GameUnitService] Not removing winner master 'WitchQueen' to let win animation play
+[PostMatchViewModel] Displaying Battlepass reward card
+```
+
+匹配 → 对战 → 判定胜负 → 结算奖励，全链路通过。
+
+因此本项**降级为已知噪音**。日志中仍可见
+`Login queue entered with ticket 00000000-0000-…`（ticket 全零），看似异常但不影响对战。
+
+另有 Azure IP `140.228.24.145:443` 被封锁。二者均属 BetaDwarf 服务端问题，本地无解，
+但已证实**不构成游玩阻塞**。原先「是显卡坑 7（进程 40–90 秒后消失）主因」的怀疑，
+现已排除——进程消失另有原因（见显卡坑相关条目）。
 
 ### 游戏坑 5：`user_settings.py` 注入无效（教训）
 
