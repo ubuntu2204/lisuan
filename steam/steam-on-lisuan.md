@@ -83,10 +83,54 @@ Steam UI 的 CEF/GPU 进程在 gf 驱动下有两个崩溃点：
 > 不受影响（不依赖这些软链）。故 `fix-steam-cef-lock.sh` 应**停止向 Steam 客户端 wrap 注入**
 > gf PRELOAD（保留为可选、仅供原生游戏排障用，且明确警告其会害 Steam 客户端）。
 
-修复（仅针对**游戏进程树**，不要写入 Steam 客户端 wrap）：
+### 最终解法（2026-09-01 实测确认）：`GBM_BACKEND=dri` 启动环境变量
 
-- `GBM_BACKEND=dri` → 避免 gf_gbm ABI 段错误（仅游戏需要时）；
-- 若确需在游戏进程内用 gf glapi，仅对**游戏** `LD_PRELOAD` 该库，绝不对 Steam 客户端。
+```bash
+GBM_BACKEND=dri steam          # 命令行
+```
+
+桌面启动器 `~/.local/share/applications/steam.desktop`（已配置，菜单启动同样生效）：
+
+```ini
+Exec=env GBM_BACKEND=dri /usr/bin/steam %U
+```
+
+**为什么这是正确解法**：
+
+- libgbm 支持 `GBM_BACKEND` / `GBM_BACKENDS_PATH` 两个环境变量（见 `strings libgbm.so.1`）。
+  设 `GBM_BACKEND=dri` 后，libgbm 直接加载 Mesa 的 `dri_gbm.so`（56KB），
+  **不再扫描加载厂商 `gf_gbm.so`**（106KB），从源头消除段错误。
+- **不修改任何文件**（既不动系统库，也不动 Steam 的 wrap 脚本），因此：
+  - 不改变 `steamwebhelper_sniper_wrap.sh` 大小 → **不触发 Steam 校验回滚**；
+  - 无需 `chattr +i` 锁定 → **不会陷入更新回滚循环**（该循环会重置游戏下载状态，
+    曾导致刀塔霸业被反复重新下载，见 §10）。
+- 不含 `LD_PRELOAD libglapi_gf.so.0` → 不让 Steam 客户端走 gf glapi → **不会 double free**（§2）。
+
+**验证**：`grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt` → `0`。
+
+> **重要纠正（推翻 2026-08-24 的结论）**：仅移除全局 `lisuan_dri.so` 软链和 wrap 里的
+> `LD_PRELOAD` **并不足以让 CEF 稳定**。实测在"干净"状态下 CEF 仍以 exit_code=139 崩溃，
+> `steamwebhelper` 无限重启（`startcount` 0→19+）。真正的崩溃源是 `gf_gbm.so`，
+> 必须靠 `GBM_BACKEND=dri` 绕开。
+>
+> 此前把 `GBM_BACKEND=dri` 误判为"有害"，是因为它在旧脚本里与
+> `LD_PRELOAD libglapi_gf.so.0` **同时**被注入 wrap——有害的是 PRELOAD（导致 double free），
+> 不是 `GBM_BACKEND=dri` 本身。二者必须分开看待。
+
+### 备用方案
+
+若 `GBM_BACKEND` 不生效，可用 `GBM_BACKENDS_PATH` 把搜索路径限制到只含 dri 后端的目录：
+
+```bash
+mkdir -p ~/.local/share/gbm-dri-only
+cp /usr/lib/x86_64-linux-gnu/gbm/dri_gbm.so ~/.local/share/gbm-dri-only/
+GBM_BACKENDS_PATH=$HOME/.local/share/gbm-dri-only steam
+```
+
+### 游戏进程树
+
+游戏（Proton/wine）渲染走 gf Vulkan，不依赖 gbm 后端，无需额外注入；
+仅当原生 Linux 游戏确需 gf GL 时，才在**游戏 Launch Options** 内单独设置（不要写全局）。
 
 日志位置：`~/.local/share/Steam/logs/cef_log.txt`（exit_code=139 段）。
 （完整论证见 `vendor-bug-report-gf-gbm-crash.md` 问题一/二。）
@@ -171,8 +215,48 @@ user_settings = {
 | 现象 | 先查 |
 | --- | --- |
 | Steam 客户端打不开 / 闪退 | 全局 gf env 污染（§2），去掉后恢复 |
-| Steam UI 花屏 / GPU 进程崩 | CEF gbm/ANGLE（§3），跑 `fix-steam-cef-lock.sh` |
+| Steam UI 花屏 / GPU 进程崩 (`exit_code=139`) | CEF gbm（§3），用 `GBM_BACKEND=dri steam` 启动 |
+| `steamwebhelper` 无限重启（`startcount` 递增） | 同上（§3），`GBM_BACKEND=dri` |
+| **游戏反复自动重新下载** | Steam 更新回滚循环（§10），`lsattr` 查是否被 `chattr +i` 锁死 |
 | 游戏 e0434352 退出、无 Player.log | Steam 未登录（§4，缺 ssfn），图形界面登录一次 |
 | `applaunch` 拉不起游戏 | "游戏运行中"状态卡死（§5），`steam -shutdown` 重启 |
 | 游戏崩在 `0x01160000` | Proton 版本（§6），换 Proton 8.0 |
 | 注入的显卡 env 不生效 | user_settings.py 不进容器（§7），改用 Launch Options |
+
+---
+
+## 10. 游戏反复自动重新下载（Steam 更新回滚循环）
+
+现象：每次打开 Steam，某个游戏（如刀塔霸业 / Dota Underlords）都被重新排队下载，
+进度反复重置，永远装不完。
+
+根因：`steamwebhelper_sniper_wrap.sh` 被 `chattr +i` 设为不可变（旧版
+`fix-steam-cef-lock.sh` 的行为）。Steam 启动时校验发现文件大小不符，于是走
+"下载更新 → `failed to rename` → `Failed to apply update, reverting...`" 的**回滚循环**。
+该循环会重置游戏的下载状态，游戏因此被反复重下。
+
+日志特征：
+
+```
+BVerifyInstalledFiles: ubuntu12_64/steamwebhelper_sniper_wrap.sh is 680 bytes, expected 623
+BCommitUpdatedFiles: failed to rename ./ubuntu12_64/steamwebhelper_sniper_wrap.sh -> ...
+Failed to apply update, reverting...
+```
+
+**修复**：
+
+```bash
+sudo chattr -i ~/.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh
+```
+
+解锁后启动一次 Steam，让它正常完成更新、把文件恢复成原厂大小（623 字节）。
+用 `lsattr` 确认 `i` 标志已消失：
+
+```bash
+lsattr ~/.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh
+# 正常应为：--------------e------- （无 i）
+```
+
+**教训**：**不要**用 `chattr +i` 去"保护"对 Steam 文件的修改。Steam 有严格的自我校验
+机制，锁定文件只会让它陷入回滚循环，连带破坏游戏下载状态。需要持久化配置时，
+一律走**环境变量 + 桌面启动器**（如 §3 的 `GBM_BACKEND=dri`），不碰 Steam 自己的文件。

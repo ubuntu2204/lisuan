@@ -3,6 +3,63 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.09.01 — Steam CEF 崩溃定解法 `GBM_BACKEND=dri`；修正 `chattr` 锁定引发的回滚循环
+
+### 症状
+
+1. Steam UI 起不来：`cef_log.txt` 中大量 `GPU process exited unexpectedly: exit_code=139`，
+   最终 `GPU process isn't usable. Goodbye.`；`steamwebhelper` 无限重启
+   （`startcount` 0→19+）。
+2. 每次打开 Steam，《Dota Underlords》（刀塔霸业）都被重新排队下载，进度反复重置。
+
+### 根因
+
+两个独立问题：
+
+**1）CEF 崩溃** —— 厂商 `/usr/lib/x86_64-linux-gnu/gbm/gf_gbm.so`（106KB）与系统
+`libgbm 25.2.8` ABI 不兼容，pressure-vessel 容器内 CEF GPU 进程加载它即段错误。
+
+> 纠正 2026-08-24 的结论：仅移除全局 `lisuan_dri.so` 软链与 wrap 内 `LD_PRELOAD`
+> **并不足以**让 CEF 稳定——实测"干净"状态下仍崩。此前把 `GBM_BACKEND=dri` 误判为
+> 有害，是因为它与 `LD_PRELOAD libglapi_gf.so.0` 同时被注入；有害的是 PRELOAD
+> （导致 `double free`），不是 `GBM_BACKEND=dri` 本身。
+
+**2）游戏反复重下** —— 旧版 `fix-steam-cef-lock.sh` 用 `chattr +i` 锁定了
+`steamwebhelper_sniper_wrap.sh`。Steam 校验发现大小不符（680 vs 623 字节）→ 下载更新 →
+`BCommitUpdatedFiles: failed to rename ... (error 1)` → `Failed to apply update, reverting...`
+→ 回滚循环，该循环会重置游戏下载状态。
+
+### 修复
+
+```bash
+# 1) 解锁，停止回滚循环（一次性）
+sudo chattr -i ~/.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh
+# 启动一次 Steam，让它把文件恢复成原厂 623 字节
+
+# 2) 用环境变量绕开 gf_gbm 段错误（日常启动方式）
+GBM_BACKEND=dri steam
+```
+
+桌面启动器 `~/.local/share/applications/steam.desktop` 已改为
+`Exec=env GBM_BACKEND=dri /usr/bin/steam %U`，菜单启动同样生效。
+
+**验证**：`grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt` → `0`。
+
+### 教训
+
+- **不要用 `chattr +i` 保护对 Steam 文件的修改**：只会触发回滚循环，并连带破坏
+  游戏下载状态。持久化配置一律走「环境变量 + 桌面启动器」，不碰 Steam 自己的文件。
+- **全局 `lisuan_dri.so -> gf_dri.so` 软链有害**：让 Steam 客户端加载 gf 驱动而崩溃，
+  已移除；`fix-lisuan-mesa-driver-name.sh` 仅在 `--native-gl` 下按需创建。
+- **`LD_PRELOAD libglapi_gf.so.0` 绝不能进 Steam 客户端 wrap**：会让 Steam 客户端走
+  gf glapi，在无头/XWayland 下 `double free`。只可用于**游戏进程树**。
+- 游戏（Proton/wine）渲染走 gf Vulkan，不依赖 gbm 后端，因此 `GBM_BACKEND=dri`
+  不影响游戏。
+
+详见 `steam/steam-on-lisuan.md` §3（最终解法）与 §10（回滚循环）。
+
+---
+
 ## 2026.08.31 — Proton 更新致加固失效；改用 Proton 11.0 稳定版
 
 ### 症状

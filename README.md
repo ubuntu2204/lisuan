@@ -37,10 +37,12 @@ GPU (PCI `4c54:5006`) on **Ubuntu 24.04 LTS** with vendor driver packages
    viable fallback path).
 3. **Applications (Steam)** — Steam's CEF crashes in its pressure-vessel
    container (two root causes: vendor `gf_gbm.so` segfaults under modern
-   libgbm; Steam's bundled ANGLE fails lazy symbol resolution). Fixed by an
-   injected, `chattr +i`-locked environment in `steamwebhelper_sniper_wrap.sh`,
-   with a boot-time auto-repair systemd service. Native Linux games (verified:
-   Dota Underlords) run via a documented host-native launch path.
+   libgbm; Steam's bundled ANGLE fails lazy symbol resolution). Fixed by the
+   **`GBM_BACKEND=dri` environment variable**, which makes libgbm load Mesa's
+   `dri_gbm.so` instead of the vendor's ABI-incompatible `gf_gbm.so` — no file
+   is modified, so Steam's self-verification is never disturbed (see
+   `steam/steam-on-lisuan.md` §3). Native Linux games (verified: Dota
+   Underlords) run via a documented host-native launch path.
 
 **This repo does not contain the vendor driver** — only independent patches,
 scripts, documentation and tests, under Apache-2.0. It also includes a
@@ -199,9 +201,10 @@ sudo ./fix-lisuan-gpu.sh
 sudo ./mesa/fix-lisuan-mesa-driver-name.sh
 
 # 3) Steam 界面起不来（cef_log.txt 大量 exit_code=139/11）
-sudo ./mesa/fix-lisuan-mesa-driver-name.sh
-sudo ./steam/fix-steam-cef-lock.sh
-MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
+GBM_BACKEND=dri steam
+# 桌面启动器已内置该变量，从菜单启动同样生效。
+# 若曾被 chattr 锁死过（会引发更新回滚、游戏反复重下），先解锁：
+sudo chattr -i ~/.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh
 
 # 4) 想让某个应用走系统 Mesa（25.2.x，zink）而非厂商 Mesa 22.0.4
 ./mesa/use-system-mesa.sh --print-env
