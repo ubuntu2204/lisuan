@@ -116,9 +116,9 @@ right headers.
 | `dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
 | `dkms/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `mesa/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
-| `steam/fix-steam-cef-lock.sh` | **Steam 修复主入口**：向容器内注入 `GBM_BACKEND=dri` + `LD_PRELOAD` glapi 并 `chattr +i` 锁定（详见[三](#三steam-适配)） |
+| `steam/fix-steam-cef-lock.sh` | **Steam 清理工具**（非日常修复入口）：检测并移除 `steamwebhelper_sniper_wrap.sh` 中历史遗留的 gf 注入（`GBM_BACKEND=dri` + `LD_PRELOAD` glapi）与 `chattr +i` 锁定。`--unlock` 只解锁、`--uninstall` 还原原厂。**注意**：注入方案已于 2026-09-01 废弃，现改用 `GBM_BACKEND=dri` 环境变量（详见[三](#三steam-适配)） |
 | `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 14/15） |
-| `steam/steam-cef-autofix.sh` | 开机自愈（root/systemd 调用）：发现 Steam 更新还原了补丁就自动重新注入锁定，由 `./lisuan-fix.sh` 菜单 9 安装为系统服务；`--uninstall` 卸载服务 |
+| `steam/steam-cef-autofix.sh` | 开机自愈（root/systemd，历史遗留）：发现 Steam 更新还原了 wrap 补丁就自动重新注入锁定。**现已不需要**——`GBM_BACKEND=dri` 为纯环境变量、不修改文件，Steam 更新不会覆盖它；`--uninstall` 可卸载该服务 |
 | `dkms/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 | `mesa/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
 
@@ -397,8 +397,9 @@ vermagic: 7.0.0-28-generic SMP preempt mod_unload modversions   # ← 与运行�
 |---|---|
 | DKMS Makefile 补丁 | `sudo dkms/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 11） |
 | DRI 驱动名软链 | `sudo mesa/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 12） |
-| Steam 容器补丁 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 13） |
-| 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 10） |
+| Steam CEF 修复（推荐方案） | 删除桌面启动器中的 `GBM_BACKEND=dri` 即可，无需 root（见[三](#三steam-适配)） |
+| Steam 历史 wrap 注入 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 13） |
+| 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 10；改用环境变量方案后已不需要） |
 
 验证 DKMS 补丁已还原（第 4 行应变回原厂行）：
 
@@ -455,38 +456,49 @@ sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
    GL 符号在容器内找不到 glapi 提供者 → `symbol lookup error (fatal)` → SIGSEGV。
    证据：`LD_DEBUG=libs` 追踪到 GPU 进程崩溃前的完整加载链。
 
-### 修复（已实测稳定）
+### 修复（2026-09-01 实测确认）
 
 ```bash
-sudo ./mesa/fix-lisuan-mesa-driver-name.sh   # 先修驱动名
-sudo ./steam/fix-steam-cef-lock.sh            # 注入并 chattr +i 锁定
-MESA_LOADER_DRIVER_OVERRIDE=gf steam -no-cef-sandbox -cef-force-64bit
+GBM_BACKEND=dri steam
 ```
 
-`fix-steam-cef-lock.sh` 向 `steamwebhelper_sniper_wrap.sh` 注入：
+桌面启动器 `~/.local/share/applications/steam.desktop` 已内置该变量
+（`Exec=env GBM_BACKEND=dri /usr/bin/steam %U`），从菜单启动同样生效。
 
-```bash
-export GBM_BACKEND=dri                                        # 绕开 gf_gbm.so 段错误
-export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0  # 修 ANGLE 符号解析崩溃
-```
+**原理**：`GBM_BACKEND=dri` 让 libgbm 直接加载 Mesa 的 `dri_gbm.so`（56KB），
+不再扫描加载厂商 `gf_gbm.so`（106KB，与 libgbm 25.2.8 ABI 不兼容）——从源头消除段错误。
+GPU 进程不再崩溃，尝试硬件加速失败后自动回退软渲染，Steam 界面正常。
+验证：`grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt` → `0`。
 
-效果：GPU 进程不再崩溃；它尝试硬件加速失败后（容器内 glvnd 的 EGL 分发
-拿不到厂商 EGL，见
-[`dkms/vendor-bug-report-gf-gbm-crash.md`](./dkms/vendor-bug-report-gf-gbm-crash.md) §3）
-自动回退软渲染，Steam 界面正常。注意：容器内的原生 GLX 游戏仍无法启动
-（见[游戏兼容性](#游戏兼容性dota-underlords-实测)与报告 §4）。
+> **为什么不再注入 `wrap.sh`（2026-09-01 修正）**
+>
+> 早期方案把 `GBM_BACKEND=dri` + `LD_PRELOAD=.../libglapi_gf.so.0` 注入
+> `steamwebhelper_sniper_wrap.sh` 并用 `chattr +i` 锁定，实测有两个致命问题：
+>
+> 1. **`LD_PRELOAD` 让 Steam 客户端走 gf glapi** → 无头/XWayland 下
+>    `double free or corruption`，Steam 直接 `Aborted`。有害的是 PRELOAD，
+>    不是 `GBM_BACKEND=dri` 本身（详见 `steam/steam-on-lisuan.md` §2）。
+> 2. **`chattr +i` 锁死文件** → Steam 校验发现大小不符（680 vs 623 字节）→ 下载更新 →
+>    `failed to rename` → `Failed to apply update, reverting...` 回滚循环，
+>    该循环会**重置游戏下载状态，导致游戏被反复重新下载**（详见 §10）。
+>
+> 因此改为纯环境变量方案：**不修改任何文件**，既不会触发 Steam 校验回滚，
+> 也不会引入 double free。
+
+注意：容器内的原生 GLX 游戏仍无法启动（见[游戏兼容性](#游戏兼容性dota-underlords-实测)
+与报告 §4）。
 
 ### 注意事项
 
-- **日常开机无需任何操作**：补丁写入 `wrap.sh` 并 `chattr +i` 锁定，重启不丢；
-  游戏用桌面菜单图标启动。
-- 建议安装开机自愈：`./lisuan-fix.sh` 选 **9**（或
-  `sudo steam/steam-cef-autofix.sh` 手动验证）。
-  之后 Steam 客户端更新还原补丁时，下次开机自动重新注入，菜单 5/6 不再需要。
-- 不装自愈服务时：Steam 客户端更新前先 `sudo ./steam/fix-steam-cef-lock.sh --unlock`，
-  更新后重跑注入。
-- 手动编辑 wrap.sh 后务必 `chmod +x`（`sed -i` 会丢执行位，容器内 pv-adverb 会报
-  Permission denied）。
+- **日常开机无需任何操作**：`GBM_BACKEND=dri` 已写入桌面启动器，菜单启动即生效，
+  重启不丢；命令行启动需显式带上变量。
+- **不要用 `chattr +i` 锁定 Steam 文件**；若历史环境曾被锁定，先解锁：
+  `sudo chattr -i ~/.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh`
+- **不要创建全局 `lisuan_dri.so -> gf_dri.so` 软链**：它会让 Steam 客户端加载 gf 驱动
+  而崩溃。`fix-lisuan-mesa-driver-name.sh` 默认已不建，仅 `--native-gl` 按需开启。
+- **不要把 `LD_PRELOAD=libglapi_gf.so.0` 注入 Steam 客户端 wrap**：会导致 double free。
+  游戏进程树内按需使用（Launch Options）不受此限。
+- 游戏（Proton/wine）渲染走 gf Vulkan，不依赖 gbm 后端，因此该变量不影响游戏。
 - 三个问题的根因与修复建议已整理成厂商 bug 报告：
   [`dkms/vendor-bug-report-gf-gbm-crash.md`](./dkms/vendor-bug-report-gf-gbm-crash.md)。
 
@@ -753,7 +765,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 > Steam 本身的全部坑集中在这里，游戏专属问题见上面的 6.1 / 6.2。
 
 - [Steam 在砺算 7G100 上的适配细节](./steam/steam-on-lisuan.md)
-  —— pressure-vessel 容器架构（gf Vulkan 容器内自动可用、PCI sysfs 被隐藏）；**gf env 不能污染 Steam 客户端**（致命坑）；CEF `gf_gbm` 段错误 + ANGLE 崩溃修复（`fix-steam-cef-lock.sh`）；无头环境 Steam 登录窗 GLX 崩溃需图形界面生成 `ssfn`；`applaunch` "游戏运行中"状态卡死；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染；**推荐 Proton 11.0 稳定版**，更新频率低于 Experimental）；`user_settings.py` 注入不进容器白名单；overlay 排障；排障速查表。
+  —— pressure-vessel 容器架构（gf Vulkan 容器内自动可用、PCI sysfs 被隐藏）；**gf env 不能污染 Steam 客户端**（致命坑）；CEF `gf_gbm` 段错误 + ANGLE 崩溃修复（**`GBM_BACKEND=dri` 环境变量**，2026-09-01 定解法）；`chattr +i` 锁定引发的更新回滚循环与游戏反复重下（§10）；无头环境 Steam 登录窗 GLX 崩溃需图形界面生成 `ssfn`；`applaunch` "游戏运行中"状态卡死；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染；**推荐 Proton 11.0 稳定版**，更新频率低于 Experimental）；`user_settings.py` 注入不进容器白名单；overlay 排障；排障速查表。
 
 ---
 

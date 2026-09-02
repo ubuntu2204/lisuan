@@ -170,17 +170,68 @@ Player.log 之前就退出（**无 Player.log**）。
 
 ## 6. Proton 版本选型
 
-| 游戏 | 必须版本 | 原因 |
+| 游戏 | 当前使用版本 | 原因 |
 | --- | --- | --- |
-| 随从大师（489520） | **Proton 8.0** | Proton Experimental / wine 11.0 在 7.0.0-30 内核下有 32 位地址空间回归（游戏崩在 `0x01160000`），Proton 8.0 绕过。经 steamcmd 账号登录下载 AppID 218010 安装到 `~/.local/share/Steam/steamapps/common/Proton 8.0` |
+| 随从大师（489520） | **Proton 11.0 稳定版** | 见下方说明 |
+
+### 选用 Proton 11.0 稳定版的理由（2026-08-31 起）
+
+- ✅ **推荐：Proton 11.0 稳定版**。更新频率低、目录结构稳定，加固脚本
+  `minion-masters/fix-minion-masters-7g100-hw.sh` 已适配其 `files/lib/` 路径。
+  实测 `Renderer: LISUAN 7G100`，D3D11 设备创建失败 **0 次**。
+- ❌ **不要用 `Proton Experimental`**。2026-08-26 的 `experimental-11.0-20260826`
+  把库目录由 `files/lib64/` 改为 `files/lib/`，导致三处加固**静默失效**：
+
+  | 加固项 | 失效表现 |
+  | --- | --- |
+  | `libSC.so` 软链 | 悬空（指向已删除旧路径）→ gf `vkCreateDevice` 失败 |
+  | DXVK 降级 | 还原为新版（要求 `VK_KHR_load_store_op_none`，gf 22.0.4 不支持）→ DXVK 跳过 7G100 |
+  | hook 部署路径 | 指向失效 |
+
+  `libSC.so`（gf 着色器编译器伴侣库）悬空是直接致命原因，表现为
+  `Failed to initialize graphics ... InitializeEngineGraphics failed`。
+  详见 CHANGELOG `2026.08.31`。
+
+- ⚠️ **版本号易混淆**：`Proton Experimental` 版本号含 "11.0" 字样
+  （如 `experimental-11.0-20260826`），但与独立安装的稳定版《**Proton 11.0**》
+  **不是同一个东西**。选型时以 Steam 库中的条目名为准。
+
+- 📌 **历史**：早期曾用 **Proton 8.0** 绕过 7.0.0-30 内核下的 32 位地址空间回归
+  （游戏崩在 `0x01160000`）。现已被 Proton 11.0 稳定版取代。
 
 > 注：Proton 版本仅影响 Wine 类游戏；原生 Linux 游戏（刀塔霸业）不走 Proton。
+
+**切换 Proton 后必做**：重跑加固脚本（改 vdf 需退出 Steam 后执行，跑完重启 Steam）：
+
+```bash
+./minion-masters/fix-minion-masters-7g100-hw.sh
+```
+
+**配置核对**（排查"到底跑在哪个 Proton 上"时用）：
+
+```bash
+grep -A4 '"489520"' ~/.local/share/Steam/config/config.vdf
+```
+
+期望输出（随从大师单独覆盖全局默认值）：
+
+```
+"489520"
+{
+    "name"      "proton_11"      # ← 随从大师
+    "config"    ""
+    "priority"  "250"
+}
+```
+
+注意全局条目 `"0"` 通常是 `proton_experimental`，属于 Steam 默认，
+**不影响**已单独指定 `proton_11` 的随从大师。
 
 ---
 
 ## 7. Proton `user_settings.py` 注入无效（教训）
 
-`~/.local/share/Steam/steamapps/common/Proton 8.0/user_settings.py` 的正确格式是
+`~/.local/share/Steam/steamapps/common/Proton 11.0/user_settings.py` 的正确格式是
 **顶层键值对**：
 
 ```python
@@ -220,7 +271,8 @@ user_settings = {
 | **游戏反复自动重新下载** | Steam 更新回滚循环（§10），`lsattr` 查是否被 `chattr +i` 锁死 |
 | 游戏 e0434352 退出、无 Player.log | Steam 未登录（§4，缺 ssfn），图形界面登录一次 |
 | `applaunch` 拉不起游戏 | "游戏运行中"状态卡死（§5），`steam -shutdown` 重启 |
-| 游戏崩在 `0x01160000` | Proton 版本（§6），换 Proton 8.0 |
+| 游戏崩在 `0x01160000` | Proton 版本（§6），用 Proton 11.0 稳定版 |
+| `Failed to initialize graphics` / `InitializeEngineGraphics failed` | Proton Experimental 改了库目录致加固失效（§6），改用 Proton 11.0 稳定版并重跑加固脚本 |
 | 注入的显卡 env 不生效 | user_settings.py 不进容器（§7），改用 Launch Options |
 
 ---
