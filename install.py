@@ -40,7 +40,25 @@ from typing import Callable, TypedDict
 # basedpyright 的严格规则，故对本文件放宽。
 # pyright: reportUnusedCallResult=false, reportUnannotatedClassAttribute=false
 
-REPO_ROOT = Path(__file__).resolve().parent
+def _find_base() -> Path:
+    """定位资源根目录（dkms/ steam/ 等子目录所在的目录）。
+
+    - 开发模式：本文件位于仓库根（如 ~/project/lisuan/install.py）；
+    - deb 安装模式：本文件位于 /usr/bin/，资源在 /usr/share/lisuan-fix/。
+    """
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here,
+        here.parent,                       # 安装在 /usr/bin 时
+        Path("/usr/share/lisuan-fix"),     # deb 标准资源路径
+    ]
+    for c in candidates:
+        if (c / "dkms").is_dir() and (c / "steam").is_dir():
+            return c
+    return here
+
+
+REPO_ROOT = _find_base()
 S = REPO_ROOT
 
 # Steam 桌面启动器（新方案的落点：只改这里，不碰 Steam 自己的文件）

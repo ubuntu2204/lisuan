@@ -77,6 +77,21 @@ GBM_BACKEND=dri steam
   渲染测试通过（27 条目）；`install`/`remove` 全状态转换断言通过；
   `tests/run-tests.sh` 7/7 通过；从 `/tmp` 运行验证单文件自足。
 
+### 工程改进：deb 打包（`packaging/build-deb.sh`）
+
+- 新增 `packaging/build-deb.sh`：一键构建 `dist/lisuan-fix_<版本>_all.deb`（~52KB）。
+- 安装布局：
+  - `/usr/bin/lisuan-fix` — 可执行入口（install.py 副本，无扩展名，PATH 直达）；
+  - `/usr/share/lisuan-fix/{dkms,mesa,steam,underlords,electron}/` — 修复脚本与文档
+    （排除 `dkms/vendor-src/` 厂商源码副本与 64MB 的 `minion-masters/` 游戏专用件）；
+  - `/usr/share/applications/lisuan-fix.desktop` — 终端菜单项；
+  - `DEBIAN/`：`control`（Depends: python3/bash；Recommends: pciutils/kmod/dkms）、
+    `postinst`（刷新桌面数据库）、`md5sums`。
+- `install.py` 资源根目录自适应（`_find_base()`）：开发仓库 → `/usr/bin`（资源在
+  `/usr/share/lisuan-fix`）→ `/usr/share/lisuan-fix/install.py` 直跑，三处均可正确定位。
+- 验证：`dpkg-deb --info/-c` 结构正确；md5sums 逐项校验一致；解包树内
+  `/usr/bin/lisuan-fix --detect` 可运行；postinst 语法通过；脚本权限 755 保留。
+
 ---
 
 ## 2026.08.31 — Proton 更新致加固失效；改用 Proton 11.0 稳定版

@@ -176,6 +176,14 @@ python3 install.py --detect --json   # JSON 输出，便于脚本化/排障
 python3 install.py 5            # 直接执行第 5 项（修复 Steam 界面崩溃）
 ```
 
+**deb 包安装**（推荐给其他砺算 7G100 机器使用，无需带源码仓库）：
+
+```bash
+./packaging/build-deb.sh                 # 构建 dist/lisuan-fix_<日期>_all.deb
+sudo dpkg -i dist/lisuan-fix_*_all.deb   # 安装
+lisuan-fix --detect                      # PATH 直达，资源在 /usr/share/lisuan-fix
+```
+
 菜单项编号与旧版 `lisuan-fix.sh` **完全一致**，本文件各处提到的"菜单 [N]"对两个版本通用。
 
 **启用 TUI**（可选，需联网）：
