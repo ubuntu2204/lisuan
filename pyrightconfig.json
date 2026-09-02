@@ -1,14 +1,15 @@
 {
   // textual 通过 `pip install --user` 装在这里，而 basedpyright 默认只在
   // 项目 venv / 系统 site-packages 里找依赖，不搜索 user site-packages，
-  // 导致 tui.py 里 `import textual` 报 reportMissingImports 并级联出几十条
-  // Unknown 类型警告。这里显式补上搜索路径。
+  // 导致 install.py 的 TUI 部分里 `import textual` 报 reportMissingImports
+  // 并级联出几十条 Unknown 类型警告。这里显式补上搜索路径。
   //
   // 换机器后若路径不同，用下面的命令取实际值填进来：
   //   python3 -c "import site; print(site.getusersitepackages())"
   "extraPaths": ["/home/ubuntu/.local/lib/python3.12/site-packages"],
 
-  // textual 是可选依赖：没装时 tui.py 不会被主程序加载，主程序自动降级为
-  // 纯文本菜单。这里按"已安装"来推断，缺失时下面的规则兜底。
+  // textual 是可选依赖：没装时 install.py 的 _load_tui() 返回 None，
+  // 主程序自动降级为纯文本菜单，不影响使用。这里按"已安装"来推断，
+  // 缺失时由下面的规则兜底。
   "pythonVersion": "3.12"
 }

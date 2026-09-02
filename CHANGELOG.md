@@ -58,6 +58,25 @@ GBM_BACKEND=dri steam
 
 详见 `steam/steam-on-lisuan.md` §3（最终解法）与 §10（回滚循环）。
 
+### 工程改进：Python 工具合并为单文件 `install.py`
+
+- `lisuan_fix.py` + `tui.py` **合并为单文件 `install.py`**（两旧文件已删除），
+  单文件分发，无需项目内相对导入。
+- 原先两文件通过 importlib 动态互导以断开 `lisuan_fix <-> tui` 导入环；
+  合并后 TUI 相关类下沉到 `_load_tui()` 内部**延迟定义**——未安装 textual 时
+  `from textual.app import App` 不在模块导入期执行，主程序正常降级为纯文本菜单。
+- 菜单编号与旧版完全兼容；`detect()` 检测逻辑同步修正为新方案口径：
+  - DRI 软链：检测到全局 `lisuan_dri.so` 由"ok"改为"**warn**（有害残留，建议移除）"；
+  - Steam：检查**桌面启动器 Exec 行**是否含 `GBM_BACKEND=dri`（新方案），
+    并新增旧方案残留检查（wrap.sh 注入、`chattr +i` 锁定 → 报 bad 并指向清理菜单）。
+- 新增菜单 [5]（写入启动器修复）/[6]（还原启动器+解锁）的纯 Python 内部实现，
+  `remove` 采用"干净备份才还原、否则重写纯净模板"策略——避免把含修复的备份
+  原样复制回来导致"移除无效"的坑（合并测试中发现并修复）。
+- `README.md`、`pyrightconfig.json` 中的引用同步更新为 `install.py`。
+- 验证：`py_compile` 通过；`--detect`/`--detect --json`/`-h` 正常；TUI headless
+  渲染测试通过（27 条目）；`install`/`remove` 全状态转换断言通过；
+  `tests/run-tests.sh` 7/7 通过；从 `/tmp` 运行验证单文件自足。
+
 ---
 
 ## 2026.08.31 — Proton 更新致加固失效；改用 Proton 11.0 稳定版

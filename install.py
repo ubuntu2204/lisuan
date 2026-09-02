@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""砺算 7G100 修复工具（Python 版，替代 lisuan-fix.sh）
+"""砺算 7G100 修复工具（Python 版，替代 lisuan-fix.sh）。
 
-三种模式：
-    python3 lisuan_fix.py                 交互界面（有 Textual 用 TUI，否则纯文本菜单）
-    python3 lisuan_fix.py --detect        只检测并打印报告
-    python3 lisuan_fix.py --detect --json 检测并输出 JSON（便于脚本化）
-    python3 lisuan_fix.py 2 [参数]        非交互直执行第 2 项
+用法：
+    python3 install.py                 交互界面（有 Textual 用 TUI，否则纯文本菜单）
+    python3 install.py --detect        只检测并打印报告
+    python3 install.py --detect --json 检测并输出 JSON（便于脚本化）
+    python3 install.py 2 [参数]        非交互直执行第 2 项
+    python3 install.py -h              显示本帮助
 
 菜单项编号与旧版 lisuan-fix.sh 一一对应，README 中的说明无需修改。
 
 依赖：仅标准库。Textual 为可选增强（无它自动降级为纯文本菜单）。
+
+本文件由 lisuan_fix.py + tui.py 合并而来（单文件分发）。两者原先通过
+importlib 动态互导以断开导入环；合并后直接引用模块级符号，Textual 相关
+代码下沉到 _load_tui() 内部延迟定义，未安装 textual 时不影响主流程。
+
+2026-09-01 修正：Steam CEF 崩溃的正确解法是 `GBM_BACKEND=dri` 环境变量
+（只写桌面启动器，不修改 Steam 自身文件）。旧方案（向
+steamwebhelper_sniper_wrap.sh 注入 LD_PRELOAD 并 chattr +i 锁定）已被证明
+有害——会让 Steam 客户端 double free，且锁定会触发 Steam 更新回滚循环，
+导致游戏被反复重新下载。详见 steam/steam-on-lisuan.md §3、§10。
 """
 
 from __future__ import annotations
@@ -24,8 +35,41 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypedDict
 
+# Textual 的 write/append/clear/run_worker 返回 awaitable，惯例是直接忽略；
+# CSS/BINDINGS/title 等属性按 Textual 约定直接赋值。这两类写法会触发
+# basedpyright 的严格规则，故对本文件放宽。
+# pyright: reportUnusedCallResult=false, reportUnannotatedClassAttribute=false
+
 REPO_ROOT = Path(__file__).resolve().parent
 S = REPO_ROOT
+
+# Steam 桌面启动器（新方案的落点：只改这里，不碰 Steam 自己的文件）
+STEAM_DESKTOP = Path.home() / ".local/share/applications/steam.desktop"
+STEAM_DESKTOP_EXEC_FIXED = "Exec=env GBM_BACKEND=dri /usr/bin/steam %U"
+STEAM_WRAP = Path.home() / ".local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh"
+
+# 两个标准模板：修复版 / 纯净版。install/remove 都直接写模板，
+# 不做字符串拼接/替换，保证状态可预测（注释等修饰内容随之整体增删）。
+_STEAM_DESKTOP_COMMON = """[Desktop Entry]
+Name=Steam
+Comment=Application for managing and playing games on Steam
+{exec_line}
+Icon=steam
+Terminal=false
+Type=Application
+Categories=Game;Application;
+StartupNotify=false
+StartupWMClass=Steam
+"""
+
+STEAM_DESKTOP_BODY_FIXED = _STEAM_DESKTOP_COMMON.format(exec_line=(
+    "# GBM_BACKEND=dri 是砺算 7G100 上的必需项：厂商 gf_gbm.so 与系统 libgbm 25.x\n"
+    "# ABI 不兼容，会让 CEF GPU 进程 SIGSEGV (exit_code=139)。设为 dri 可让 libgbm\n"
+    "# 加载 Mesa 的 dri_gbm.so，绕开崩溃。详见 steam/steam-on-lisuan.md §3\n"
+    "Exec=env GBM_BACKEND=dri /usr/bin/steam %U"
+))
+
+STEAM_DESKTOP_BODY_PLAIN = _STEAM_DESKTOP_COMMON.format(exec_line="Exec=/usr/bin/steam %U")
 
 # ---------------------------------------------------------------- 基础工具
 
@@ -148,43 +192,59 @@ def detect() -> Env:
     else:
         env.add("DRM", "bad", "无 /dev/dri/cardN")
 
+    # 2026-09-01 修正：全局 lisuan_dri.so 软链会让 Steam 客户端加载 gf 驱动而
+    # double free 崩溃，属"有害残留"，检测到应提示移除（而非像旧版那样判为 ok）。
     dri_dir = Path("/usr/lib/x86_64-linux-gnu/dri")
     if (dri_dir / "lisuan_dri.so").exists():
-        env.add("DRI", "ok", "lisuan_dri.so 软链存在（DRI 驱动名已修复）")
+        env.add("DRI", "warn",
+                "检测到全局 lisuan_dri.so 软链 —— 它会使 Steam 客户端 double free，"
+                "建议移除（菜单 [12]）", "12")
     elif (dri_dir / "gf_dri.so").exists():
-        env.add("DRI", "bad", "缺 lisuan_dri.so 软链 —— 菜单 [4]", "4")
+        env.add("DRI", "ok", "gf_dri.so 存在（新方案下无需全局软链）")
     else:
         env.add("DRI", "warn", "未见 gf_dri.so（lisuangpu-lib 未安装？）")
 
     # ---- Steam ----
     if shutil.which("steam"):
         env.add("Steam", "ok", "Steam 已安装")
-        wrap = Path.home() / ".local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh"
-        if wrap.is_file():
+
+        # 新方案：桌面启动器带 GBM_BACKEND=dri（精确匹配 Exec 行，
+        # 避免把注释中的字样误判为已配置）
+        if STEAM_DESKTOP.is_file():
             try:
-                content = wrap.read_text(errors="replace")
+                dcontent = STEAM_DESKTOP.read_text(errors="replace")
             except OSError:
-                content = ""
-            has_gbm = "GBM_BACKEND=dri" in content
-            has_glapi = "libglapi_gf" in content
-            if has_gbm and has_glapi:
-                env.add("Steam", "ok", "Steam CEF 补丁已注入（GBM_BACKEND + LD_PRELOAD）")
+                dcontent = ""
+            if STEAM_DESKTOP_EXEC_FIXED in dcontent:
+                env.add("Steam", "ok", "桌面启动器已配置 GBM_BACKEND=dri（CEF 崩溃已修复）")
             else:
-                env.add("Steam", "bad", "Steam CEF 补丁缺失/被客户端还原 —— 菜单 [5]", "5")
-            attr = out(["lsattr", str(wrap)])
-            if "i" in attr.split()[0] if attr else False:
-                env.add("Steam", "ok", "wrap.sh 已锁定（chattr +i）")
-            else:
-                env.add("Steam", "warn", "wrap.sh 未锁定，可能被 Steam 校验还原 —— 菜单 [5]", "5")
+                env.add("Steam", "bad",
+                        "桌面启动器缺 GBM_BACKEND=dri —— Steam 界面会崩溃，菜单 [5]", "5")
+
+        # 旧方案残留检查：wrap.sh 被注入 / 被 chattr 锁定都是有害的
+        if STEAM_WRAP.is_file():
+            try:
+                wcontent = STEAM_WRAP.read_text(errors="replace")
+            except OSError:
+                wcontent = ""
+            if "libglapi_gf" in wcontent or "GBM_BACKEND=dri" in wcontent:
+                env.add("Steam", "bad",
+                        "wrap.sh 仍含旧方案残留注入 —— 会让 Steam 客户端 double free，"
+                        "请清理（菜单 [13]）", "13")
+
+            attr = out(["lsattr", str(STEAM_WRAP)])
+            flags = attr.split()[0] if attr else ""
+            if "i" in flags:
+                env.add("Steam", "bad",
+                        "wrap.sh 被 chattr +i 锁定 —— 会触发 Steam 更新回滚循环，"
+                        "导致游戏反复重新下载，请立即解锁（菜单 [6]）", "6")
     else:
         env.add("Steam", "info", "未安装 Steam（跳过 Steam 相关项）")
 
-    # ---- 开机自愈 ----
+    # ---- 开机自愈（新方案下已不需要）----
     if ok_cmd(["systemctl", "is-enabled", "lisuan-steam-autofix.service"]):
-        env.add("自愈", "ok", "Steam 补丁开机自愈服务已安装（Steam 更新后自动重新注入）")
-    else:
         env.add("自愈", "warn",
-                "未安装开机自愈服务 —— 菜单 [9]（Steam 更新后需手动跑菜单 [5]）", "9")
+                "开机自愈服务仍在启用 —— 新方案（环境变量）不需要它，建议卸载（菜单 [10]）", "10")
 
     # ---- 游戏 ----
     ul = Path.home() / ".local/share/Steam/steamapps/common/Underlords/game"
@@ -229,28 +289,28 @@ ITEMS: list[Item] = [
      "cmd": None},
     {"id": 2,  "title": "修复 DKMS 驱动构建/加载（vermagic 错配、黑屏）", "group": "修复",
      "root": True,  "cmd": lambda a: _sh("dkms/fix-lisuan-gpu.sh", *a)},
-    {"id": 4,  "title": "修复 DRI 驱动名（lisuan_dri.so 软链）", "group": "修复",
-     "root": True,  "cmd": lambda a: _sh("mesa/fix-lisuan-mesa-driver-name.sh")},
-    {"id": 5,  "title": "修复 Steam 界面崩溃（注入容器补丁并锁定）", "group": "修复",
-     "root": True,  "cmd": lambda a: _sh("steam/fix-steam-cef-lock.sh")},
-    {"id": 6,  "title": "解锁 Steam 补丁（Steam 客户端更新前执行）", "group": "修复",
-     "root": True,  "cmd": lambda a: _sh("steam/fix-steam-cef-lock.sh", "--unlock")},
-    {"id": 9,  "title": "安装开机自愈（Steam 更新后自动重新注入补丁）", "group": "修复",
+    {"id": 4,  "title": "修复 DRI 驱动名（仅原生 GL 游戏需要，含 --native-gl）", "group": "修复",
+     "root": True,  "cmd": lambda a: _sh("mesa/fix-lisuan-mesa-driver-name.sh", *a)},
+    {"id": 5,  "title": "修复 Steam 界面崩溃（桌面启动器写入 GBM_BACKEND=dri）", "group": "修复",
+     "root": False, "cmd": None},  # 内部实现，见 install_steam_fix
+    {"id": 6,  "title": "解锁 Steam 文件 / 移除 GBM_BACKEND（还原启动器）", "group": "修复",
+     "root": True,  "cmd": None},  # 内部实现，见 remove_steam_fix
+    {"id": 9,  "title": "安装开机自愈（旧方案遗留，新方案下不需要）", "group": "修复",
      "root": True,  "cmd": None},  # 内部实现，见 install_autofix
     {"id": 10, "title": "卸载开机自愈服务", "group": "卸载", "root": True,
-     "cmd": None},  # 内部实现
+     "cmd": None},  # 内部实现，见 remove_autofix
     {"id": 11, "title": "卸载 DKMS Makefile 补丁（还原原厂，不影响已装驱动）", "group": "卸载",
      "root": True,  "cmd": lambda a: _sh("dkms/uninstall-lisuan-gpu.sh")},
     {"id": 12, "title": "卸载 DRI 驱动名软链（只删我们建的软链）", "group": "卸载",
      "root": True,  "cmd": lambda a: _sh("mesa/uninstall-lisuan-mesa-driver-name.sh")},
-    {"id": 13, "title": "卸载 Steam 补丁（还原 wrap.sh，界面将回到无法启动状态）", "group": "卸载",
+    {"id": 13, "title": "清理 Steam 旧方案残留（还原 wrap.sh 注入）", "group": "卸载",
      "root": True,  "cmd": lambda a: _sh("steam/fix-steam-cef-lock.sh", "--uninstall")},
     {"id": 3,  "title": "GPU 驱动体检（lspci/lsmod/modinfo/DRM）", "group": "体检",
      "root": False, "cmd": lambda a: _sh("dkms/verify-lisuan-gpu.sh")},
     {"id": 7,  "title": "系统 Mesa 兼容性体检（zink/GBM dri 后端）", "group": "体检",
      "root": False, "cmd": lambda a: _sh("mesa/verify-system-mesa.sh")},
     {"id": 8,  "title": "启动 Dota Underlords（宿主直跑，需 Steam 在运行）", "group": "游戏",
-     "root": False, "cmd": None},  # 内部实现
+     "root": False, "cmd": None},  # 内部实现，见 launch_underlords
     {"id": 14, "title": "安装/修复 Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项）",
      "group": "游戏", "root": True,
      "cmd": lambda a: _sh("underlords/fix-underlords-native.sh")},
@@ -279,6 +339,75 @@ def item_label(it: Item) -> str:
     return f"{it['id']:>2}) {it['title']}{tag}"
 
 
+# ---------------------------------------------------------------- Steam 修复
+
+
+def install_steam_fix() -> int:
+    """把 GBM_BACKEND=dri 写入 Steam 桌面启动器（新方案，不修改 Steam 文件）。"""
+    STEAM_DESKTOP.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if STEAM_DESKTOP.is_file():
+            shutil.copy2(STEAM_DESKTOP, str(STEAM_DESKTOP) + ".bak")
+            print(f"  已备份原启动器 -> {STEAM_DESKTOP}.bak")
+        STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_FIXED, encoding="utf-8")
+    except OSError as e:
+        print(f"  写入失败：{e}")
+        return 1
+
+    print(f"  已写入 {STEAM_DESKTOP}")
+    print("  Steam 界面崩溃修复完成（下次从菜单启动 Steam 生效）。")
+    return 0
+
+
+def remove_steam_fix() -> int:
+    """移除 Steam 修复：还原桌面启动器，并解锁可能残留的 chattr +i。"""
+    rc = 0
+
+    # 1) 解锁 wrap.sh（若曾被 chattr +i 锁定，会引发 Steam 更新回滚循环）
+    if STEAM_WRAP.is_file():
+        if os.geteuid() != 0:
+            r = run(["sudo", "chattr", "-i", str(STEAM_WRAP)])
+        else:
+            r = run(["chattr", "-i", str(STEAM_WRAP)])
+        if r[0] == 0:
+            print(f"  已解锁（如处于锁定状态）：{STEAM_WRAP}")
+        else:
+            # 文件系统不支持 chattr（如非 ext4）时不必视为失败
+            print(f"  解锁跳过（可能未锁定或文件系统不支持 chattr）：{r[1]}")
+
+    # 2) 还原桌面启动器
+    if STEAM_DESKTOP.is_file():
+        try:
+            content = STEAM_DESKTOP.read_text(errors="replace")
+        except OSError:
+            content = ""
+        if "GBM_BACKEND=dri" in content:
+            bak = Path(str(STEAM_DESKTOP) + ".bak")
+            restored = False
+            if bak.is_file():
+                try:
+                    bcontent = bak.read_text(errors="replace")
+                except OSError:
+                    bcontent = ""
+                # 仅当备份确实"干净"（不含修复）时才用它还原。
+                # 若备份本身已含修复（常见：在已修复状态下重跑 install 所产生），
+                # 用它还原等于把修复又复制回来 —— 此时改为直接编辑移除。
+                if bcontent and "GBM_BACKEND=dri" not in bcontent:
+                    shutil.copy2(bak, STEAM_DESKTOP)
+                    print(f"  已从干净备份还原启动器：{STEAM_DESKTOP}")
+                    restored = True
+            if not restored:
+                STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_PLAIN, encoding="utf-8")
+                print(f"  已重写为纯净启动器（移除 GBM_BACKEND=dri）：{STEAM_DESKTOP}")
+        else:
+            print("  启动器未含 GBM_BACKEND=dri，无需还原。")
+    else:
+        print("  桌面启动器不存在，跳过。")
+
+    return rc
+
+
 # ---------------------------------------------------------------- 执行
 
 AUTOFIX_UNIT = "/etc/systemd/system/lisuan-steam-autofix.service"
@@ -289,6 +418,8 @@ def install_autofix() -> int:
     if not AUTOFIX_SRC.is_file():
         print(f"  错误：找不到 {AUTOFIX_SRC}")
         return 1
+    print("  提示：新方案（GBM_BACKEND=dri 环境变量）不需要开机自愈服务，")
+    print("        Steam 更新不会覆盖桌面启动器。仅在仍使用旧注入方案时才需要本项。")
     unit = """[Unit]
 Description=Lisuan Steam CEF patch auto-heal (re-inject after Steam update)
 After=network.target
@@ -359,6 +490,10 @@ def run_item(item_id: int, extra: list[str] | None = None) -> int:
     if item_id == 1:
         print(render_report(detect()))
         return 0
+    if item_id == 5:
+        return install_steam_fix()
+    if item_id == 6:
+        return remove_steam_fix()
     if item_id == 9:
         return install_autofix()
     if item_id == 10:
@@ -417,23 +552,171 @@ def report_json(env: Env) -> str:
     )
 
 
-# ---------------------------------------------------------------- 入口分发
+# ---------------------------------------------------------------- TUI（可选）
+
+# Textual 相关的类在 _load_tui() 内部定义：这样未安装 textual 时，
+# `from textual.app import App` 不会在模块导入期抛出 ImportError，
+# 主程序可正常降级为纯文本菜单。函数内定义类还能直接闭包捕获本模块的
+# ITEMS / ITEMS_BY_ID / GROUP_ORDER / detect / item_label / run_item。
 
 
 def _load_tui() -> Callable[[], None] | None:
-    """动态加载 Textual 界面，不可用时返回 None（调用方降级为纯文本菜单）。
-
-    用 importlib 而不是静态 import，是为了断开 lisuan_fix <-> tui 的导入环：
-    tui 需要本模块的 ITEMS / detect / item_label，本模块需要 tui 的 run_tui。
-    """
+    """加载 Textual 界面；textual 不可用时返回 None（调用方降级为纯文本菜单）。"""
     try:
-        import importlib
-
-        mod = importlib.import_module("tui")
+        from textual.app import App, ComposeResult
+        from textual.containers import Horizontal
+        from textual.widgets import (
+            Footer,
+            Header,
+            Label,
+            ListItem,
+            ListView,
+            RichLog,
+            Static,
+        )
     except Exception:
         return None
-    fn: Callable[[], None] | None = getattr(mod, "run_tui", None)
-    return fn if callable(fn) else None
+
+    LEVEL_STYLE = {"ok": "green", "bad": "red", "warn": "yellow", "info": "blue"}
+    LEVEL_MARK_TUI = {"ok": "✓", "bad": "✗", "warn": "!", "info": "·"}
+
+    class EnvPanel(Static):
+        """左侧环境检测面板。"""
+
+        def refresh_env(self) -> None:
+            env = detect()
+            lines = [f"[b]内核[/b] {env.kernel}", ""]
+            last_cat = None
+            for c in env.checks:
+                if c.category != last_cat:
+                    lines.append(f"[b]{c.category}[/b]")
+                    last_cat = c.category
+                style = LEVEL_STYLE.get(c.level, "")
+                mark = LEVEL_MARK_TUI.get(c.level, "?")
+                lines.append(f"  [{style}]{mark}[/{style}] {c.text}")
+            self.update("\n".join(lines))
+
+    class MenuItemWidget(Static):
+        def __init__(self, item: Item) -> None:
+            super().__init__(item_label(item))
+            self.item: Item = item
+
+    class LisuanFixApp(App[None]):
+        """砺算 7G100 修复工具 TUI。"""
+
+        CSS = """
+        Screen { layout: vertical; }
+        #body { height: 1fr; }
+        #env  { width: 45%; border: round $accent; padding: 0 1; overflow-y: auto; }
+        #menu { width: 55%; border: round $accent; }
+        #log  { height: 12; border: round $accent; }
+        """
+
+        BINDINGS = [
+            ("q", "quit", "退出"),
+            ("r", "refresh", "重新检测"),
+        ]
+
+        def compose(self) -> ComposeResult:
+            yield Header()
+            with Horizontal(id="body"):
+                yield EnvPanel(id="env")
+                yield ListView(id="menu")
+            yield RichLog(id="log", markup=True, wrap=True)
+            yield Footer()
+
+        def on_mount(self) -> None:
+            self.title = "砺算 7G100 修复工具"
+            self.sub_title = "上下键选择 · 回车执行 · r 重新检测 · q 退出"
+            self.query_one("#env", EnvPanel).refresh_env()
+            self._load_menu()
+            self.query_one("#log", RichLog).write("[dim]就绪。选择菜单项后回车执行。[/dim]")
+
+        def _load_menu(self) -> None:
+            menu = self.query_one("#menu", ListView)
+            menu.clear()
+            for g in GROUP_ORDER:
+                items = [it for it in ITEMS if it["group"] == g]
+                if not items:
+                    continue
+                menu.append(ListItem(Label(f"[b]{g}[/b]"), disabled=True))
+                for it in items:
+                    menu.append(ListItem(MenuItemWidget(it)))
+
+        def action_refresh(self) -> None:
+            self.query_one("#env", EnvPanel).refresh_env()
+            self.query_one("#log", RichLog).write("[dim]环境已重新检测。[/dim]")
+
+        def on_list_view_selected(self, event: ListView.Selected) -> None:
+            if not event.item.children:
+                return
+            widget = event.item.children[0]
+            if not isinstance(widget, MenuItemWidget):
+                return
+            log = self.query_one("#log", RichLog)
+            log.clear()
+            log.write(f"[b]执行 {widget.item['id']}) {widget.item['title']}[/b]")
+            self.run_worker(
+                lambda: self._exec(widget.item["id"]), thread=True, exclusive=True
+            )
+
+        def _exec(self, item_id: int) -> None:
+            """在后台线程执行，逐行把输出转发到日志区。"""
+            log = self.query_one("#log", RichLog)
+            it = ITEMS_BY_ID[item_id]
+
+            if it["cmd"] is None:
+                self.call_from_thread(
+                    log.write,
+                    (
+                        f"[yellow]菜单项 {item_id} 为内部实现，请在命令行执行：\n"
+                        + f"  python3 install.py {item_id}[/yellow]"
+                    ),
+                )
+                return
+
+            cmd = it["cmd"]([])
+            if it["root"] and os.geteuid() != 0:
+                cmd = ["sudo", *cmd]
+
+            self.call_from_thread(log.write, f"[dim]$ {' '.join(cmd)}[/dim]")
+            try:
+                import subprocess as _sp
+                from typing import TextIO, cast
+
+                proc = _sp.Popen(
+                    cmd,
+                    stdout=_sp.PIPE,
+                    stderr=_sp.STDOUT,
+                    text=True,
+                    errors="replace",
+                    bufsize=1,
+                )
+                assert proc.stdout is not None
+                stdout = cast(TextIO, proc.stdout)
+                for line in stdout:
+                    self.call_from_thread(log.write, line.rstrip())
+                code = proc.wait()
+            except FileNotFoundError as e:
+                self.call_from_thread(log.write, f"[red]命令不存在：{e}[/red]")
+                return
+            except Exception as e:  # noqa: BLE001
+                self.call_from_thread(log.write, f"[red]执行失败：{e}[/red]")
+                return
+
+            style = "green" if code == 0 else "red"
+            self.call_from_thread(
+                log.write, f"[{style}]=== 结束，返回码 {code} ===[/{style}]"
+            )
+            self.call_from_thread(self.query_one("#env", EnvPanel).refresh_env)
+
+    def run_tui() -> None:
+        LisuanFixApp().run()
+
+    return run_tui
+
+
+# ---------------------------------------------------------------- 入口分发
 
 
 def main(argv: list[str]) -> int:
@@ -502,9 +785,6 @@ def text_menu() -> int:
 
 
 if __name__ == "__main__":
-    # 把本模块登记为 "lisuan_fix"，让 tui.py 的 `from lisuan_fix import ...`
-    # 命中本模块，避免把 lisuan_fix.py 当成独立模块再加载一份副本。
-    sys.modules.setdefault("lisuan_fix", sys.modules["__main__"])
     try:
         sys.exit(main(sys.argv))
     except KeyboardInterrupt:
