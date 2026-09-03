@@ -11,16 +11,18 @@
 # 用法：
 #   ./packaging/build-deb.sh [版本号]     # 默认版本号 = 当天日期（YYYY.MM.DD）
 #
-# 产物：dist/lisuan-fix_<版本>_all.deb
+# 产物：packaging/dist/lisuan-fix_<版本>_all.deb
 #
 # License: Apache-2.0
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 本脚本位于 packaging/，仓库根是其父目录；install.py 与本脚本同目录
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"
 VER="${1:-$(date +%Y.%m.%d)}"
 PKG="lisuan-fix"
 WORK="$(mktemp -d /tmp/${PKG}-build.XXXXXX)"
-OUT_DIR="$ROOT/dist"
+OUT_DIR="$HERE/dist"
 
 trap 'rm -rf "$WORK"' EXIT
 
@@ -32,8 +34,8 @@ mkdir -p "$T/DEBIAN" \
          "$T/usr/share/applications"
 
 # 主程序：/usr/bin 入口 + 资源原件
-install -m 755 "$ROOT/install.py" "$T/usr/bin/$PKG"
-install -m 644 "$ROOT/install.py" "$T/usr/share/$PKG/install.py"
+install -m 755 "$HERE/install.py" "$T/usr/bin/$PKG"
+install -m 644 "$HERE/install.py" "$T/usr/share/$PKG/install.py"
 
 # 修复脚本目录（保持相对结构；排除测试专用厂商源码与脏文件）
 for d in dkms mesa steam underlords electron; do

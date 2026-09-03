@@ -2,14 +2,16 @@
 # -*- coding: utf-8 -*-
 """砺算 7G100 修复工具（Python 版，替代 lisuan-fix.sh）。
 
-用法：
-    python3 install.py                 交互界面（有 Textual 用 TUI，否则纯文本菜单）
-    python3 install.py --detect        只检测并打印报告
-    python3 install.py --detect --json 检测并输出 JSON（便于脚本化）
-    python3 install.py 2 [参数]        非交互直执行第 2 项
-    python3 install.py -h              显示本帮助
+用法（本文件位于 packaging/，从仓库根运行）：
+    python3 packaging/install.py                 交互界面（有 Textual 用 TUI，否则纯文本菜单）
+    python3 packaging/install.py --detect        只检测并打印报告
+    python3 packaging/install.py --detect --json 检测并输出 JSON（便于脚本化）
+    python3 packaging/install.py 10 [参数]       非交互直执行第 10 项（修复 Steam）
+    python3 packaging/install.py -h              显示本帮助
 
-菜单项编号与旧版 lisuan-fix.sh 一一对应，README 中的说明无需修改。
+菜单结构：环境检测单独一节，其余按类别分组（DKMS / Mesa / Steam / 随从大师 /
+刀塔霸业 / Electron），类内统一按"安装/修复 → 体检 → 卸载 → 说明"排列。
+编号已于 2026-09-03 重排，与旧版 lisuan-fix.sh 不再一一对应。
 
 依赖：仅标准库。Textual 为可选增强（无它自动降级为纯文本菜单）。
 
@@ -43,8 +45,10 @@ from typing import Callable, TypedDict
 def _find_base() -> Path:
     """定位资源根目录（dkms/ steam/ 等子目录所在的目录）。
 
-    - 开发模式：本文件位于仓库根（如 ~/project/lisuan/install.py）；
-    - deb 安装模式：本文件位于 /usr/bin/，资源在 /usr/share/lisuan-fix/。
+    - 开发模式：本文件位于 packaging/，仓库根是其**父目录**
+      （如 ~/project/lisuan/packaging/install.py -> ~/project/lisuan）；
+    - deb 安装模式：本文件位于 /usr/bin/，资源在 /usr/share/lisuan-fix/；
+    - 兼容：本文件被直接放在仓库根时，here 即为资源根。
     """
     here = Path(__file__).resolve().parent
     candidates = [
@@ -216,7 +220,7 @@ def detect() -> Env:
     if (dri_dir / "lisuan_dri.so").exists():
         env.add("DRI", "warn",
                 "检测到全局 lisuan_dri.so 软链 —— 它会使 Steam 客户端 double free，"
-                "建议移除（菜单 [12]）", "12")
+                "建议移除（菜单 [8]）", "8")
     elif (dri_dir / "gf_dri.so").exists():
         env.add("DRI", "ok", "gf_dri.so 存在（新方案下无需全局软链）")
     else:
@@ -237,7 +241,7 @@ def detect() -> Env:
                 env.add("Steam", "ok", "桌面启动器已配置 GBM_BACKEND=dri（CEF 崩溃已修复）")
             else:
                 env.add("Steam", "bad",
-                        "桌面启动器缺 GBM_BACKEND=dri —— Steam 界面会崩溃，菜单 [5]", "5")
+                        "桌面启动器缺 GBM_BACKEND=dri —— Steam 界面会崩溃，菜单 [10]", "10")
 
         # 旧方案残留检查：wrap.sh 被注入 / 被 chattr 锁定都是有害的
         if STEAM_WRAP.is_file():
@@ -248,21 +252,21 @@ def detect() -> Env:
             if "libglapi_gf" in wcontent or "GBM_BACKEND=dri" in wcontent:
                 env.add("Steam", "bad",
                         "wrap.sh 仍含旧方案残留注入 —— 会让 Steam 客户端 double free，"
-                        "请清理（菜单 [13]）", "13")
+                        "请清理（菜单 [12]）", "12")
 
             attr = out(["lsattr", str(STEAM_WRAP)])
             flags = attr.split()[0] if attr else ""
             if "i" in flags:
                 env.add("Steam", "bad",
                         "wrap.sh 被 chattr +i 锁定 —— 会触发 Steam 更新回滚循环，"
-                        "导致游戏反复重新下载，请立即解锁（菜单 [6]）", "6")
+                        "导致游戏反复重新下载，请立即解锁（菜单 [11]）", "11")
     else:
         env.add("Steam", "info", "未安装 Steam（跳过 Steam 相关项）")
 
     # ---- 开机自愈（新方案下已不需要）----
     if ok_cmd(["systemctl", "is-enabled", "lisuan-steam-autofix.service"]):
         env.add("自愈", "warn",
-                "开机自愈服务仍在启用 —— 新方案（环境变量）不需要它，建议卸载（菜单 [10]）", "10")
+                "开机自愈服务仍在启用 —— 新方案（环境变量）不需要它，建议卸载（菜单 [13]）", "13")
 
     # ---- 游戏 ----
     ul = Path.home() / ".local/share/Steam/steamapps/common/Underlords/game"
@@ -275,9 +279,9 @@ def detect() -> Env:
             injected = False
     if injected and os.access(ul / "play-native.sh", os.X_OK):
         env.add("游戏", "ok",
-                "Dota Underlords 修复已安装（Steam 内直接点开始游戏；菜单 [8]/[15]）")
+                "Dota Underlords 修复已安装（Steam 内直接点开始游戏；菜单 [18]/[19]）")
     elif ul.is_dir():
-        env.add("游戏", "warn", "Dota Underlords 修复未安装 —— 菜单 [14]", "14")
+        env.add("游戏", "warn", "Dota Underlords 修复未安装 —— 菜单 [17]", "17")
 
     return env
 
@@ -289,67 +293,114 @@ CmdFn = Callable[[list[str]], list[str]]
 
 
 class Item(TypedDict):
-    """一个菜单项。cmd 为 None 表示内部实现（见 run_item 的特例分支）。"""
+    """一个菜单项。
+
+    cmd 为 None 表示内部实现（见 run_item 的特例分支）；
+    doc 非空表示"说明"项，展示对应目录下的 md 文档。
+    """
 
     id: int
     title: str
     group: str
     root: bool
     cmd: CmdFn | None
+    doc: str
 
 
 def _sh(rel: str, *args: str) -> list[str]:
     return ["bash", str(S / rel), *args]
 
 
+def _doc(rel: str) -> str:
+    """说明项：标记要展示的 md（相对仓库根），由 show_doc 渲染。"""
+    return rel
+
+
+# 分组与排列规则：
+#   环境检测单独一节；其余按类别（目录）分组，类内固定为
+#   "安装/修复 -> 体检 -> 卸载 -> 说明" 的顺序。
+# 说明项一律取该类别目录下的 md 文档。
 ITEMS: list[Item] = [
-    {"id": 1,  "title": "重新检测系统环境", "group": "检测", "root": False,
-     "cmd": None},
-    {"id": 2,  "title": "修复 DKMS 驱动构建/加载（vermagic 错配、黑屏）", "group": "修复",
-     "root": True,  "cmd": lambda a: _sh("dkms/fix-lisuan-gpu.sh", *a)},
-    {"id": 4,  "title": "修复 DRI 驱动名（仅原生 GL 游戏需要，含 --native-gl）", "group": "修复",
-     "root": True,  "cmd": lambda a: _sh("mesa/fix-lisuan-mesa-driver-name.sh", *a)},
-    {"id": 5,  "title": "修复 Steam 界面崩溃（桌面启动器写入 GBM_BACKEND=dri）", "group": "修复",
-     "root": False, "cmd": None},  # 内部实现，见 install_steam_fix
-    {"id": 6,  "title": "解锁 Steam 文件 / 移除 GBM_BACKEND（还原启动器）", "group": "修复",
-     "root": True,  "cmd": None},  # 内部实现，见 remove_steam_fix
-    {"id": 9,  "title": "安装开机自愈（旧方案遗留，新方案下不需要）", "group": "修复",
-     "root": True,  "cmd": None},  # 内部实现，见 install_autofix
-    {"id": 10, "title": "卸载开机自愈服务", "group": "卸载", "root": True,
-     "cmd": None},  # 内部实现，见 remove_autofix
-    {"id": 11, "title": "卸载 DKMS Makefile 补丁（还原原厂，不影响已装驱动）", "group": "卸载",
-     "root": True,  "cmd": lambda a: _sh("dkms/uninstall-lisuan-gpu.sh")},
-    {"id": 12, "title": "卸载 DRI 驱动名软链（只删我们建的软链）", "group": "卸载",
-     "root": True,  "cmd": lambda a: _sh("mesa/uninstall-lisuan-mesa-driver-name.sh")},
-    {"id": 13, "title": "清理 Steam 旧方案残留（还原 wrap.sh 注入）", "group": "卸载",
-     "root": True,  "cmd": lambda a: _sh("steam/fix-steam-cef-lock.sh", "--uninstall")},
-    {"id": 3,  "title": "GPU 驱动体检（lspci/lsmod/modinfo/DRM）", "group": "体检",
-     "root": False, "cmd": lambda a: _sh("dkms/verify-lisuan-gpu.sh")},
-    {"id": 7,  "title": "系统 Mesa 兼容性体检（zink/GBM dri 后端）", "group": "体检",
-     "root": False, "cmd": lambda a: _sh("mesa/verify-system-mesa.sh")},
-    {"id": 8,  "title": "启动 Dota Underlords（宿主直跑，需 Steam 在运行）", "group": "游戏",
-     "root": False, "cmd": None},  # 内部实现，见 launch_underlords
-    {"id": 14, "title": "安装/修复 Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项）",
-     "group": "游戏", "root": True,
-     "cmd": lambda a: _sh("underlords/fix-underlords-native.sh")},
-    {"id": 15, "title": "查看 Dota Underlords 修复状态", "group": "游戏", "root": False,
-     "cmd": lambda a: _sh("underlords/fix-underlords-native.sh", "--status")},
-    {"id": 16, "title": "启动 ZCode（--no-sandbox + XWayland + 禁用 GPU 合成，修显示异常）",
-     "group": "Electron", "root": False, "cmd": lambda a: _sh("electron/use-zcode.sh")},
-    {"id": 17, "title": "把 ZCode 桌面项 Exec 切到修复 wrapper", "group": "Electron",
-     "root": False, "cmd": lambda a: _sh("electron/use-zcode.sh", "--install-desktop")},
-    {"id": 18, "title": "启动 CodeBuddy 国内版（gf 硬件加速）", "group": "Electron",
-     "root": False, "cmd": lambda a: _sh("electron/use-codebuddy.sh")},
-    {"id": 19, "title": "把 CodeBuddy 桌面项 Exec 切到加速 wrapper", "group": "Electron",
-     "root": False, "cmd": lambda a: _sh("electron/use-codebuddy.sh", "--install-desktop")},
-    {"id": 20, "title": "启动 Qoder 国内版（gf 硬件加速）", "group": "Electron",
-     "root": False, "cmd": lambda a: _sh("electron/use-qoder.sh")},
-    {"id": 21, "title": "把 Qoder 桌面项 Exec 切到加速 wrapper", "group": "Electron",
-     "root": False, "cmd": lambda a: _sh("electron/use-qoder.sh", "--install-desktop")},
+    # ---- 环境检测 ----
+    {"id": 1,  "title": "重新检测系统环境", "group": "环境检测", "root": False,
+     "cmd": None, "doc": ""},
+
+    # ---- DKMS ----
+    {"id": 2,  "title": "安装/修复：DKMS 驱动构建与加载（vermagic 错配、黑屏）",
+     "group": "DKMS", "root": True,
+     "cmd": lambda a: _sh("dkms/fix-lisuan-gpu.sh", *a), "doc": ""},
+    {"id": 3,  "title": "体检：GPU 驱动（lspci/lsmod/modinfo/DRM）", "group": "DKMS",
+     "root": False, "cmd": lambda a: _sh("dkms/verify-lisuan-gpu.sh"), "doc": ""},
+    {"id": 4,  "title": "卸载：DKMS Makefile 补丁（还原原厂，不影响已装驱动）",
+     "group": "DKMS", "root": True,
+     "cmd": lambda a: _sh("dkms/uninstall-lisuan-gpu.sh"), "doc": ""},
+    {"id": 5,  "title": "说明：厂商 gf/gbm 崩溃 Bug 报告", "group": "DKMS",
+     "root": False, "cmd": None, "doc": _doc("dkms/vendor-bug-report-gf-gbm-crash.md")},
+
+    # ---- Mesa ----
+    {"id": 6,  "title": "安装/修复：DRI 驱动名（仅原生 GL 游戏需要，含 --native-gl）",
+     "group": "Mesa", "root": True,
+     "cmd": lambda a: _sh("mesa/fix-lisuan-mesa-driver-name.sh", *a), "doc": ""},
+    {"id": 7,  "title": "体检：系统 Mesa 兼容性（zink/GBM dri 后端）", "group": "Mesa",
+     "root": False, "cmd": lambda a: _sh("mesa/verify-system-mesa.sh"), "doc": ""},
+    {"id": 8,  "title": "卸载：DRI 驱动名软链（只删我们建的软链）", "group": "Mesa",
+     "root": True, "cmd": lambda a: _sh("mesa/uninstall-lisuan-mesa-driver-name.sh"),
+     "doc": ""},
+    {"id": 9,  "title": "说明：系统 Mesa 兼容性分析", "group": "Mesa",
+     "root": False, "cmd": None, "doc": _doc("mesa/system-mesa-analysis.md")},
+
+    # ---- Steam ----
+    {"id": 10, "title": "安装/修复：Steam 界面崩溃（桌面启动器写入 GBM_BACKEND=dri）",
+     "group": "Steam", "root": False, "cmd": None, "doc": ""},  # install_steam_fix
+    {"id": 11, "title": "卸载：移除 GBM_BACKEND 并解锁 Steam 文件", "group": "Steam",
+     "root": True, "cmd": None, "doc": ""},  # remove_steam_fix
+    {"id": 12, "title": "清理：旧方案残留（还原 wrap.sh 注入）", "group": "Steam",
+     "root": True, "cmd": lambda a: _sh("steam/fix-steam-cef-lock.sh", "--uninstall"),
+     "doc": ""},
+    {"id": 13, "title": "卸载：开机自愈服务（新方案下已不需要）", "group": "Steam",
+     "root": True, "cmd": None, "doc": ""},  # remove_autofix
+    {"id": 14, "title": "说明：Steam 在砺算上的适配细节（容器/CEF/Proton）", "group": "Steam",
+     "root": False, "cmd": None, "doc": _doc("steam/steam-on-lisuan.md")},
+
+    # ---- 随从大师 ----
+    {"id": 15, "title": "安装/修复：硬件渲染加固（libSC.so 链接 + DXVK 降级 + hook）",
+     "group": "随从大师", "root": True,
+     "cmd": lambda a: _sh("minion-masters/fix-minion-masters-7g100-hw.sh", *a), "doc": ""},
+    {"id": 16, "title": "说明：随从大师（Minion Masters）修复文档", "group": "随从大师",
+     "root": False, "cmd": None, "doc": _doc("minion-masters/fix-minion-masters.md")},
+
+    # ---- 刀塔霸业 ----
+    {"id": 17, "title": "安装/修复：Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项）",
+     "group": "刀塔霸业", "root": True,
+     "cmd": lambda a: _sh("underlords/fix-underlords-native.sh"), "doc": ""},
+    {"id": 18, "title": "启动游戏（宿主直跑，需 Steam 在运行）", "group": "刀塔霸业",
+     "root": False, "cmd": None, "doc": ""},  # launch_underlords
+    {"id": 19, "title": "查看修复状态", "group": "刀塔霸业", "root": False,
+     "cmd": lambda a: _sh("underlords/fix-underlords-native.sh", "--status"), "doc": ""},
+    {"id": 20, "title": "说明：Dota Underlords 修复文档", "group": "刀塔霸业",
+     "root": False, "cmd": None, "doc": _doc("underlords/fix-underlords-native.md")},
+
+    # ---- Electron ----
+    {"id": 21, "title": "启动 ZCode（--no-sandbox + XWayland + 禁用 GPU 合成，修显示异常）",
+     "group": "Electron", "root": False, "cmd": lambda a: _sh("electron/use-zcode.sh"),
+     "doc": ""},
+    {"id": 22, "title": "安装桌面项：ZCode Exec 切到修复 wrapper", "group": "Electron",
+     "root": False, "cmd": lambda a: _sh("electron/use-zcode.sh", "--install-desktop"),
+     "doc": ""},
+    {"id": 23, "title": "启动 CodeBuddy 国内版（gf 硬件加速）", "group": "Electron",
+     "root": False, "cmd": lambda a: _sh("electron/use-codebuddy.sh"), "doc": ""},
+    {"id": 24, "title": "安装桌面项：CodeBuddy Exec 切到加速 wrapper", "group": "Electron",
+     "root": False, "cmd": lambda a: _sh("electron/use-codebuddy.sh", "--install-desktop"),
+     "doc": ""},
+    {"id": 25, "title": "启动 Qoder 国内版（gf 硬件加速）", "group": "Electron",
+     "root": False, "cmd": lambda a: _sh("electron/use-qoder.sh"), "doc": ""},
+    {"id": 26, "title": "安装桌面项：Qoder Exec 切到加速 wrapper", "group": "Electron",
+     "root": False, "cmd": lambda a: _sh("electron/use-qoder.sh", "--install-desktop"),
+     "doc": ""},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
-GROUP_ORDER = ["检测", "修复", "卸载", "体检", "游戏", "Electron"]
+GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Steam", "随从大师", "刀塔霸业", "Electron"]
 
 
 def item_label(it: Item) -> str:
@@ -497,6 +548,21 @@ def launch_underlords() -> int:
     return subprocess.run([str(ul)]).returncode
 
 
+def show_doc(rel: str) -> int:
+    """展示某类别目录下的说明文档（md）。
+
+    交互终端优先用 less 分页；非交互（管道/脚本）直接打印全文。
+    """
+    path = S / rel
+    if not path.is_file():
+        print(f"  文档不存在：{path}")
+        return 1
+    if sys.stdin.isatty() and shutil.which("less"):
+        return subprocess.run(["less", "-R", str(path)]).returncode
+    print(path.read_text(errors="replace"))
+    return 0
+
+
 def run_item(item_id: int, extra: list[str] | None = None) -> int:
     """执行菜单项。返回进程返回码。"""
     extra = extra or []
@@ -508,21 +574,36 @@ def run_item(item_id: int, extra: list[str] | None = None) -> int:
     if item_id == 1:
         print(render_report(detect()))
         return 0
-    if item_id == 5:
-        return install_steam_fix()
-    if item_id == 6:
-        return remove_steam_fix()
-    if item_id == 9:
-        return install_autofix()
+
+    # 说明项：展示该类别目录下的 md
+    if it.get("doc"):
+        return show_doc(it["doc"])
+
+    # 内部实现的特例（按新编号）
     if item_id == 10:
+        return install_steam_fix()
+    if item_id == 11:
+        return remove_steam_fix()
+    if item_id == 13:
         return remove_autofix()
-    if item_id == 8:
+    if item_id == 18:
         return launch_underlords()
 
     cmd = it["cmd"](extra) if it["cmd"] else None
     if cmd is None:
         print(f"  菜单项 {item_id} 未定义命令")
         return 1
+
+    # 脚本存在性检查：deb 安装版不含 minion-masters/（体积 64MB），
+    # 直接执行会让 bash 报"No such file"，这里给出可读的提示。
+    if cmd[0] == "bash" and len(cmd) > 1:
+        script = Path(cmd[1])
+        if not script.is_file():
+            print(f"  脚本缺失：{script}")
+            print("  说明：deb 安装版未打包该目录（体积过大）。")
+            print("        请在源码仓库中运行本工具，或复制该目录到 /usr/share/lisuan-fix/。")
+            return 127
+
     if it["root"] and os.geteuid() != 0:
         cmd = ["sudo", *cmd]
     print(f"  执行：{' '.join(cmd)}")
@@ -683,12 +764,43 @@ def _load_tui() -> Callable[[], None] | None:
             log = self.query_one("#log", RichLog)
             it = ITEMS_BY_ID[item_id]
 
+            # 说明项的 cmd 也是 None，必须先于下面的"内部实现"分支处理
+            if it.get("doc"):
+                import contextlib
+                import io as _io
+
+                buf = _io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    code = show_doc(it["doc"])
+                text = buf.getvalue()
+                if not text:  # show_doc 走 less 分支时无输出，退回直接读文件
+                    try:
+                        text = (REPO_ROOT / it["doc"]).read_text(errors="replace")
+                    except OSError as e:
+                        text = f"读取失败：{e}"
+                # 超长文档只显示前 200 行，提示用命令行看全文
+                lines = text.splitlines()
+                preview = "\n".join(lines[:200])
+                self.call_from_thread(log.write, "[b]说明文档预览[/b]")
+                for ln in preview.splitlines():
+                    self.call_from_thread(log.write, ln)
+                if len(lines) > 200:
+                    self.call_from_thread(
+                        log.write,
+                        f"[dim]... 共 {len(lines)} 行，已截断。"
+                        f"查看完整文档：[b]python3 packaging/install.py {item_id}[/b][/dim]",
+                    )
+                self.call_from_thread(
+                    log.write, f"[green]=== 文档结束，返回码 {code} ===[/green]"
+                )
+                return
+
             if it["cmd"] is None:
                 self.call_from_thread(
                     log.write,
                     (
                         f"[yellow]菜单项 {item_id} 为内部实现，请在命令行执行：\n"
-                        + f"  python3 install.py {item_id}[/yellow]"
+                        + f"  python3 packaging/install.py {item_id}[/yellow]"
                     ),
                 )
                 return
@@ -783,7 +895,7 @@ def text_menu() -> int:
         print("   0) 退出")
         print("=" * 54)
         try:
-            choice = input("请选择 [0-21]: ").strip()
+            choice = input("请选择 [0-26]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\n再见。")
             return 0

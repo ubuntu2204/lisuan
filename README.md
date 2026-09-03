@@ -117,7 +117,7 @@ right headers.
 | `dkms/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `mesa/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
 | `steam/fix-steam-cef-lock.sh` | **Steam 清理工具**（非日常修复入口）：检测并移除 `steamwebhelper_sniper_wrap.sh` 中历史遗留的 gf 注入（`GBM_BACKEND=dri` + `LD_PRELOAD` glapi）与 `chattr +i` 锁定。`--unlock` 只解锁、`--uninstall` 还原原厂。**注意**：注入方案已于 2026-09-01 废弃，现改用 `GBM_BACKEND=dri` 环境变量（详见[三](#三steam-适配)） |
-| `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 14/15） |
+| `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 17/18） |
 | `steam/steam-cef-autofix.sh` | 开机自愈（root/systemd，历史遗留）：发现 Steam 更新还原了 wrap 补丁就自动重新注入锁定。**现已不需要**——`GBM_BACKEND=dri` 为纯环境变量、不修改文件，Steam 更新不会覆盖它；`--uninstall` 可卸载该服务 |
 | `dkms/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 | `mesa/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
@@ -157,8 +157,9 @@ right headers.
 | 路径 | 说明 |
 |---|---|
 | `CHANGELOG.md` | 更新日志：每个版本的新增/修复/实测更正，均实机验证 |
-| `install.py` | **交互式修复索引（推荐入口）**：Python 单文件（由 `lisuan_fix.py` + `tui.py` 合并），检测环境并给出结论，编号菜单执行单项修复/体检。装了 Textual 则为 TUI 界面，否则自动降级为纯文本菜单 |
-| `pyrightconfig.json` | basedpyright 配置：把 `--user` 安装的 `textual` 加进搜索路径。缺它时 `install.py` 的 TUI 部分会报 `reportMissingImports` 并级联出几十条 Unknown 类型警告。换机器后路径见文件内注释 |
+| `packaging/install.py` | **交互式修复索引（推荐入口）**：Python 单文件（由 `lisuan_fix.py` + `tui.py` 合并），检测环境并给出结论，编号菜单执行单项修复/体检。装了 Textual 则为 TUI 界面，否则自动降级为纯文本菜单 |
+| `packaging/pyrightconfig.json` | basedpyright 配置：把 `--user` 安装的 `textual` 加进搜索路径。缺它时 `install.py` 的 TUI 部分会报 `reportMissingImports` 并级联出几十条 Unknown 类型警告。换机器后路径见文件内注释 |
+| `packaging/build-deb.sh` | deb 打包脚本，产物输出到 `packaging/dist/` |
 | `lisuan-fix.sh` | 旧版 bash 交互索引，功能等价，作为 Python 不可用时的回退保留 |
 | `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为各主题目录（`steam/` `minion-masters/` `underlords/` `electron/` `dkms/` `mesa/` 等） |
 | `.workflow/gitee-go-test.yml` | Gitee Go 流水线：push/PR 时自动跑 `tests/` |
@@ -170,21 +171,35 @@ right headers.
 不熟悉各脚本的话，直接用交互式索引（自动检测环境 + 编号菜单）：
 
 ```bash
-python3 install.py              # 交互界面（有 Textual 用 TUI，否则纯文本菜单）
-python3 install.py --detect     # 只做环境检测并打印报告
-python3 install.py --detect --json   # JSON 输出，便于脚本化/排障
-python3 install.py 5            # 直接执行第 5 项（修复 Steam 界面崩溃）
+python3 packaging/install.py                    # 交互界面（有 Textual 用 TUI，否则纯文本菜单）
+python3 packaging/install.py --detect           # 只做环境检测并打印报告
+python3 packaging/install.py --detect --json    # JSON 输出，便于脚本化/排障
+python3 packaging/install.py 10                 # 直接执行第 10 项（修复 Steam 界面崩溃）
 ```
 
 **deb 包安装**（推荐给其他砺算 7G100 机器使用，无需带源码仓库）：
 
 ```bash
-./packaging/build-deb.sh                 # 构建 dist/lisuan-fix_<日期>_all.deb
-sudo dpkg -i dist/lisuan-fix_*_all.deb   # 安装
-lisuan-fix --detect                      # PATH 直达，资源在 /usr/share/lisuan-fix
+./packaging/build-deb.sh                                # 构建 packaging/dist/lisuan-fix_<日期>_all.deb
+sudo dpkg -i packaging/dist/lisuan-fix_*_all.deb        # 安装
+lisuan-fix --detect                                     # PATH 直达，资源在 /usr/share/lisuan-fix
 ```
 
-菜单项编号与旧版 `lisuan-fix.sh` **完全一致**，本文件各处提到的"菜单 [N]"对两个版本通用。
+**菜单结构**（2026-09-03 重排）：环境检测单独一节，其余按**类别**分组，
+类内统一按 **安装/修复 → 体检 → 卸载 → 说明** 排列（说明项打开该目录下的 md 文档）：
+
+```
+ 1) 环境检测
+ 2-5)   DKMS     安装/修复 · 体检 · 卸载 · 说明
+ 6-9)   Mesa     安装/修复 · 体检 · 卸载 · 说明
+10-14)  Steam    安装/修复 · 卸载 · 清理残留 · 卸载自愈 · 说明
+15-16)  随从大师  安装/修复 · 说明
+17-20)  刀塔霸业  安装/修复 · 启动 · 查看状态 · 说明
+21-26)  Electron ZCode / CodeBuddy / Qoder（各：启动 + 安装桌面项）
+```
+
+> 注意：编号已按新分组**重新编排**，与旧版 `lisuan-fix.sh` 的编号**不再一一对应**。
+> 本文件及项目各处引用的"菜单 [N]"均已同步为新编号。
 
 **启用 TUI**（可选，需联网）：
 
@@ -402,11 +417,11 @@ vermagic: 7.0.0-28-generic SMP preempt mod_unload modversions   # ← 与运行�
 
 | 注入 | 卸载方式 |
 |---|---|
-| DKMS Makefile 补丁 | `sudo dkms/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 11） |
-| DRI 驱动名软链 | `sudo mesa/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 12） |
+| DKMS Makefile 补丁 | `sudo dkms/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 4） |
+| DRI 驱动名软链 | `sudo mesa/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 8） |
 | Steam CEF 修复（推荐方案） | 删除桌面启动器中的 `GBM_BACKEND=dri` 即可，无需 root（见[三](#三steam-适配)） |
-| Steam 历史 wrap 注入 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 13） |
-| 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 10；改用环境变量方案后已不需要） |
+| Steam 历史 wrap 注入 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 12） |
+| 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 13；改用环境变量方案后已不需要） |
 
 验证 DKMS 补丁已还原（第 4 行应变回原厂行）：
 

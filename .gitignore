@@ -9,6 +9,15 @@ lisuangpu-lib-*.deb
 *.o.hex
 lisuan_proprietary*
 
+# ---- Python 产物 ----
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ---- deb 构建输出 ----
+packaging/dist/
+dist/
+
 # 砺算厂商运行时库：gf-compat 的 Vulkan 兼容层直接依赖这两项，
 # 属 lisuangpu-lib 包内容，不入库。获取方式见 minion-masters/gf-compat/README.md
 minion-masters/gf-compat/lib/libSC.so
