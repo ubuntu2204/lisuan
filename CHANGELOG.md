@@ -37,6 +37,14 @@ replay_cache，形成"越崩越写、越写越崩"的循环。
   （渲染不输出），不可用；
 - 由此确认厂商 Vulkan 路线仍是唯一可用渲染路径，排障重点是缓存状态。
 
+### 验证
+
+- 修复前：`-vulkan` 实测 00:13:24 启动 → 00:14:37 GPF（journal 证据）；
+- 清缓存后 `-vulkan` 120 秒存活测试通过，stderr 无 GPU 报错、内核无 traps；
+- **用户实测佐证**（2026-09-06）：清缓存后进游戏时 Steam 提示
+  **"正在编译顶点着色器"**（Fossilize 重新编译而非 replay 坏缓存），
+  编译完成后正常进入游戏——与"崩溃发生在 replay 旧缓存阶段"的根因判断吻合。
+
 ### 复发排障
 
 再遇 `GlobPool0 ... general protection fault ... libvulkan_gf.so`：

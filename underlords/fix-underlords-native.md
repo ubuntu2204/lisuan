@@ -125,5 +125,10 @@ traps: GlobPool0 general protection fault ... in libvulkan_gf.so
 rm -rf ~/.local/share/Steam/steamapps/shadercache/1046930/fozpipelinesv6
 ```
 
+**预期现象（2026-09-06 实测佐证）**：清缓存后下次启动，Steam 会提示
+**"正在编译顶点着色器"**（Fossilize 重新编译管线，而非 replay 旧缓存），
+编译完成后正常进游戏。这条线索反证了根因——崩溃发生在"replay 上次缓存
+的管线"阶段，重新编译则绕开了坏管线。
+
 **不要改走 `-gl`**：Source 2 Linux 的 GL 渲染系统虽能加载（需先补
 `libudev.so.0`，补丁已自动处理），但实测进游戏黑屏，渲染不可用。
