@@ -75,6 +75,7 @@ CMD=""
 APPIMAGE=""
 DESKTOP_FILES=()
 INSTALL_DESKTOP=0
+START_AFTER=0
 ACCEL=1
 
 while [ $# -gt 0 ]; do
@@ -83,6 +84,7 @@ while [ $# -gt 0 ]; do
     --cmd) CMD="$2"; shift 2 ;;
     --appimage) APPIMAGE="$2"; shift 2 ;;
     --install-desktop) INSTALL_DESKTOP=1; shift ;;
+    --start) START_AFTER=1; shift ;;
     --no-hw) ACCEL=0; shift ;;
     --hw) ACCEL=1; shift ;;
     *) break ;;
@@ -177,7 +179,8 @@ if [ "$INSTALL_DESKTOP" = 1 ]; then
   done
   [ "$found" = 0 ] && echo "!! 未找到任何桌面项: ${DESKTOP_FILES[*]}" >&2
   update-desktop-database "$UDIR" 2>/dev/null || true
-  exit 0
+  # --start: 装完桌面项后不退出, 继续走下面的启动逻辑（"点图标即用" 一键生效）
+  [ "$START_AFTER" = 1 ] || exit 0
 fi
 
 # ---- 组装启动 ----

@@ -316,16 +316,16 @@ class App:
     def _exec_worker(self, item_id: int) -> None:
         it = ITEMS_BY_ID[item_id]
         if it["cmd"] is None:
-            # 内部实现（15 install_steam_fix / 16 remove_steam_fix）
+            # 内部实现（12 install_steam_fix / 13 remove_steam_fix）
             import contextlib
             import io as _io
 
             buf = _io.StringIO()
             try:
                 with contextlib.redirect_stdout(buf):
-                    if item_id == 15:
+                    if item_id == 12:
                         code = install_steam_fix()
-                    elif item_id == 16:
+                    elif item_id == 13:
                         code = remove_steam_fix()
                     else:
                         code = 1

@@ -172,7 +172,7 @@ right headers.
 python3 install.py                    # 桌面窗口（Tkinter，需 python3-tk）
 python3 install.py --detect           # 只做环境检测并打印报告
 python3 install.py --detect --json    # JSON 输出，便于脚本化/排障
-python3 install.py 15                 # 直接执行第 15 项（修复 Steam 界面崩溃）
+python3 install.py 12                 # 直接执行第 12 项（修复 Steam 界面崩溃）
 ```
 
 **deb 包安装**（推荐给其他砺算 7G100 机器使用，无需带源码仓库）：
@@ -191,10 +191,10 @@ lisuan-fix --detect                                     # PATH 直达，资源�
  1-3)   环境检测  重新检测 · GPU 体检 · Mesa 体检
  4-6)   DKMS      安装/修复 · 卸载 · 说明
  7)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
- 8-14)  Electron  ZCode/CodeBuddy/Qoder（各：启动 + 安装桌面项）· 说明
-15-17)  Steam     安装/修复 · 卸载 · 说明（旧方案清理已退出菜单，脚本留作手动工具）
-18-19)  随从大师   安装/修复 · 说明
-20-21)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
+ 8-11)  Electron  ZCode / CodeBuddy / Qoder（各一项：装桌面项 + 立即启动）· 说明
+12-14)  Steam     安装/修复 · 卸载 · 说明（旧方案清理已退出菜单，脚本留作手动工具）
+15-16)  随从大师   安装/修复 · 说明
+17-18)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
 ```
 
 > 注意：编号已按新分组**重新编排**。

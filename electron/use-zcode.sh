@@ -25,7 +25,21 @@ APPIMAGE="$HOME/development/ZCode-3.7.7-linux-x64.AppImage"
 DESKTOP_SRC="$HOME/.local/share/applications/zcode.desktop"
 DESKTOP_USER="$HOME/.local/share/applications/zcode.desktop"
 
-if [ "$1" = "--install-desktop" ]; then
+# --install-desktop: 把桌面项 Exec 切到本 wrapper;
+# --start: 装完桌面项后继续启动应用（两者合用 = "点图标即用" 一键生效）。
+# 自身标志从下游参数中剔除, 避免污染应用启动参数。
+INSTALL_DESKTOP=0
+START_AFTER=0
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --install-desktop) INSTALL_DESKTOP=1 ;;
+    --start)           START_AFTER=1 ;;
+    *)                 ARGS+=("$arg") ;;
+  esac
+done
+
+if [ "$INSTALL_DESKTOP" = 1 ]; then
   [ -f "$DESKTOP_USER" ] || { echo "!! 未找到 $DESKTOP_USER" >&2; exit 1; }
   # 仅当 Exec 指向 AppImage 本体时才改写 (避免重复套娃)
   if grep -q "$APPIMAGE" "$DESKTOP_USER" && ! grep -q "$(readlink -f "$0")" "$DESKTOP_USER"; then
@@ -35,7 +49,7 @@ if [ "$1" = "--install-desktop" ]; then
   else
     echo "    桌面项已指向 wrapper 或不在预期位置, 跳过"
   fi
-  exit 0
+  [ "$START_AFTER" = 1 ] || exit 0
 fi
 
 [ -f "$APPIMAGE" ] || { echo "!! 未找到 $APPIMAGE" >&2; exit 1; }
@@ -46,4 +60,4 @@ exec "$APPIMAGE" \
   --disable-gpu \
   --disable-gpu-compositing \
   ${ZCODE_EXTRA_FLAGS:-} \
-  "$@"
+  "${ARGS[@]}"

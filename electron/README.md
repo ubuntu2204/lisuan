@@ -26,6 +26,8 @@ bash use-electron-gf.sh --app qoder                 # 默认 gf 硬件加速
 bash use-electron-gf.sh --app qoder --no-hw         # 白屏/花屏时回退软件渲染
 bash use-electron-gf.sh --app codebuddy
 bash use-electron-gf.sh --app qoder --install-desktop  # 把应用菜单 Exec 切到本 wrapper
+# --start: 装完桌面项后继续启动应用（与 --install-desktop 合用 = "点图标即用" 一键生效）
+bash use-electron-gf.sh --app qoder --install-desktop --start
 bash use-electron-gf.sh --cmd /path/to/electron-app    # 任意 Electron 应用
 bash use-electron-gf.sh --appimage /path/to.appimage
 
