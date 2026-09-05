@@ -3,6 +3,82 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.09.05 — 交互界面从 Textual 迁移到 Tkinter；移除第三方 GUI 依赖
+
+### 动机
+
+- Textual 属第三方依赖（pip 安装），0.x 版本 API 变动频繁，升级易碎；
+- Tkinter 仅需系统包 `python3-tk`，零第三方依赖，与本项目"仅标准库"策略一致；
+- 桌面窗口在鼠标操作 / 多窗口文档查看 / 复制粘贴上体验优于终端 TUI。
+
+### 变更
+
+1. `packaging/install.py`：删除 `_load_tui()` / `text_menu()` 与 Textual 依赖，
+   界面改为 Tkinter 桌面窗口（左侧环境检测按级别着色、右侧菜单树按类别
+   分组双击执行、底部实时日志与状态栏）；
+2. **模块拆分**（均在 `packaging/` 下）：
+   - `install.py` — 入口壳：定位核心模块（开发模式同目录 / deb 模式
+     `/usr/share/lisuan-fix/`）后转交 `main()`；
+   - `lisuan_fix_core.py` — 核心逻辑（无 UI）：检测 / 菜单 / 修复执行 / CLI；
+   - `lisuan_fix_gui.py` — Tkinter 界面，提供 `gui_available()` / `run_gui()`；
+3. **修复：GUI 修复菜单为空** —— `App.__init__` 此前漏调 `_fill_menu()`，
+   右侧菜单树恒为空白；现启动即填充（单测验证 7 组 / 27 项）；
+4. **无降级**：无法启动图形界面（无显示环境 / 未装 python3-tk）时直接报错退出，
+   非交互场景用 `--detect` / `--detect --json` / 菜单编号；
+5. **菜单项显示修复状态**：每个修复/卸载项标题后缀状态（✓ 已修复 / ✗ 需修复 /
+   有残留 / 未配置 / 可选 等）并整行染色；状态与检测共用一次 `detect()`
+   结果（`lisuan_fix_core.collect_statuses()`，15 项有状态），执行完任务
+   自动重测刷新；说明与纯操作项不显示状态；
+6. **说明弹窗 Markdown 渲染**：新增 `lisuan_fix_md.py` 轻量渲染器
+   （标题 / 代码块 / 表格 / 列表 / 引用 / 粗体 / 行内代码 / 链接 / 水平线），
+   此前说明文档按纯文本原样显示；
+7. 需要 root 的菜单项从 GUI 打开终端窗口，在真实终端里 `sudo` 重跑本工具
+   （密码输入与脚本交互提示均发生在真实终端）；
+8. 删除 `packaging/pyrightconfig.json`（其唯一用途是把 pip 安装的 textual
+   加进 basedpyright 搜索路径，已无意义）；
+9. `README.md` / `packaging/build-deb.sh` 同步更新（deb 打包四个模块、
+   Recommends 增加 `python3-tk`）；修 `build-deb.sh` 尾部 `| head` 在
+   pipefail 下的 SIGPIPE 假失败（exit 141）；
+10. **入口壳上移到仓库根**：`packaging/install.py` → `install.py`
+   （与旧版 `lisuan-fix.sh` 并列，`python3 install.py` 直达）；
+   核心模块仍在 `packaging/`，入口引导顺序：`<根>/packaging/` →
+   `<根>/` → `/usr/share/lisuan-fix/`；deb 打包改从仓库根取入口壳；
+11. **删除菜单 26「查看修复状态」**——各菜单项已带修复状态后缀（变更 5），
+    单独的状态查看项冗余；原 27「Underlords 说明文档」顺移为 26，
+    `detect()` 的 Underlords 提示编号同步改为菜单 [24]/[25]；
+12. **删除菜单 7「安装/修复：DRI 驱动名软链」**——实机验证宿主 Mesa 已由
+    drirc（`/usr/share/drirc.d/01-gf_drv.conf` 的 `kernel_driver="gf"` →
+    `dri_driver="gf"` 映射）天然找到 gf 驱动（glxinfo 显示 LISUAN），
+    Steam 走 GBM_BACKEND=dri，全局软链反而会使 Steam 客户端 double free；
+    保留残留清理项（新 7）与 `mesa/fix-lisuan-mesa-driver-name.sh`
+    （高级手动方案，文档保留）。全部编号重排（7-25 各 -1），共 25 项；
+13. **删除软链清理菜单项**（原 7「卸载：DRI 驱动名软链」）——残留仅存在于
+    曾运行过旧版工具的机器，且 `mesa/uninstall-lisuan-mesa-driver-name.sh`
+    保留在仓库可手动执行（幂等、带安全校验）；`detect()` 对残留的警告
+    改为提示手动命令。全部编号重排，共 24 项；
+14. **删除 7 个无用脚本**（从磁盘移除，git 历史保留）：
+    `lisuan-fix.sh`（旧版 bash 索引，install.py 已替代）、
+    `mesa/fix-lisuan-mesa-driver-name.sh`（建链方案本体，有害已废弃）、
+    `mesa/uninstall-lisuan-mesa-driver-name.sh`（仅清理上一行的产物）、
+    `steam/steam-cef-autofix.sh`（开机自愈历史方案，卸载菜单为纯 Python 实现）、
+    `minion-masters/fix-minion-masters.sh`（llvmpipe 早期方案，文档标注"仅存档"）、
+    `minion-masters/mm-render-switch.sh`、`minion-masters/run-mm.sh`
+    （早期手动渲染切换/启动器，仅历史记录文档提及）。
+    `mesa/use-system-mesa.sh`（系统 Mesa 包装器）、`gf-compat/` 构建配套、
+    `dkms/` `electron/` `underlords/` 各脚本均仍在用，保留。
+    README / steam-on-lisuan.md 的相关引用已清理；
+    `detect()` 对软链残留的警告改为手动 `rm` 提示。
+
+### 验证
+
+- `python3 -m py_compile` 三文件通过；`--detect` / `-h` / GUI 报错路径
+  （exit 1）实测正常；
+- Tk 8.6 下菜单树单测（7 组 / 27 项）、窗口 3 秒存活测试正常；
+- deb 构建 exit 0，产物含 `/usr/bin/lisuan-fix` + 三个模块 + `python3-tk`
+  依赖声明。
+
+---
+
 ## 2026.09.05 — 菜单顺序再调整：Electron 提前；每类严格"安装 → 卸载 → 说明"
 
 ### 变更（在 2026-09-03 分组基础上的两处修正）
@@ -19,11 +95,11 @@
 ```
  1-3)   环境检测  重新检测 · GPU 体检 · Mesa 体检
  4-6)   DKMS      安装/修复 · 卸载 · 说明
- 7-9)   Mesa      安装/修复 · 卸载 · 说明
-10-16)  Electron  ZCode/CodeBuddy/Qoder（启动 + 安装桌面项）· 说明
-17-21)  Steam     安装/修复 · 卸载×3 · 说明
-22-23)  随从大师   安装/修复 · 说明
-24-27)  刀塔霸业   安装/修复 · 启动 · 查看状态 · 说明
+ 7)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
+ 8-14)  Electron  ZCode/CodeBuddy/Qoder（各：启动 + 安装桌面项）· 说明
+15-19)  Steam     安装/修复 · 卸载 ×3 · 说明
+20-21)  随从大师   安装/修复 · 说明
+22-24)  刀塔霸业   安装/修复 · 启动 · 说明
 ```
 
 内部实现项随之改绑：`17 install_steam_fix`、`18 remove_steam_fix`、

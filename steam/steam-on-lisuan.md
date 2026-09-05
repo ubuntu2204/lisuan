@@ -39,8 +39,8 @@ Steam 在 Linux 上不是"一个进程"，而是多层容器：
 表现像"Steam 打不开 / 闪退"，与游戏无关，但会连带让所有游戏起不来。
 
 **真正的根因（2026-08-24 实测）**：不是 env 变量，而是 **全局 DRI 软链**
-`/usr/lib/x86_64-linux-gnu/dri/lisuan_dri.so -> gf_dri.so`（由
-`fix-lisuan-mesa-driver-name.sh` 旧版创建）。它让 Steam 客户端（pressure-vessel sniper
+`/usr/lib/x86_64-linux-gnu/dri/lisuan_dri.so -> gf_dri.so`（由旧版建链脚本创建，
+该脚本已随软链方案废弃删除）。它让 Steam 客户端（pressure-vessel sniper
 容器内）的 EGL 加载到厂商 **gf 的 22.0.4 fork 驱动**，在无头/XWayland 下该 fork 触发
 `double free or corruption` → `Aborted (core dumped)`。移除这两个软链后 Steam 客户端
 `double free` 立即消失、转为稳定的 `failed to load driver: (null)`（仅告警、不崩）。
@@ -55,7 +55,7 @@ Steam 在 Linux 上不是"一个进程"，而是多层容器：
 `/usr/lib/x86_64-linux-gnu/dri/lisuan_*.so` 软链是否存在、以及 `steamwebhelper_sniper_wrap.sh`
 是否被注入了 gf `LD_PRELOAD`；去掉后 Steam 客户端即恢复。游戏进程树内的 gf 注入不受影响。
 
-**修复**：`fix-lisuan-mesa-driver-name.sh` 现默认**不再建全局软链**（只 `--native-gl` 显式开启）；
+**修复**：建链脚本已删除，软链方案彻底废弃（若见残留软链直接删除即可）；
 `fix-steam-cef-lock.sh` 的 Steam 客户端 PRELOAD 注入应移除（见 §3）。
 
 （完整论证与修复见 `vendor-bug-report-gf-gbm-crash.md` §6。）

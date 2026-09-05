@@ -52,7 +52,7 @@ covering the three container/ABI issues, intended for Lisuan's driver team.
 Quick entry point (interactive: environment detection + numbered menu):
 
 ```bash
-./lisuan-fix.sh
+python3 install.py
 ```
 
 No reverse-engineering is required for the kernel fix: the single closed-source
@@ -103,7 +103,7 @@ right headers.
 | `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |
 | `mesa/` | Mesa 图形栈 | 驱动名修复（`lisuan` vs `gf`）、系统 Mesa 兼容、切换与体检、源码级分析 |
 
-其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）、`lisuan-fix.sh`（交互式索引）。
+其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）。
 
 > `electron/` 内部分工：`use-electron-gf.sh` 是**通用基座**（通用 Electron/Chromium 修复
 > + gf 硬件加速），三个应用 wrapper（`use-zcode.sh` / `use-codebuddy.sh` / `use-qoder.sh`）
@@ -115,12 +115,9 @@ right headers.
 |---|---|
 | `dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
 | `dkms/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
-| `mesa/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
 | `steam/fix-steam-cef-lock.sh` | **Steam 清理工具**（非日常修复入口）：检测并移除 `steamwebhelper_sniper_wrap.sh` 中历史遗留的 gf 注入（`GBM_BACKEND=dri` + `LD_PRELOAD` glapi）与 `chattr +i` 锁定。`--unlock` 只解锁、`--uninstall` 还原原厂。**注意**：注入方案已于 2026-09-01 废弃，现改用 `GBM_BACKEND=dri` 环境变量（详见[三](#三steam-适配)） |
 | `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 24/25） |
-| `steam/steam-cef-autofix.sh` | 开机自愈（root/systemd，历史遗留）：发现 Steam 更新还原了 wrap 补丁就自动重新注入锁定。**现已不需要**——`GBM_BACKEND=dri` 为纯环境变量、不修改文件，Steam 更新不会覆盖它；`--uninstall` 可卸载该服务 |
 | `dkms/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
-| `mesa/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
 
@@ -157,10 +154,11 @@ right headers.
 | 路径 | 说明 |
 |---|---|
 | `CHANGELOG.md` | 更新日志：每个版本的新增/修复/实测更正，均实机验证 |
-| `packaging/install.py` | **交互式修复索引（推荐入口）**：Python 单文件（由 `lisuan_fix.py` + `tui.py` 合并），检测环境并给出结论，编号菜单执行单项修复/体检。装了 Textual 则为 TUI 界面，否则自动降级为纯文本菜单 |
-| `packaging/pyrightconfig.json` | basedpyright 配置：把 `--user` 安装的 `textual` 加进搜索路径。缺它时 `install.py` 的 TUI 部分会报 `reportMissingImports` 并级联出几十条 Unknown 类型警告。换机器后路径见文件内注释 |
+| `install.py` | **交互式修复索引（推荐入口，仓库根）**：入口壳，定位并导入核心模块后转交 `main()`。非交互用法：`--detect` / `--detect --json` / 菜单编号 |
+| `packaging/lisuan_fix_core.py` | 核心逻辑（无 UI）：环境检测 / 菜单定义（7 组 27 项）/ 修复执行 / CLI 分发，仅标准库 |
+| `packaging/lisuan_fix_gui.py` | Tkinter 桌面界面（需 `python3-tk`）：左检测、右菜单树（每项标题后缀**修复状态**并整行染色）、底部日志；提供 `gui_available()` / `run_gui()` |
+| `packaging/lisuan_fix_md.py` | 轻量 Markdown → Tkinter Text 渲染器：说明弹窗按标题/代码块/表格/列表/引用/粗体/链接样式呈现 |
 | `packaging/build-deb.sh` | deb 打包脚本，产物输出到 `packaging/dist/` |
-| `lisuan-fix.sh` | 旧版 bash 交互索引，功能等价，作为 Python 不可用时的回退保留 |
 | `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为各主题目录（`steam/` `minion-masters/` `underlords/` `electron/` `dkms/` `mesa/` 等） |
 | `.workflow/gitee-go-test.yml` | Gitee Go 流水线：push/PR 时自动跑 `tests/` |
 | `_work/` | 本地诊断草稿区（构建日志、探针程序、解包的厂商 DKMS 源码树、Mesa 官方源码等）。仅本机排查用，**不是交付物**；其中的厂商文件不得再分发 |
@@ -171,10 +169,10 @@ right headers.
 不熟悉各脚本的话，直接用交互式索引（自动检测环境 + 编号菜单）：
 
 ```bash
-python3 packaging/install.py                    # 交互界面（有 Textual 用 TUI，否则纯文本菜单）
-python3 packaging/install.py --detect           # 只做环境检测并打印报告
-python3 packaging/install.py --detect --json    # JSON 输出，便于脚本化/排障
-python3 packaging/install.py 10                 # 直接执行第 10 项（修复 Steam 界面崩溃）
+python3 install.py                    # 桌面窗口（Tkinter，需 python3-tk）
+python3 install.py --detect           # 只做环境检测并打印报告
+python3 install.py --detect --json    # JSON 输出，便于脚本化/排障
+python3 install.py 15                 # 直接执行第 15 项（修复 Steam 界面崩溃）
 ```
 
 **deb 包安装**（推荐给其他砺算 7G100 机器使用，无需带源码仓库）：
@@ -192,26 +190,24 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 ```
  1-3)   环境检测  重新检测 · GPU 体检 · Mesa 体检
  4-6)   DKMS      安装/修复 · 卸载 · 说明
- 7-9)   Mesa      安装/修复 · 卸载 · 说明
-10-16)  Electron  ZCode/CodeBuddy/Qoder（各：启动 + 安装桌面项）· 说明
-17-21)  Steam     安装/修复 · 卸载 ×3 · 说明
-22-23)  随从大师   安装/修复 · 说明
-24-27)  刀塔霸业   安装/修复 · 启动 · 查看状态 · 说明
+ 7)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
+ 8-14)  Electron  ZCode/CodeBuddy/Qoder（各：启动 + 安装桌面项）· 说明
+15-19)  Steam     安装/修复 · 卸载 ×3 · 说明
+20-21)  随从大师   安装/修复 · 说明
+22-24)  刀塔霸业   安装/修复 · 启动 · 说明
 ```
 
-> 注意：编号已按新分组**重新编排**，与旧版 `lisuan-fix.sh` 的编号**不再一一对应**。
+> 注意：编号已按新分组**重新编排**。
 > 本文件及项目各处引用的"菜单 [N]"均已同步为新编号。
 
-**启用 TUI**（可选，需联网）：
+**GUI 依赖**（Ubuntu 24.04 默认未装 tkinter 运行时）：
 
 ```bash
-python3 -m pip install --user --break-system-packages textual
+sudo apt-get install python3-tk
 ```
 
-未安装时自动降级为纯文本菜单，功能不变。
-
-> 注：Ubuntu 仓库里的 `python3-textual` 是 0.1.13（2021 年版本），API 与现在不兼容，
-> 请用 pip 安装。若提示 PEP 668，加 `--break-system-packages`（只装到用户目录，不碰系统 Python）。
+无显示环境（远程 SSH 等）时 GUI 会明确报错，请改用 `--detect` / `--detect --json`
+或菜单编号非交互执行。
 
 或手动执行单项：
 
@@ -221,7 +217,8 @@ sudo ./fix-lisuan-gpu.sh
 ./dkms/verify-lisuan-gpu.sh
 
 # 2) GL/EGL 找不到驱动（driver=(null)）、DRI 加载失败
-sudo ./mesa/fix-lisuan-mesa-driver-name.sh
+#    已由 drirc（/usr/share/drirc.d/01-gf_drv.conf）天然解决，无需操作；
+#    若缺该文件请重装厂商 lib 包（lisuangpu-lib）
 
 # 3) Steam 界面起不来（cef_log.txt 大量 exit_code=139/11）
 GBM_BACKEND=dri steam
@@ -414,15 +411,14 @@ vermagic: 7.0.0-28-generic SMP preempt mod_unload modversions   # ← 与运行�
 > 撤销补丁 ≠ 卸载显卡驱动。撤销后已装好的 `gf.ko` 仍在使用；真正的影响是
 > **下次内核升级会退回原厂 Bug 行为**。除非确有需要，一般不建议撤销。
 
-每一项注入都有对应的卸载入口（均幂等，也都在 `./lisuan-fix.sh` 菜单里）：
+每一项注入都有对应的卸载入口（均幂等，也在 `install.py` 菜单里）：
 
 | 注入 | 卸载方式 |
 |---|---|
 | DKMS Makefile 补丁 | `sudo dkms/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 4） |
-| DRI 驱动名软链 | `sudo mesa/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 8） |
 | Steam CEF 修复（推荐方案） | 删除桌面启动器中的 `GBM_BACKEND=dri` 即可，无需 root（见[三](#三steam-适配)） |
-| Steam 历史 wrap 注入 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 19） |
-| 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 20；改用环境变量方案后已不需要） |
+| Steam 历史 wrap 注入 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 17） |
+| 开机自愈服务 | `sudo systemctl disable --now lisuan-steam-autofix.service && sudo rm -f /etc/systemd/system/lisuan-steam-autofix.service`（菜单 18） |
 
 验证 DKMS 补丁已还原（第 4 行应变回原厂行）：
 
@@ -443,8 +439,9 @@ sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
 内核 DRM 驱动注册名为 `lisuan`，而厂商用户态驱动叫 `gf_dri.so`。Mesa 的 DRI 加载器
 按 `drmGetVersion()` 返回的名字找驱动 → 找 `lisuan_dri.so` → 找不到 → `driver=(null)`。
 
-修复：`sudo ./mesa/fix-lisuan-mesa-driver-name.sh`
-创建 `lisuan_dri.so → gf_dri.so` 等符号链接（幂等；重装厂商 lib 包后建议重跑）。
+现状：drirc（`/usr/share/drirc.d/01-gf_drv.conf`，厂商 lib 包提供）已声明
+`kernel_driver="gf" → dri_driver="gf"` 映射，Mesa 天然找到 gf 驱动，无需任何软链。
+历史软链方案已废弃并从菜单移除（软链反而会让 Steam 客户端 double free）。
 
 ### 与系统 Mesa 25.2.x 的关系（要点）
 
@@ -518,7 +515,7 @@ GPU 进程不再崩溃，尝试硬件加速失败后自动回退软渲染，Stea
 - **不要用 `chattr +i` 锁定 Steam 文件**；若历史环境曾被锁定，先解锁：
   `sudo chattr -i ~/.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh`
 - **不要创建全局 `lisuan_dri.so -> gf_dri.so` 软链**：它会让 Steam 客户端加载 gf 驱动
-  而崩溃。`fix-lisuan-mesa-driver-name.sh` 默认已不建，仅 `--native-gl` 按需开启。
+  而崩溃。建链脚本已删除，该方案彻底废弃。
 - **不要把 `LD_PRELOAD=libglapi_gf.so.0` 注入 Steam 客户端 wrap**：会导致 double free。
   游戏进程树内按需使用（Launch Options）不受此限。
 - 游戏（Proton/wine）渲染走 gf Vulkan，不依赖 gbm 后端，因此该变量不影响游戏。
@@ -820,7 +817,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 | 层 | 坑 | 修法 / 细节文档 |
 | --- | --- | --- |
 | 内核 | DKMS 变量名错配（`KERNEL_VERSION` vs `KERNELVER`）→ vermagic 错配 | 一行 Makefile 补丁 + `fix-lisuan-gpu.sh`（[一、内核模块](#一内核模块-gfko-编译与加载) / `patches/`） |
-| Mesa | 驱动名不一致（DRM `lisuan` vs 用户态 `gf`） | `fix-lisuan-mesa-driver-name.sh`（[三、Mesa/用户态](#三mesa用户态适配)） |
+| Mesa | 驱动名不一致（DRM `lisuan` vs 用户态 `gf`） | 已由厂商 drirc 映射解决（`01-gf_drv.conf`），无需人工干预 |
 | Mesa | 厂商 fork 22.0.4 vs 系统 25.2.x 不兼容 | `zink` 回退（`mesa/system-mesa-analysis.md`） |
 | Steam/CEF | `gf_gbm.so` 段错误 + ANGLE 惰性符号失败 | 仅游戏进程树注入（`dkms/vendor-bug-report-gf-gbm-crash.md`） |
 | Steam/CEF | **全局 dri 软链 `lisuan_dri.so->gf_dri.so` / Steam 客户端 PRELOAD 使 Steam 客户端 double free**（致命坑） | 默认不建软链、不向 Steam wrap 注入 gf（`steam/steam-on-lisuan.md` §2/§3） |

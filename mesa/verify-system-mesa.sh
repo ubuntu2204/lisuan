@@ -25,7 +25,7 @@ RC=0   # 总结退出码：任一项 fail 置 1，便于脚本化判断
 
 # --- 1. 内核侧：DRM 驱动注册名与设备节点 -------------------------------
 # DRIVER= 就是 Mesa 用来拼 DRI 驱动文件名的名字（本卡是 lisuan，
-# 与用户态驱动名 gf 不一致，靠 fix-lisuan-mesa-driver-name.sh 建软链解决）
+# 与用户态驱动名 gf 不一致，现由厂商 drirc（01-gf_drv.conf）映射解决）
 log "Kernel DRM driver"
 for c in /sys/class/drm/card[0-9]; do
   drv=$(grep '^DRIVER=' "$c/device/uevent" 2>/dev/null | cut -d= -f2)

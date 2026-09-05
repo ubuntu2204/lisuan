@@ -4,7 +4,7 @@
 #
 # 产物布局：
 #   /usr/bin/lisuan-fix                     可执行入口（install.py 副本，无扩展名）
-#   /usr/share/lisuan-fix/install.py        原始单文件脚本
+#   /usr/share/lisuan-fix/{install.py,lisuan_fix_core.py,lisuan_fix_gui.py}  模块
 #   /usr/share/lisuan-fix/{dkms,mesa,steam,underlords,electron}/   修复脚本
 #   /usr/share/applications/lisuan-fix.desktop                     终端菜单项
 #
@@ -16,7 +16,7 @@
 # License: Apache-2.0
 set -euo pipefail
 
-# 本脚本位于 packaging/，仓库根是其父目录；install.py 与本脚本同目录
+# 本脚本位于 packaging/，仓库根是其父目录；入口壳 install.py 在仓库根
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 VER="${1:-$(date +%Y.%m.%d)}"
@@ -33,9 +33,12 @@ mkdir -p "$T/DEBIAN" \
          "$T/usr/share/$PKG" \
          "$T/usr/share/applications"
 
-# 主程序：/usr/bin 入口 + 资源原件
-install -m 755 "$HERE/install.py" "$T/usr/bin/$PKG"
-install -m 644 "$HERE/install.py" "$T/usr/share/$PKG/install.py"
+# 主程序：/usr/bin 入口 + 模块原件（入口壳在仓库根，其余模块在 packaging/）
+install -m 755 "$ROOT/install.py" "$T/usr/bin/$PKG"
+install -m 644 "$ROOT/install.py" "$T/usr/share/$PKG/install.py"
+for f in lisuan_fix_core.py lisuan_fix_gui.py lisuan_fix_md.py; do
+  install -m 644 "$HERE/$f" "$T/usr/share/$PKG/$f"
+done
 
 # 修复脚本目录（保持相对结构；排除测试专用厂商源码与脏文件）
 for d in dkms mesa steam underlords electron; do
@@ -76,7 +79,7 @@ Priority: optional
 Architecture: all
 Maintainer: Lisuan Fix Contributors <lisuan-fix@localhost>
 Depends: python3 (>= 3.10), bash
-Recommends: pciutils, kmod, dkms, e2fsprogs
+Recommends: pciutils, kmod, dkms, e2fsprogs, python3-tk
 Suggests: steam
 Description: 砺算 7G100 GPU 修复工具（DKMS/Mesa/Steam/游戏/Electron 适配）
  一体化修复与体检工具，覆盖：
@@ -85,7 +88,7 @@ Description: 砺算 7G100 GPU 修复工具（DKMS/Mesa/Steam/游戏/Electron 适
   - Steam 客户端 CEF 崩溃（GBM_BACKEND=dri 环境变量方案）
   - Dota Underlords 原生直跑补丁
   - Electron 应用（ZCode/CodeBuddy/Qoder）gf 硬件加速
- 支持交互 TUI（Textual，可选）与纯文本菜单、--detect 体检、
+ 支持桌面窗口（Tkinter，需 python3-tk）、--detect 体检、
  --json 机器可读输出、按菜单编号非交互直执行。
  。
  Steam CEF 修复不修改任何 Steam 自身文件（环境变量 + 桌面启动器），
@@ -113,6 +116,8 @@ dpkg-deb --root-owner-group --build "$T" "$DEB"
 
 echo
 echo "==> 构建完成: $DEB"
-dpkg-deb --info "$DEB" | head -12
+# 先取全量输出再截断显示，避免 head 截断触发 SIGPIPE（pipefail 下导致假失败）
+INFO="$(dpkg-deb --info "$DEB")"
+echo "$INFO" | head -12
 echo "..."
 echo "内容 $(dpkg-deb -c "$DEB" | wc -l) 个条目, 大小 $(du -h "$DEB" | cut -f1)"

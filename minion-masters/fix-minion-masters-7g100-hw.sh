@@ -1,6 +1,6 @@
 #!/bin/bash
 # fix-minion-masters-7g100-hw.sh — 让 Minion Masters 在砺算 7G100 上用【本机显卡硬件渲染】
-# （区别于 fix-minion-masters.sh 的 llvmpipe 软件渲染路线）
+# （区别于早期 llvmpipe 软件渲染路线脚本，该脚本已随方案废弃删除）
 #
 # 原理（游戏为 32 位 Windows Unity，Proton 需 32 位 Vulkan ICD，但砺算只发布 64 位）：
 #   走 Proton Experimental 的 new WoW64（PROTON_USE_WOW64=1），让 32 位游戏经 wine 的

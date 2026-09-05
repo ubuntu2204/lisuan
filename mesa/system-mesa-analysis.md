@@ -53,7 +53,7 @@
    (动态 pipe 目标随 XvMC/VDPAU 等在旧版本移除)。
 3. `src/loader/pci_id_driver_map.h` 无 `4c54` 条目;DRM 名来自
    `drmGetVersion()` = `gf`(注意:`/sys/.../uevent` 的 `DRIVER=lisuan` 是模块名,
-   二者不一致 —— 这也是 `fix-lisuan-mesa-driver-name.sh` 存在的历史原因)。
+   二者不一致 —— 这也是已删除的历史建链脚本存在的原因)。
 4. GLX 有 zink 回退(`src/glx/dri3_glx.c:497` 对驱动名 `zink` 的特殊处理 +
    kopper);EGL **没有**(`src/egl/drivers/dri2/egl_dri2.c:749 dri2_create_screen`
    失败即返回,实测 device/GBM 平台报 "failed to create dri2 screen")。
