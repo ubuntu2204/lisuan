@@ -117,7 +117,7 @@ right headers.
 | `dkms/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `mesa/fix-lisuan-mesa-driver-name.sh` | 修复 DRM 名与用户态驱动名不一致（`lisuan` vs `gf`）导致的 DRI 加载失败 |
 | `steam/fix-steam-cef-lock.sh` | **Steam 清理工具**（非日常修复入口）：检测并移除 `steamwebhelper_sniper_wrap.sh` 中历史遗留的 gf 注入（`GBM_BACKEND=dri` + `LD_PRELOAD` glapi）与 `chattr +i` 锁定。`--unlock` 只解锁、`--uninstall` 还原原厂。**注意**：注入方案已于 2026-09-01 废弃，现改用 `GBM_BACKEND=dri` 环境变量（详见[三](#三steam-适配)） |
-| `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 17/18） |
+| `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 24/25） |
 | `steam/steam-cef-autofix.sh` | 开机自愈（root/systemd，历史遗留）：发现 Steam 更新还原了 wrap 补丁就自动重新注入锁定。**现已不需要**——`GBM_BACKEND=dri` 为纯环境变量、不修改文件，Steam 更新不会覆盖它；`--uninstall` 可卸载该服务 |
 | `dkms/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 | `mesa/uninstall-lisuan-mesa-driver-name.sh` | 卸载：删除 `lisuan_*.so` 软链（只删指向 `gf_*` 的软链，不碰真实文件） |
@@ -185,17 +185,18 @@ sudo dpkg -i packaging/dist/lisuan-fix_*_all.deb        # 安装
 lisuan-fix --detect                                     # PATH 直达，资源在 /usr/share/lisuan-fix
 ```
 
-**菜单结构**（2026-09-03 重排）：环境检测单独一节，其余按**类别**分组，
-类内统一按 **安装/修复 → 体检 → 卸载 → 说明** 排列（说明项打开该目录下的 md 文档）：
+**菜单结构**（2026-09-05 修订）：环境检测单独一节（两项体检也归入此节），
+其余按**类别**分组，顺序为 **DKMS → Mesa → Electron → Steam → 随从大师 → 刀塔霸业**，
+每个类别内严格按 **安装/修复 → 卸载 → 说明** 排列（说明项打开该目录下的 md 文档）：
 
 ```
- 1) 环境检测
- 2-5)   DKMS     安装/修复 · 体检 · 卸载 · 说明
- 6-9)   Mesa     安装/修复 · 体检 · 卸载 · 说明
-10-14)  Steam    安装/修复 · 卸载 · 清理残留 · 卸载自愈 · 说明
-15-16)  随从大师  安装/修复 · 说明
-17-20)  刀塔霸业  安装/修复 · 启动 · 查看状态 · 说明
-21-26)  Electron ZCode / CodeBuddy / Qoder（各：启动 + 安装桌面项）
+ 1-3)   环境检测  重新检测 · GPU 体检 · Mesa 体检
+ 4-6)   DKMS      安装/修复 · 卸载 · 说明
+ 7-9)   Mesa      安装/修复 · 卸载 · 说明
+10-16)  Electron  ZCode/CodeBuddy/Qoder（各：启动 + 安装桌面项）· 说明
+17-21)  Steam     安装/修复 · 卸载 ×3 · 说明
+22-23)  随从大师   安装/修复 · 说明
+24-27)  刀塔霸业   安装/修复 · 启动 · 查看状态 · 说明
 ```
 
 > 注意：编号已按新分组**重新编排**，与旧版 `lisuan-fix.sh` 的编号**不再一一对应**。
@@ -420,8 +421,8 @@ vermagic: 7.0.0-28-generic SMP preempt mod_unload modversions   # ← 与运行�
 | DKMS Makefile 补丁 | `sudo dkms/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 4） |
 | DRI 驱动名软链 | `sudo mesa/uninstall-lisuan-mesa-driver-name.sh`（只删指向 `gf_*` 的软链；菜单 8） |
 | Steam CEF 修复（推荐方案） | 删除桌面启动器中的 `GBM_BACKEND=dri` 即可，无需 root（见[三](#三steam-适配)） |
-| Steam 历史 wrap 注入 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 12） |
-| 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 13；改用环境变量方案后已不需要） |
+| Steam 历史 wrap 注入 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 19） |
+| 开机自愈服务 | `sudo steam/steam-cef-autofix.sh --uninstall`（菜单 20；改用环境变量方案后已不需要） |
 
 验证 DKMS 补丁已还原（第 4 行应变回原厂行）：
 
@@ -539,7 +540,7 @@ GPU 进程不再崩溃，尝试硬件加速失败后自动回退软渲染，Stea
   Steam 的运行时长/退出检测依然有效。相关文件（游戏目录下）：
   `ul-host-run.sh`（委托器）、`play-native.sh`（宿主启动器，含残留
   `LS_SHARE_MEMORY_*` 清理）、`underlords.sh`（容器分支 + 启动崩溃重试）。
-  整套文件由 `underlords/fix-underlords-native.sh`（菜单 14）安装/修复/卸载，
+  整套文件由 `underlords/fix-underlords-native.sh`（菜单 24）安装/修复/卸载，
   Steam 更新游戏后可重跑修复。
 - 首次部署需要把 `libpng12.so.0` 放进游戏 `bin/linuxsteamrt64/` 目录
   （Ubuntu 24.04 已移除该库，可从 18.04 归档取），否则 Source 2 的
