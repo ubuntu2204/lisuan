@@ -3,58 +3,49 @@
 """砺算 7G100 修复工具（Python 版，替代 lisuan-fix.sh）。
 
 用法（本文件位于 packaging/，从仓库根运行）：
-    python3 packaging/install.py                 交互界面（有 Textual 用 TUI，否则纯文本菜单）
+    python3 packaging/install.py                 桌面窗口（Tkinter）
     python3 packaging/install.py --detect        只检测并打印报告
     python3 packaging/install.py --detect --json 检测并输出 JSON（便于脚本化）
-    python3 packaging/install.py 10 [参数]       非交互直执行第 10 项（修复 Steam）
+    python3 packaging/install.py 17 [参数]       非交互直执行第 17 项（修复 Steam）
     python3 packaging/install.py -h              显示本帮助
 
-菜单结构：环境检测单独一节，其余按类别分组（DKMS / Mesa / Steam / 随从大师 /
-刀塔霸业 / Electron），类内统一按"安装/修复 → 体检 → 卸载 → 说明"排列。
-编号已于 2026-09-03 重排，与旧版 lisuan-fix.sh 不再一一对应。
+菜单结构：环境检测单独一节（含两项体检），其余按类别分组（DKMS / Mesa /
+Electron / Steam / 随从大师 / 刀塔霸业），类内统一"安装/修复 → 卸载 → 说明"。
 
-依赖：仅标准库。Textual 为可选增强（无它自动降级为纯文本菜单）。
+界面：Tkinter 桌面窗口，需要显示环境（X11/Wayland）与 python3-tk。
+无法启动图形界面时直接报错退出（不再降级纯文本菜单）；
+非交互场景请用 --detect / --detect --json / <菜单编号>。
 
-本文件由 lisuan_fix.py + tui.py 合并而来（单文件分发）。两者原先通过
-importlib 动态互导以断开导入环；合并后直接引用模块级符号，Textual 相关
-代码下沉到 _load_tui() 内部延迟定义，未安装 textual 时不影响主流程。
-
-2026-09-01 修正：Steam CEF 崩溃的正确解法是 `GBM_BACKEND=dri` 环境变量
-（只写桌面启动器，不修改 Steam 自身文件）。旧方案（向
-steamwebhelper_sniper_wrap.sh 注入 LD_PRELOAD 并 chattr +i 锁定）已被证明
-有害——会让 Steam 客户端 double free，且锁定会触发 Steam 更新回滚循环，
-导致游戏被反复重新下载。详见 steam/steam-on-lisuan.md §3、§10。
+依赖：仅标准库。
 """
 
 from __future__ import annotations
 
 import json
 import os
+import queue
+import shlex
 import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypedDict
 
-# Textual 的 write/append/clear/run_worker 返回 awaitable，惯例是直接忽略；
-# CSS/BINDINGS/title 等属性按 Textual 约定直接赋值。这两类写法会触发
-# basedpyright 的严格规则，故对本文件放宽。
-# pyright: reportUnusedCallResult=false, reportUnannotatedClassAttribute=false
 
 def _find_base() -> Path:
     """定位资源根目录（dkms/ steam/ 等子目录所在的目录）。
 
-    - 开发模式：本文件位于 packaging/，仓库根是其**父目录**
-      （如 ~/project/lisuan/packaging/install.py -> ~/project/lisuan）；
+    - 开发模式：本文件位于 packaging/，仓库根是其父目录；
     - deb 安装模式：本文件位于 /usr/bin/，资源在 /usr/share/lisuan-fix/；
     - 兼容：本文件被直接放在仓库根时，here 即为资源根。
     """
     here = Path(__file__).resolve().parent
     candidates = [
-        here,
-        here.parent,                       # 安装在 /usr/bin 时
-        Path("/usr/share/lisuan-fix"),     # deb 标准资源路径
+        here.parent,                     # packaging/install.py -> 仓库根
+        here,                            # 直接放在仓库根
+        Path("/usr/share/lisuan-fix"),   # deb 标准资源路径
     ]
     for c in candidates:
         if (c / "dkms").is_dir() and (c / "steam").is_dir():
@@ -65,13 +56,10 @@ def _find_base() -> Path:
 REPO_ROOT = _find_base()
 S = REPO_ROOT
 
-# Steam 桌面启动器（新方案的落点：只改这里，不碰 Steam 自己的文件）
 STEAM_DESKTOP = Path.home() / ".local/share/applications/steam.desktop"
 STEAM_DESKTOP_EXEC_FIXED = "Exec=env GBM_BACKEND=dri /usr/bin/steam %U"
 STEAM_WRAP = Path.home() / ".local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh"
 
-# 两个标准模板：修复版 / 纯净版。install/remove 都直接写模板，
-# 不做字符串拼接/替换，保证状态可预测（注释等修饰内容随之整体增删）。
 _STEAM_DESKTOP_COMMON = """[Desktop Entry]
 Name=Steam
 Comment=Application for managing and playing games on Steam
@@ -93,11 +81,11 @@ STEAM_DESKTOP_BODY_FIXED = _STEAM_DESKTOP_COMMON.format(exec_line=(
 
 STEAM_DESKTOP_BODY_PLAIN = _STEAM_DESKTOP_COMMON.format(exec_line="Exec=/usr/bin/steam %U")
 
+
 # ---------------------------------------------------------------- 基础工具
 
 
 def run(cmd: list[str], timeout: int = 30) -> tuple[int, str]:
-    """执行命令，返回 (返回码, 合并后的输出)。命令不存在时返回 (127, "")。"""
     try:
         p = subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, errors="replace"
@@ -122,12 +110,10 @@ def ok_cmd(cmd: list[str], timeout: int = 30) -> bool:
 
 @dataclass
 class Check:
-    """一条检测结论。level: ok / bad / warn / info"""
-
     category: str
-    level: str
+    level: str          # ok / bad / warn / info
     text: str
-    hint: str = ""          # 指向的菜单项，如 "菜单 [2]"
+    hint: str = ""
 
 
 @dataclass
@@ -146,11 +132,9 @@ class Env:
 
 
 def detect() -> Env:
-    """只读检测，逐项给出结论并指向对应菜单项。与旧版 detect() 等价。"""
     env = Env()
     env.kernel = os.uname().release
 
-    # ---- GPU ----
     lspci = out(["lspci", "-nn"])
     if "4c54:" in lspci:
         model = next(
@@ -161,10 +145,8 @@ def detect() -> Env:
     else:
         env.add("GPU", "bad", "未检测到砺算 GPU（PCI 厂商号 4c54）——本工具不适用")
 
-    # ---- 内核 ----
     env.add("内核", "info", f"运行内核：{env.kernel}")
 
-    # ---- DKMS / 驱动包 ----
     if ok_cmd(["dpkg-query", "-W", "lisuangpu-dkms"]):
         ver = out(["dpkg-query", "-W", "-f=${Version}", "lisuangpu-dkms"])
         env.add("驱动包", "ok", f"lisuangpu-dkms 已安装：{ver}")
@@ -180,7 +162,6 @@ def detect() -> Env:
         else:
             env.add("DKMS", "warn", "dkms 中无 lisuan 模块记录")
 
-    # ---- 内核模块 gf ----
     if ok_cmd(["lsmod"]) and "gf " in out(["lsmod"]):
         env.add("模块", "ok", "模块 gf 已加载")
     else:
@@ -206,7 +187,6 @@ def detect() -> Env:
     else:
         env.add("模块", "warn", "当前内核模块树下没有 gf.ko —— 菜单 [4]", "4")
 
-    # ---- DRM / DRI ----
     dri = Path("/dev/dri")
     cards = sorted(p.name for p in dri.glob("card*")) if dri.is_dir() else []
     if cards:
@@ -214,24 +194,20 @@ def detect() -> Env:
     else:
         env.add("DRM", "bad", "无 /dev/dri/cardN")
 
-    # 2026-09-01 修正：全局 lisuan_dri.so 软链会让 Steam 客户端加载 gf 驱动而
-    # double free 崩溃，属"有害残留"，检测到应提示移除（而非像旧版那样判为 ok）。
+    # 全局 lisuan_dri.so 软链会让 Steam 客户端 double free，属有害残留
     dri_dir = Path("/usr/lib/x86_64-linux-gnu/dri")
     if (dri_dir / "lisuan_dri.so").exists():
         env.add("DRI", "warn",
                 "检测到全局 lisuan_dri.so 软链 —— 它会使 Steam 客户端 double free，"
-                "建议移除（菜单 [8]）", "8")  # Mesa 卸载 DRI 软链
+                "建议移除（菜单 [8]）", "8")
     elif (dri_dir / "gf_dri.so").exists():
         env.add("DRI", "ok", "gf_dri.so 存在（新方案下无需全局软链）")
     else:
         env.add("DRI", "warn", "未见 gf_dri.so（lisuangpu-lib 未安装？）")
 
-    # ---- Steam ----
     if shutil.which("steam"):
         env.add("Steam", "ok", "Steam 已安装")
 
-        # 新方案：桌面启动器带 GBM_BACKEND=dri（精确匹配 Exec 行，
-        # 避免把注释中的字样误判为已配置）
         if STEAM_DESKTOP.is_file():
             try:
                 dcontent = STEAM_DESKTOP.read_text(errors="replace")
@@ -243,7 +219,6 @@ def detect() -> Env:
                 env.add("Steam", "bad",
                         "桌面启动器缺 GBM_BACKEND=dri —— Steam 界面会崩溃，菜单 [17]", "17")
 
-        # 旧方案残留检查：wrap.sh 被注入 / 被 chattr 锁定都是有害的
         if STEAM_WRAP.is_file():
             try:
                 wcontent = STEAM_WRAP.read_text(errors="replace")
@@ -263,12 +238,10 @@ def detect() -> Env:
     else:
         env.add("Steam", "info", "未安装 Steam（跳过 Steam 相关项）")
 
-    # ---- 开机自愈（新方案下已不需要）----
     if ok_cmd(["systemctl", "is-enabled", "lisuan-steam-autofix.service"]):
         env.add("自愈", "warn",
                 "开机自愈服务仍在启用 —— 新方案（环境变量）不需要它，建议卸载（菜单 [20]）", "20")
 
-    # ---- 游戏 ----
     ul = Path.home() / ".local/share/Steam/steamapps/common/Underlords/game"
     ulsh = ul / "underlords.sh"
     injected = False
@@ -288,16 +261,11 @@ def detect() -> Env:
 
 # ---------------------------------------------------------------- 菜单项
 
-#: 命令构造函数：接收额外命令行参数，返回完整 argv
 CmdFn = Callable[[list[str]], list[str]]
 
 
 class Item(TypedDict):
-    """一个菜单项。
-
-    cmd 为 None 表示内部实现（见 run_item 的特例分支）；
-    doc 非空表示"说明"项，展示对应目录下的 md 文档。
-    """
+    """一个菜单项。cmd 为 None 表示内部实现；doc 非空表示"说明"项。"""
 
     id: int
     title: str
@@ -312,7 +280,6 @@ def _sh(rel: str, *args: str) -> list[str]:
 
 
 def _doc(rel: str) -> str:
-    """说明项：标记要展示的 md（相对仓库根），由 show_doc 渲染。"""
     return rel
 
 
@@ -321,7 +288,6 @@ def _doc(rel: str) -> str:
 #   2) 其余按类别（目录）分组，顺序：DKMS -> Mesa -> Electron -> Steam
 #      -> 随从大师 -> 刀塔霸业；
 #   3) 每个类别内严格按"安装/修复 -> 卸载 -> 说明"排列。
-# 说明项一律取该类别目录下的 md 文档。
 ITEMS: list[Item] = [
     # ---- 环境检测（含两项体检）----
     {"id": 1,  "title": "重新检测系统环境", "group": "环境检测", "root": False,
@@ -418,7 +384,6 @@ def item_label(it: Item) -> str:
 def install_steam_fix() -> int:
     """把 GBM_BACKEND=dri 写入 Steam 桌面启动器（新方案，不修改 Steam 文件）。"""
     STEAM_DESKTOP.parent.mkdir(parents=True, exist_ok=True)
-
     try:
         if STEAM_DESKTOP.is_file():
             shutil.copy2(STEAM_DESKTOP, str(STEAM_DESKTOP) + ".bak")
@@ -427,7 +392,6 @@ def install_steam_fix() -> int:
     except OSError as e:
         print(f"  写入失败：{e}")
         return 1
-
     print(f"  已写入 {STEAM_DESKTOP}")
     print("  Steam 界面崩溃修复完成（下次从菜单启动 Steam 生效）。")
     return 0
@@ -435,21 +399,11 @@ def install_steam_fix() -> int:
 
 def remove_steam_fix() -> int:
     """移除 Steam 修复：还原桌面启动器，并解锁可能残留的 chattr +i。"""
-    rc = 0
-
-    # 1) 解锁 wrap.sh（若曾被 chattr +i 锁定，会引发 Steam 更新回滚循环）
     if STEAM_WRAP.is_file():
-        if os.geteuid() != 0:
-            r = run(["sudo", "chattr", "-i", str(STEAM_WRAP)])
-        else:
-            r = run(["chattr", "-i", str(STEAM_WRAP)])
-        if r[0] == 0:
-            print(f"  已解锁（如处于锁定状态）：{STEAM_WRAP}")
-        else:
-            # 文件系统不支持 chattr（如非 ext4）时不必视为失败
-            print(f"  解锁跳过（可能未锁定或文件系统不支持 chattr）：{r[1]}")
+        pre = [] if os.geteuid() == 0 else ["sudo"]
+        r = run([*pre, "chattr", "-i", str(STEAM_WRAP)])
+        print(f"  解锁：{'完成' if r[0] == 0 else '跳过（未锁定/文件系统不支持）'}")
 
-    # 2) 还原桌面启动器
     if STEAM_DESKTOP.is_file():
         try:
             content = STEAM_DESKTOP.read_text(errors="replace")
@@ -463,22 +417,17 @@ def remove_steam_fix() -> int:
                     bcontent = bak.read_text(errors="replace")
                 except OSError:
                     bcontent = ""
-                # 仅当备份确实"干净"（不含修复）时才用它还原。
-                # 若备份本身已含修复（常见：在已修复状态下重跑 install 所产生），
-                # 用它还原等于把修复又复制回来 —— 此时改为直接编辑移除。
+                # 仅当备份"干净"（不含修复）时才还原，否则重写纯净模板
                 if bcontent and "GBM_BACKEND=dri" not in bcontent:
                     shutil.copy2(bak, STEAM_DESKTOP)
                     print(f"  已从干净备份还原启动器：{STEAM_DESKTOP}")
                     restored = True
             if not restored:
                 STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_PLAIN, encoding="utf-8")
-                print(f"  已重写为纯净启动器（移除 GBM_BACKEND=dri）：{STEAM_DESKTOP}")
+                print(f"  已重写为纯净启动器：{STEAM_DESKTOP}")
         else:
             print("  启动器未含 GBM_BACKEND=dri，无需还原。")
-    else:
-        print("  桌面启动器不存在，跳过。")
-
-    return rc
+    return 0
 
 
 # ---------------------------------------------------------------- 执行
@@ -487,58 +436,18 @@ AUTOFIX_UNIT = "/etc/systemd/system/lisuan-steam-autofix.service"
 AUTOFIX_SRC = S / "steam/steam-cef-autofix.sh"
 
 
-def install_autofix() -> int:
-    if not AUTOFIX_SRC.is_file():
-        print(f"  错误：找不到 {AUTOFIX_SRC}")
-        return 1
-    print("  提示：新方案（GBM_BACKEND=dri 环境变量）不需要开机自愈服务，")
-    print("        Steam 更新不会覆盖桌面启动器。仅在仍使用旧注入方案时才需要本项。")
-    unit = """[Unit]
-Description=Lisuan Steam CEF patch auto-heal (re-inject after Steam update)
-After=network.target
-
-[Service]
-Type=oneshot
-ExecStart={src}
-
-[Install]
-WantedBy=multi-user.target
-""".format(src=AUTOFIX_SRC)
-    cmds = [
-        ["tee", AUTOFIX_UNIT],
-        ["systemctl", "daemon-reload"],
-        ["systemctl", "enable", "lisuan-steam-autofix.service"],
-    ]
-    return run_elevated_sequence(unit, cmds)
-
-
 def remove_autofix() -> int:
     seq = [
         ["systemctl", "disable", "--now", "lisuan-steam-autofix.service"],
         ["rm", "-f", AUTOFIX_UNIT],
         ["systemctl", "daemon-reload"],
     ]
-    return run_elevated_sequence(None, seq)
-
-
-def run_elevated_sequence(stdin_data: str | None, cmds: list[list[str]]) -> int:
-    """依次执行命令，非 root 时自动套 sudo。第一条可带 stdin。"""
-    for i, cmd in enumerate(cmds):
+    for cmd in seq:
         if os.geteuid() != 0:
             cmd = ["sudo", *cmd]
-        try:
-            p = subprocess.run(
-                cmd,
-                input=(stdin_data if i == 0 else None),
-                text=True,
-                errors="replace",
-            )
-            if p.returncode != 0:
-                print(f"  命令失败（{p.returncode}）：{' '.join(cmd)}")
-                return p.returncode
-        except FileNotFoundError:
-            print(f"  命令不存在：{cmd[0]}")
-            return 127
+        p = subprocess.run(cmd)
+        if p.returncode != 0:
+            return p.returncode
     return 0
 
 
@@ -553,10 +462,7 @@ def launch_underlords() -> int:
 
 
 def show_doc(rel: str) -> int:
-    """展示某类别目录下的说明文档（md）。
-
-    交互终端优先用 less 分页；非交互（管道/脚本）直接打印全文。
-    """
+    """命令行模式下展示说明文档（交互终端用 less，非交互直接打印）。"""
     path = S / rel
     if not path.is_file():
         print(f"  文档不存在：{path}")
@@ -568,22 +474,17 @@ def show_doc(rel: str) -> int:
 
 
 def run_item(item_id: int, extra: list[str] | None = None) -> int:
-    """执行菜单项。返回进程返回码。"""
+    """执行菜单项（命令行模式）。返回进程返回码。"""
     extra = extra or []
     it = ITEMS_BY_ID.get(item_id)
     if it is None:
         print(f"  无效选项：{item_id}")
         return 1
-
     if item_id == 1:
         print(render_report(detect()))
         return 0
-
-    # 说明项：展示该类别目录下的 md
     if it.get("doc"):
         return show_doc(it["doc"])
-
-    # 内部实现的特例（按新编号）
     if item_id == 17:
         return install_steam_fix()
     if item_id == 18:
@@ -598,15 +499,12 @@ def run_item(item_id: int, extra: list[str] | None = None) -> int:
         print(f"  菜单项 {item_id} 未定义命令")
         return 1
 
-    # 脚本存在性检查：deb 安装版不含 minion-masters/（体积 64MB），
-    # 直接执行会让 bash 报"No such file"，这里给出可读的提示。
-    if cmd[0] == "bash" and len(cmd) > 1:
-        script = Path(cmd[1])
-        if not script.is_file():
-            print(f"  脚本缺失：{script}")
-            print("  说明：deb 安装版未打包该目录（体积过大）。")
-            print("        请在源码仓库中运行本工具，或复制该目录到 /usr/share/lisuan-fix/。")
-            return 127
+    # 脚本存在性检查：deb 安装版不含 minion-masters/（体积大）
+    if cmd[0] == "bash" and len(cmd) > 1 and not Path(cmd[1]).is_file():
+        print(f"  脚本缺失：{cmd[1]}")
+        print("  说明：deb 安装版未打包该目录。请在源码仓库中运行本工具，"
+              "或复制该目录到 /usr/share/lisuan-fix/。")
+        return 127
 
     if it["root"] and os.geteuid() != 0:
         cmd = ["sudo", *cmd]
@@ -636,12 +534,7 @@ def report_json(env: Env) -> str:
         {
             "kernel": env.kernel,
             "checks": [
-                {
-                    "category": c.category,
-                    "level": c.level,
-                    "text": c.text,
-                    "hint": c.hint,
-                }
+                {"category": c.category, "level": c.level, "text": c.text, "hint": c.hint}
                 for c in env.checks
             ],
             "summary": {
@@ -655,199 +548,319 @@ def report_json(env: Env) -> str:
     )
 
 
-# ---------------------------------------------------------------- TUI（可选）
-
-# Textual 相关的类在 _load_tui() 内部定义：这样未安装 textual 时，
-# `from textual.app import App` 不会在模块导入期抛出 ImportError，
-# 主程序可正常降级为纯文本菜单。函数内定义类还能直接闭包捕获本模块的
-# ITEMS / ITEMS_BY_ID / GROUP_ORDER / detect / item_label / run_item。
+# ---------------------------------------------------------------- GUI（Tkinter）
 
 
-def _load_tui() -> Callable[[], None] | None:
-    """加载 Textual 界面；textual 不可用时返回 None（调用方降级为纯文本菜单）。"""
+def _load_gui() -> Callable[[], None] | None:
+    """加载 Tkinter 桌面窗口；无法启动（无显示环境/未装 tkinter）时返回 None，
+    调用方 main() 会报错退出。探测方式：真实创建一次 tk.Tk()。"""
     try:
-        from textual.app import App, ComposeResult
-        from textual.containers import Horizontal
-        from textual.widgets import (
-            Footer,
-            Header,
-            Label,
-            ListItem,
-            ListView,
-            RichLog,
-            Static,
-        )
+        import tkinter as tk
+        from tkinter import scrolledtext, ttk
+
+        probe = tk.Tk()
+        probe.withdraw()
+        probe.destroy()
     except Exception:
         return None
 
-    LEVEL_STYLE = {"ok": "green", "bad": "red", "warn": "yellow", "info": "blue"}
-    LEVEL_MARK_TUI = {"ok": "✓", "bad": "✗", "warn": "!", "info": "·"}
+    ACCENT = "#0aa2c0"
+    ACCENT_DARK = "#087f9c"
+    CLR = {
+        "ok": "#2e7d32", "bad": "#c62828", "warn": "#ef6c00", "info": "#1565c0",
+        "bg": "#eef2f5", "card": "#ffffff", "fg": "#1f2933", "line": "#d7dee5",
+        "sel": "#d4f1f6",
+    }
 
-    class EnvPanel(Static):
-        """左侧环境检测面板。"""
+    def self_file() -> Path:
+        return Path(__file__).resolve()
 
-        def refresh_env(self) -> None:
-            env = detect()
-            lines = [f"[b]内核[/b] {env.kernel}", ""]
-            last_cat = None
-            for c in env.checks:
-                if c.category != last_cat:
-                    lines.append(f"[b]{c.category}[/b]")
-                    last_cat = c.category
-                style = LEVEL_STYLE.get(c.level, "")
-                mark = LEVEL_MARK_TUI.get(c.level, "?")
-                lines.append(f"  [{style}]{mark}[/{style}] {c.text}")
-            self.update("\n".join(lines))
+    def open_in_terminal(item_id: int) -> int:
+        """需要 root 的项：打开终端窗口，在终端里以 sudo 重跑本工具的非交互模式。
 
-    class MenuItemWidget(Static):
-        def __init__(self, item: Item) -> None:
-            super().__init__(item_label(item))
-            self.item: Item = item
-
-    class LisuanFixApp(App[None]):
-        """砺算 7G100 修复工具 TUI。"""
-
-        CSS = """
-        Screen { layout: vertical; }
-        #body { height: 1fr; }
-        #env  { width: 45%; border: round $accent; padding: 0 1; overflow-y: auto; }
-        #menu { width: 55%; border: round $accent; }
-        #log  { height: 12; border: round $accent; }
+        密码输入与脚本内的交互提示都发生在真实终端里，结束后驻留显示结果。
         """
+        term = (shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal")
+                or shutil.which("konsole") or shutil.which("xterm"))
+        if not term:
+            print("  未找到终端模拟器，无法获取 root 授权。请改在命令行执行：")
+            print(f"    sudo python3 {self_file()} {item_id}")
+            return 127
+        inner = (
+            f"cd {shlex.quote(str(REPO_ROOT))} && "
+            f"sudo python3 {shlex.quote(str(self_file()))} {item_id}; "
+            f'echo; read -n1 -p "完成，按任意键关闭..."'
+        )
+        if "gnome-terminal" in term and "x-terminal-emulator" not in term:
+            subprocess.run([term, "--", "bash", "-c", inner])
+        else:
+            subprocess.run([term, "-e", f'bash -c "{inner}"'])
+        return 0
 
-        BINDINGS = [
-            ("q", "quit", "退出"),
-            ("r", "refresh", "重新检测"),
-        ]
+    class App:
+        def __init__(self, root: "tk.Tk") -> None:
+            self.root = root
+            self.q: "queue.Queue[tuple]" = queue.Queue()
+            self.busy = False
+            root.title("砺算 7G100 修复工具")
+            root.geometry("1150x700")
+            root.minsize(960, 600)
+            root.configure(bg=CLR["bg"])
+            self._build()
+            self.root.after(80, self._poll)
+            self.refresh()
 
-        def compose(self) -> ComposeResult:
-            yield Header()
-            with Horizontal(id="body"):
-                yield EnvPanel(id="env")
-                yield ListView(id="menu")
-            yield RichLog(id="log", markup=True, wrap=True)
-            yield Footer()
+        # ---- 布局 ----
+        def _build(self) -> None:
+            top = tk.Frame(self.root, bg=ACCENT_DARK, height=46)
+            top.pack(fill="x")
+            top.pack_propagate(False)
+            tk.Label(top, text="砺算 7G100 修复工具", bg=ACCENT_DARK, fg="white",
+                     font=("Noto Sans CJK SC", 14, "bold")).pack(side="left", padx=14)
+            mode = "root" if os.geteuid() == 0 else "普通用户"
+            tk.Label(top, text=f"当前权限：{mode}", bg=ACCENT_DARK,
+                     fg="#e0f7fa").pack(side="right", padx=14)
 
-        def on_mount(self) -> None:
-            self.title = "砺算 7G100 修复工具"
-            self.sub_title = "上下键选择 · 回车执行 · r 重新检测 · q 退出"
-            self.query_one("#env", EnvPanel).refresh_env()
-            self._load_menu()
-            self.query_one("#log", RichLog).write("[dim]就绪。选择菜单项后回车执行。[/dim]")
+            body = tk.PanedWindow(self.root, orient="horizontal", sashwidth=4,
+                                  bg=CLR["line"])
+            body.pack(fill="both", expand=True, padx=6, pady=6)
 
-        def _load_menu(self) -> None:
-            menu = self.query_one("#menu", ListView)
-            menu.clear()
+            # 左：环境检测
+            lf = tk.LabelFrame(body, text=" 环境检测 ", bg=CLR["card"], fg=ACCENT_DARK,
+                               font=("Noto Sans CJK SC", 10, "bold"))
+            body.add(lf, width=470, minsize=360)
+            self.env = tk.Text(lf, bd=0, bg=CLR["card"], fg=CLR["fg"],
+                               font=("Noto Sans Mono CJK SC", 10), wrap="word",
+                               state="disabled", cursor="arrow")
+            evsb = ttk.Scrollbar(lf, command=self.env.yview)
+            self.env.configure(yscrollcommand=evsb.set)
+            evsb.pack(side="right", fill="y")
+            self.env.pack(fill="both", expand=True, padx=4, pady=4)
+            for tag, color in (("ok", CLR["ok"]), ("bad", CLR["bad"]),
+                               ("warn", CLR["warn"]), ("info", CLR["info"]),
+                               ("cat", ACCENT_DARK)):
+                self.env.tag_configure(tag, foreground=color)
+
+            # 右：菜单树
+            rf = tk.LabelFrame(body, text=" 修复菜单（双击执行）", bg=CLR["card"],
+                               fg=ACCENT_DARK, font=("Noto Sans CJK SC", 10, "bold"))
+            body.add(rf, minsize=480)
+            style = ttk.Style()
+            try:
+                style.theme_use("clam")
+            except Exception:
+                pass
+            style.configure("Fix.Treeview", rowheight=26,
+                            font=("Noto Sans CJK SC", 10),
+                            background=CLR["card"], fieldbackground=CLR["card"])
+            style.map("Fix.Treeview",
+                      background=[("selected", CLR["sel"])],
+                      foreground=[("selected", CLR["fg"])])
+            self.tree = ttk.Treeview(rf, show="tree", selectmode="browse",
+                                     style="Fix.Treeview")
+            tsb = ttk.Scrollbar(rf, command=self.tree.yview)
+            self.tree.configure(yscrollcommand=tsb.set)
+            tsb.pack(side="right", fill="y")
+            self.tree.pack(fill="both", expand=True, padx=4, pady=4)
+            self.tree.column("#0", width=460)
+            self.tree.bind("<Double-1>", self._on_double)
+            self.tree.bind("<Return>", self._on_double)
+
+            # 底部：日志 + 状态栏
+            logf = tk.LabelFrame(self.root, text=" 执行日志 ", bg=CLR["card"],
+                                 fg=ACCENT_DARK, font=("Noto Sans CJK SC", 10, "bold"))
+            logf.pack(fill="both", padx=6, pady=(0, 4))
+            self.log = scrolledtext.ScrolledText(
+                logf, height=11, bd=0, bg="#263238", fg="#eceff1",
+                font=("Noto Sans Mono CJK SC", 9), insertbackground="white")
+            self.log.pack(fill="both", expand=True, padx=4, pady=4)
+            self.log.tag_configure("ok", foreground="#8bc34a")
+            self.log.tag_configure("bad", foreground="#ff8a80")
+            self.log.tag_configure("warn", foreground="#ffd54f")
+            self.log.tag_configure("dim", foreground="#90a4ae")
+
+            self.status = tk.Label(self.root, text="就绪", anchor="w", bg="#eceff1",
+                                   fg=CLR["fg"])
+            self.status.pack(fill="x", side="bottom")
+
+        # ---- 日志 ----
+        def _log(self, text: str, tag: str = "") -> None:
+            self.log.configure(state="normal")
+            self.log.insert("end", text + "\n", (tag,) if tag else ())
+            self.log.see("end")
+            self.log.configure(state="disabled")
+
+        # ---- 环境检测 ----
+        def refresh(self) -> None:
+            self._set_status("正在检测环境…")
+            threading.Thread(target=self._detect_worker, daemon=True).start()
+
+        def _detect_worker(self) -> None:
+            self.q.put(("env", detect()))
+
+        def _fill_env(self, env: Env) -> None:
+            self.env.configure(state="normal")
+            self.env.delete("1.0", "end")
+            self.env.insert("end", f"内核  {env.kernel}\n\n", "cat")
+            last = None
+            for c in env.checks:
+                if c.category != last:
+                    self.env.insert("end", f"◆ {c.category}\n", "cat")
+                    last = c.category
+                mark = {"ok": "✓", "bad": "✗", "warn": "!", "info": "·"}[c.level]
+                self.env.insert("end", f"  [{mark}] ", c.level)
+                self.env.insert("end", c.text + "\n")
+            self.env.configure(state="disabled")
+            n_bad, n_warn = len(env.by_level("bad")), len(env.by_level("warn"))
+            tip = f"异常 {n_bad} · 警告 {n_warn}" if (n_bad or n_warn) else "一切正常"
+            self._set_status(f"检测完成：{tip}")
+
+        # ---- 菜单树 ----
+        def _fill_menu(self) -> None:
+            self.tree.delete(*self.tree.get_children())
             for g in GROUP_ORDER:
-                items = [it for it in ITEMS if it["group"] == g]
+                items = [i for i in ITEMS if i["group"] == g]
                 if not items:
                     continue
-                menu.append(ListItem(Label(f"[b]{g}[/b]"), disabled=True))
+                self.tree.insert("", "end", iid=f"g:{g}", text=g, open=True,
+                                 tags=("group",))
                 for it in items:
-                    menu.append(ListItem(MenuItemWidget(it)))
+                    label = it["title"] + ("　🔑" if it["root"] else "")
+                    self.tree.insert(f"g:{g}", "end", iid=f"i:{it['id']}",
+                                     text=f"{it['id']:>2}.  {label}")
+            self.tree.tag_configure("group", font=("Noto Sans CJK SC", 10, "bold"),
+                                    foreground=ACCENT_DARK)
 
-        def action_refresh(self) -> None:
-            self.query_one("#env", EnvPanel).refresh_env()
-            self.query_one("#log", RichLog).write("[dim]环境已重新检测。[/dim]")
+        # ---- 交互 ----
+        def _sel_item(self) -> Item | None:
+            sel = self.tree.selection()
+            if not sel or not sel[0].startswith("i:"):
+                return None
+            return ITEMS_BY_ID[int(sel[0][2:])]
 
-        def on_list_view_selected(self, event: ListView.Selected) -> None:
-            if not event.item.children:
+        def _on_double(self, _e=None) -> None:
+            it = self._sel_item()
+            if it is not None:
+                self.execute(it["id"])
+
+        def execute(self, item_id: int) -> None:
+            if self.busy:
+                self._log("已有任务在执行，请稍候…", "warn")
                 return
-            widget = event.item.children[0]
-            if not isinstance(widget, MenuItemWidget):
-                return
-            log = self.query_one("#log", RichLog)
-            log.clear()
-            log.write(f"[b]执行 {widget.item['id']}) {widget.item['title']}[/b]")
-            self.run_worker(
-                lambda: self._exec(widget.item["id"]), thread=True, exclusive=True
-            )
-
-        def _exec(self, item_id: int) -> None:
-            """在后台线程执行，逐行把输出转发到日志区。"""
-            log = self.query_one("#log", RichLog)
             it = ITEMS_BY_ID[item_id]
 
-            # 说明项的 cmd 也是 None，必须先于下面的"内部实现"分支处理
+            # 说明项：弹只读窗口显示 md
             if it.get("doc"):
+                path = S / it["doc"]
+                if not path.is_file():
+                    self._log(f"文档不存在：{path}", "bad")
+                    return
+                win = tk.Toplevel(self.root)
+                win.title(it["title"])
+                win.geometry("860x620")
+                txt = scrolledtext.ScrolledText(
+                    win, wrap="word", font=("Noto Sans Mono CJK SC", 10))
+                txt.pack(fill="both", expand=True)
+                try:
+                    txt.insert("1.0", path.read_text(errors="replace"))
+                except OSError as e:
+                    txt.insert("1.0", f"读取失败：{e}")
+                txt.configure(state="disabled")
+                self._log(f"已打开说明：{it['title']}")
+                return
+
+            # 需要root：打开终端窗口，在终端里以 sudo 重跑本工具非交互模式
+            if it["root"] and os.geteuid() != 0:
+                self._log(f"[{item_id}] 需要 root —— 已在新终端窗口打开，"
+                          "请在其中输入密码，完成后回到本窗口点「重新检测」。", "warn")
+                open_in_terminal(item_id)
+                return
+
+            self.busy = True
+            self._set_status(f"执行 [{item_id}] {it['title']} …")
+            self._log(f"$ [{item_id}] {it['title']}", "dim")
+            threading.Thread(target=self._exec_worker, args=(item_id,),
+                             daemon=True).start()
+
+        def _exec_worker(self, item_id: int) -> None:
+            it = ITEMS_BY_ID[item_id]
+            if it["cmd"] is None:
+                # 内部实现（17 install_steam_fix / 25 launch_underlords）
                 import contextlib
                 import io as _io
 
                 buf = _io.StringIO()
-                with contextlib.redirect_stdout(buf):
-                    code = show_doc(it["doc"])
-                text = buf.getvalue()
-                if not text:  # show_doc 走 less 分支时无输出，退回直接读文件
-                    try:
-                        text = (REPO_ROOT / it["doc"]).read_text(errors="replace")
-                    except OSError as e:
-                        text = f"读取失败：{e}"
-                # 超长文档只显示前 200 行，提示用命令行看全文
-                lines = text.splitlines()
-                preview = "\n".join(lines[:200])
-                self.call_from_thread(log.write, "[b]说明文档预览[/b]")
-                for ln in preview.splitlines():
-                    self.call_from_thread(log.write, ln)
-                if len(lines) > 200:
-                    self.call_from_thread(
-                        log.write,
-                        f"[dim]... 共 {len(lines)} 行，已截断。"
-                        f"查看完整文档：[b]python3 packaging/install.py {item_id}[/b][/dim]",
-                    )
-                self.call_from_thread(
-                    log.write, f"[green]=== 文档结束，返回码 {code} ===[/green]"
-                )
-                return
-
-            if it["cmd"] is None:
-                self.call_from_thread(
-                    log.write,
-                    (
-                        f"[yellow]菜单项 {item_id} 为内部实现，请在命令行执行：\n"
-                        + f"  python3 packaging/install.py {item_id}[/yellow]"
-                    ),
-                )
+                try:
+                    with contextlib.redirect_stdout(buf):
+                        if item_id == 17:
+                            code = install_steam_fix()
+                        elif item_id == 25:
+                            code = launch_underlords()
+                        else:
+                            code = 1
+                    self.q.put(("log", buf.getvalue() or f"（返回码 {code}）", ""))
+                    self.q.put(("done", code, it["title"]))
+                except Exception as e:  # noqa: BLE001
+                    self.q.put(("log", f"执行失败：{e}", "bad"))
+                    self.q.put(("done", 1, it["title"]))
                 return
 
             cmd = it["cmd"]([])
-            if it["root"] and os.geteuid() != 0:
-                cmd = ["sudo", *cmd]
+            if cmd[0] == "bash" and len(cmd) > 1 and not Path(cmd[1]).is_file():
+                self.q.put(("log", f"脚本缺失：{cmd[1]}", "bad"))
+                self.q.put(("log",
+                            "说明：deb 安装版未打包该目录，请在源码仓库中运行。", "dim"))
+                self.q.put(("done", 127, it["title"]))
+                return
 
-            self.call_from_thread(log.write, f"[dim]$ {' '.join(cmd)}[/dim]")
             try:
-                import subprocess as _sp
-                from typing import TextIO, cast
-
-                proc = _sp.Popen(
-                    cmd,
-                    stdout=_sp.PIPE,
-                    stderr=_sp.STDOUT,
-                    text=True,
-                    errors="replace",
-                    bufsize=1,
-                )
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, errors="replace", bufsize=1)
                 assert proc.stdout is not None
-                stdout = cast(TextIO, proc.stdout)
-                for line in stdout:
-                    self.call_from_thread(log.write, line.rstrip())
+                for line in proc.stdout:
+                    self.q.put(("log", line.rstrip(), ""))
                 code = proc.wait()
             except FileNotFoundError as e:
-                self.call_from_thread(log.write, f"[red]命令不存在：{e}[/red]")
-                return
+                self.q.put(("log", f"命令不存在：{e}", "bad"))
+                code = 127
             except Exception as e:  # noqa: BLE001
-                self.call_from_thread(log.write, f"[red]执行失败：{e}[/red]")
-                return
+                self.q.put(("log", f"执行失败：{e}", "bad"))
+                code = 1
+            self.q.put(("done", code, it["title"]))
 
-            style = "green" if code == 0 else "red"
-            self.call_from_thread(
-                log.write, f"[{style}]=== 结束，返回码 {code} ===[/{style}]"
-            )
-            self.call_from_thread(self.query_one("#env", EnvPanel).refresh_env)
+        # ---- 队列轮询 ----
+        def _poll(self) -> None:
+            try:
+                while True:
+                    msg = self.q.get_nowait()
+                    kind = msg[0]
+                    if kind == "env":
+                        self._fill_env(msg[1])
+                    elif kind == "log":
+                        text, tag = msg[1], msg[2]
+                        for ln in text.splitlines() or [""]:
+                            self._log(ln, tag)
+                    elif kind == "done":
+                        code, title = msg[1], msg[2]
+                        self._log(f"=== {title} 结束，返回码 {code} ===",
+                                  "ok" if code == 0 else "bad")
+                        self.busy = False
+                        self._set_status("就绪")
+                        self.refresh()
+            except queue.Empty:
+                pass
+            self.root.after(80, self._poll)
 
-    def run_tui() -> None:
-        LisuanFixApp().run()
+        def _set_status(self, text: str) -> None:
+            self.status.configure(text=text)
 
-    return run_tui
+    def run_gui() -> None:
+        root = tk.Tk()
+        App(root)
+        root.mainloop()
+
+    return run_gui
 
 
 # ---------------------------------------------------------------- 入口分发
@@ -858,64 +871,31 @@ def main(argv: list[str]) -> int:
 
     if args and args[0] == "--detect":
         env = detect()
-        if "--json" in args:
-            print(report_json(env))
-        else:
-            print(render_report(env))
+        print(report_json(env) if "--json" in args else render_report(env))
         return 0
 
     if args and args[0].isdigit():
         item_id = int(args[0])
-        extra = args[1:]
         print(render_report(detect()))
-        return run_item(item_id, extra)
+        return run_item(item_id, args[1:])
 
     if args and args[0] in ("-h", "--help"):
         print(__doc__)
         return 0
 
-    # 交互模式
-    run_tui = _load_tui()
-    if run_tui is not None and sys.stdin.isatty():
-        run_tui()
-        return 0
-    return text_menu()
-
-
-def text_menu() -> int:
-    """纯文本交互菜单（Textual 不可用时的降级路径，与旧 bash 版等价）。"""
-    print(render_report(detect()))
-    while True:
-        print("=" * 54)
-        print("  修复菜单（输入编号回车执行，Ctrl-C 退出）")
-        print("=" * 54)
-        for g in GROUP_ORDER:
-            items = [it for it in ITEMS if it["group"] == g]
-            if not items:
-                continue
-            print(f"  {g}")
-            for it in items:
-                print("  " + item_label(it))
-        print("   0) 退出")
-        print("=" * 54)
-        try:
-            choice = input("请选择 [0-27]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\n再见。")
-            return 0
-        if choice == "0":
-            print("再见。")
-            return 0
-        if not choice.isdigit():
-            continue
-        try:
-            rc = run_item(int(choice))
-        except KeyboardInterrupt:
-            print("\n  已中断。")
-            continue
-        if rc != 0:
-            print(f"  （返回码 {rc}）")
-        print()
+    # 交互模式：Tkinter 桌面窗口（无法启动时直接报错退出，不降级）
+    run_gui = _load_gui()
+    if run_gui is None:
+        print("错误：无法启动图形界面（Tkinter 桌面窗口）。", file=sys.stderr)
+        print("  可能原因：", file=sys.stderr)
+        print("    - 无显示环境（SSH 远程请用 X11 转发，或在本机桌面运行）",
+              file=sys.stderr)
+        print("    - 未安装 tkinter（Ubuntu：sudo apt-get install python3-tk）",
+              file=sys.stderr)
+        print("  非交互替代：--detect / --detect --json / <菜单编号>", file=sys.stderr)
+        return 1
+    run_gui()
+    return 0
 
 
 if __name__ == "__main__":
