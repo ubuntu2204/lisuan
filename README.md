@@ -192,9 +192,9 @@ lisuan-fix --detect                                     # PATH 直达，资源�
  4-6)   DKMS      安装/修复 · 卸载 · 说明
  7)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
  8-14)  Electron  ZCode/CodeBuddy/Qoder（各：启动 + 安装桌面项）· 说明
-15-19)  Steam     安装/修复 · 卸载 ×3 · 说明
-20-21)  随从大师   安装/修复 · 说明
-22-24)  刀塔霸业   安装/修复 · 启动 · 说明
+15-17)  Steam     安装/修复 · 卸载 · 说明（旧方案清理已退出菜单，脚本留作手动工具）
+18-19)  随从大师   安装/修复 · 说明
+20-21)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
 ```
 
 > 注意：编号已按新分组**重新编排**。
@@ -417,8 +417,8 @@ vermagic: 7.0.0-28-generic SMP preempt mod_unload modversions   # ← 与运行�
 |---|---|
 | DKMS Makefile 补丁 | `sudo dkms/uninstall-lisuan-gpu.sh`（优先从 `.bak` 还原，无备份时反向替换并留 `.uninstall.bak`；菜单 4） |
 | Steam CEF 修复（推荐方案） | 删除桌面启动器中的 `GBM_BACKEND=dri` 即可，无需 root（见[三](#三steam-适配)） |
-| Steam 历史 wrap 注入 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原；菜单 17） |
-| 开机自愈服务 | `sudo systemctl disable --now lisuan-steam-autofix.service && sudo rm -f /etc/systemd/system/lisuan-steam-autofix.service`（菜单 18） |
+| Steam 历史 wrap 注入 | `sudo steam/fix-steam-cef-lock.sh --uninstall`（还原 wrap.sh 并解锁；`--unlock` 只解锁不还原） |
+| 开机自愈服务 | `sudo systemctl disable --now lisuan-steam-autofix.service && sudo rm -f /etc/systemd/system/lisuan-steam-autofix.service` |
 
 验证 DKMS 补丁已还原（第 4 行应变回原厂行）：
 

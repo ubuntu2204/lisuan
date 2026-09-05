@@ -215,20 +215,23 @@ def detect() -> Env:
             if "libglapi_gf" in wcontent or "GBM_BACKEND=dri" in wcontent:
                 env.add("Steam", "bad",
                         "wrap.sh 仍含旧方案残留注入 —— 会让 Steam 客户端 double free，"
-                        "请清理（菜单 [18]）", "18")
+                        "请运行 sudo bash steam/fix-steam-cef-lock.sh --uninstall 清理"
+                        "（历史方案，已不占菜单）")
 
             attr = out(["lsattr", str(STEAM_WRAP)])
             flags = attr.split()[0] if attr else ""
             if "i" in flags:
                 env.add("Steam", "bad",
                         "wrap.sh 被 chattr +i 锁定 —— 会触发 Steam 更新回滚循环，"
-                        "导致游戏反复重新下载，请立即解锁（菜单 [17]）", "17")
+                        "导致游戏反复重新下载，请立即解锁（菜单 [16]）", "16")
     else:
         env.add("Steam", "info", "未安装 Steam（跳过 Steam 相关项）")
 
     if ok_cmd(["systemctl", "is-enabled", "lisuan-steam-autofix.service"]):
         env.add("自愈", "warn",
-                "开机自愈服务仍在启用 —— 新方案（环境变量）不需要它，建议卸载（菜单 [19]）", "19")
+                "开机自愈服务仍在启用 —— 新方案（环境变量）不需要它，请运行：\n"
+                "    sudo systemctl disable --now lisuan-steam-autofix.service && "
+                "sudo rm -f /etc/systemd/system/lisuan-steam-autofix.service")
 
     ul = Path.home() / ".local/share/Steam/steamapps/common/Underlords/game"
     ulsh = ul / "underlords.sh"
@@ -240,9 +243,9 @@ def detect() -> Env:
             injected = False
     if injected and os.access(ul / "play-native.sh", os.X_OK):
         env.add("游戏", "ok",
-                "Dota Underlords 修复已安装（Steam 内直接点开始游戏；菜单 [23]/[24]）")
+                "Dota Underlords 修复已安装（Steam 内直接点开始游戏，或用桌面项）")
     elif ul.is_dir():
-        env.add("游戏", "warn", "Dota Underlords 修复未安装 —— 菜单 [23]", "23")
+        env.add("游戏", "warn", "Dota Underlords 修复未安装 —— 菜单 [20]", "20")
 
     return env
 
@@ -328,28 +331,21 @@ ITEMS: list[Item] = [
      "group": "Steam", "root": False, "cmd": None, "doc": ""},  # install_steam_fix
     {"id": 16, "title": "卸载：移除 GBM_BACKEND 并解锁 Steam 文件", "group": "Steam",
      "root": True, "cmd": None, "doc": ""},  # remove_steam_fix
-    {"id": 17, "title": "卸载：清理旧方案残留（还原 wrap.sh 注入）", "group": "Steam",
-     "root": True, "cmd": lambda a: _sh("steam/fix-steam-cef-lock.sh", "--uninstall"),
-     "doc": ""},
-    {"id": 18, "title": "卸载：开机自愈服务（新方案下已不需要）", "group": "Steam",
-     "root": True, "cmd": None, "doc": ""},  # remove_autofix
-    {"id": 19, "title": "说明：Steam 在砺算上的适配细节（容器/CEF/Proton）", "group": "Steam",
+    {"id": 17, "title": "说明：Steam 在砺算上的适配细节（容器/CEF/Proton）", "group": "Steam",
      "root": False, "cmd": None, "doc": _doc("steam/steam-on-lisuan.md")},
 
     # ---- 随从大师 ----
-    {"id": 20, "title": "安装/修复：硬件渲染加固（libSC.so 链接 + DXVK 降级 + hook）",
+    {"id": 18, "title": "安装/修复：硬件渲染加固（libSC.so 链接 + DXVK 降级 + hook）",
      "group": "随从大师", "root": True,
      "cmd": lambda a: _sh("minion-masters/fix-minion-masters-7g100-hw.sh", *a), "doc": ""},
-    {"id": 21, "title": "说明：随从大师（Minion Masters）修复文档", "group": "随从大师",
+    {"id": 19, "title": "说明：随从大师（Minion Masters）修复文档", "group": "随从大师",
      "root": False, "cmd": None, "doc": _doc("minion-masters/fix-minion-masters.md")},
 
     # ---- 刀塔霸业 ----
-    {"id": 22, "title": "安装/修复：Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项）",
+    {"id": 20, "title": "安装/修复：Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项）",
      "group": "刀塔霸业", "root": True,
      "cmd": lambda a: _sh("underlords/fix-underlords-native.sh"), "doc": ""},
-    {"id": 23, "title": "启动游戏（宿主直跑，需 Steam 在运行）", "group": "刀塔霸业",
-     "root": False, "cmd": None, "doc": ""},  # launch_underlords
-    {"id": 24, "title": "说明：Dota Underlords 修复文档", "group": "刀塔霸业",
+    {"id": 21, "title": "说明：Dota Underlords 修复文档", "group": "刀塔霸业",
      "root": False, "cmd": None, "doc": _doc("underlords/fix-underlords-native.md")},
 ]
 
@@ -416,33 +412,6 @@ def remove_steam_fix() -> int:
 
 # ---------------------------------------------------------------- 执行
 
-AUTOFIX_UNIT = "/etc/systemd/system/lisuan-steam-autofix.service"
-
-
-def remove_autofix() -> int:
-    seq = [
-        ["systemctl", "disable", "--now", "lisuan-steam-autofix.service"],
-        ["rm", "-f", AUTOFIX_UNIT],
-        ["systemctl", "daemon-reload"],
-    ]
-    for cmd in seq:
-        if os.geteuid() != 0:
-            cmd = ["sudo", *cmd]
-        p = subprocess.run(cmd)
-        if p.returncode != 0:
-            return p.returncode
-    return 0
-
-
-def launch_underlords() -> int:
-    ul = Path.home() / ".local/share/Steam/steamapps/common/Underlords/game/play-native.sh"
-    if not os.access(ul, os.X_OK):
-        print(f"  未找到 {ul}")
-        return 1
-    if not out(["pgrep", "-f", "ubuntu12_32/steam"]):
-        print("  [!!] Steam 客户端未在运行，游戏可能无法完成授权")
-    return subprocess.run([str(ul)]).returncode
-
 
 def show_doc(rel: str) -> int:
     """命令行模式下展示说明文档（交互终端用 less，非交互直接打印）。"""
@@ -472,10 +441,6 @@ def run_item(item_id: int, extra: list[str] | None = None) -> int:
         return install_steam_fix()
     if item_id == 16:
         return remove_steam_fix()
-    if item_id == 18:
-        return remove_autofix()
-    if item_id == 23:
-        return launch_underlords()
 
     cmd = it["cmd"](extra) if it["cmd"] else None
     if cmd is None:
@@ -549,7 +514,7 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
     级别：ok=已就绪，bad=需修复，warn=需注意，dim=不适用/可选/按需。
-    说明与纯操作项（1/6/7/14/19/21/23/24）不返回状态。
+    说明与纯操作项（1/6/7/14/17/19/21）不返回状态。
     """
     env = env or detect()
     st: dict[int, tuple[str, str]] = {}
@@ -635,38 +600,27 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     st[16] = (("有残留", "warn")
               if ("GBM_BACKEND=dri" in desktop_txt or locked)
               else ("干净", "ok"))
-    if "libglapi_gf" in wrap_txt or "GBM_BACKEND=dri" in wrap_txt:
-        st[17] = ("有残留", "warn")
-    else:
-        st[17] = ("干净", "ok") if wrap_txt else ("未使用", "dim")
 
-    if ok_cmd(["systemctl", "is-enabled", "lisuan-steam-autofix.service"]):
-        st[18] = ("启用中", "bad")
-    elif Path(AUTOFIX_UNIT).exists():
-        st[18] = ("有残留", "warn")
-    else:
-        st[18] = ("干净", "ok")
-
-    # 20 Minion Masters：hook 产物 + 游戏目录
+    # 18 Minion Masters：hook 产物 + 游戏目录
     mm_game = home / ".steam/root/steamapps/common/Minion Masters"
     if not mm_game.is_dir():
-        st[20] = ("未安装", "dim")
+        st[18] = ("未安装", "dim")
     elif (S / "minion-masters/gf-compat/lib/osrelease_redirect.so").is_file():
-        st[20] = ("✓ 已部署", "ok")
+        st[18] = ("✓ 已部署", "ok")
     else:
-        st[20] = ("✗ 需修复", "bad")
+        st[18] = ("✗ 需修复", "bad")
 
-    # 22 Underlords：注入标记
+    # 20 Underlords：注入标记
     ul_root = home / ".local/share/Steam/steamapps/common/Underlords"
     if not ul_root.is_dir():
-        st[22] = ("未安装", "dim")
+        st[20] = ("未安装", "dim")
     else:
         try:
             injected = ("Lisuan 7G100 fix (injected)"
                         in (ul_root / "game/underlords.sh").read_text(errors="replace"))
         except OSError:
             injected = False
-        st[22] = ("✓ 已修复", "ok") if injected else ("✗ 需修复", "bad")
+        st[20] = ("✓ 已修复", "ok") if injected else ("✗ 需修复", "bad")
 
     return st
 

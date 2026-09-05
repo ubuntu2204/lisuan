@@ -37,7 +37,7 @@ from lisuan_fix_core import (
     collect_statuses,
     detect,
     install_steam_fix,
-    launch_underlords,
+    remove_steam_fix,
 )
 from lisuan_fix_md import render as render_md
 
@@ -316,7 +316,7 @@ class App:
     def _exec_worker(self, item_id: int) -> None:
         it = ITEMS_BY_ID[item_id]
         if it["cmd"] is None:
-            # 内部实现（15 install_steam_fix / 23 launch_underlords）
+            # 内部实现（15 install_steam_fix / 16 remove_steam_fix）
             import contextlib
             import io as _io
 
@@ -325,8 +325,8 @@ class App:
                 with contextlib.redirect_stdout(buf):
                     if item_id == 15:
                         code = install_steam_fix()
-                    elif item_id == 23:
-                        code = launch_underlords()
+                    elif item_id == 16:
+                        code = remove_steam_fix()
                     else:
                         code = 1
                 self.q.put(("log", buf.getvalue() or f"（返回码 {code}）", ""))

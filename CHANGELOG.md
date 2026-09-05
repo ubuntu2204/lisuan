@@ -67,7 +67,17 @@
     `mesa/use-system-mesa.sh`（系统 Mesa 包装器）、`gf-compat/` 构建配套、
     `dkms/` `electron/` `underlords/` 各脚本均仍在用，保留。
     README / steam-on-lisuan.md 的相关引用已清理；
-    `detect()` 对软链残留的警告改为手动 `rm` 提示。
+    `detect()` 对软链残留的警告改为手动 `rm` 提示；
+15. **删除旧方案清理菜单项 17/18**（新方案下对新用户永远"干净"，与变更 13
+    同理，一次性清理需求改由脚本/命令手动完成）：
+    - 17「清理 wrap.sh 注入」→ `sudo steam/fix-steam-cef-lock.sh --uninstall`；
+    - 18「卸载开机自愈服务」→ `systemctl disable --now` + 删 unit 文件
+      （`remove_autofix()` 与 `AUTOFIX_UNIT` 死代码一并移除）；
+    保留 16「卸载 Steam 修复」（现行方案配套卸载 + `chattr -i` 解锁入口，
+    锁定警告仍指向它）。全部编号重排，共 22 项；
+16. **删除菜单「启动游戏」**——补丁自带的桌面项（`dota-underlords-native.desktop`）
+    与 Steam 内"开始游戏"（自动委托宿主）已覆盖全部启动场景，GUI 手动启动入口
+    冗余；`launch_underlords()` 死代码一并移除。共 21 项。
 
 ### 验证
 
@@ -97,9 +107,9 @@
  4-6)   DKMS      安装/修复 · 卸载 · 说明
  7)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
  8-14)  Electron  ZCode/CodeBuddy/Qoder（各：启动 + 安装桌面项）· 说明
-15-19)  Steam     安装/修复 · 卸载 ×3 · 说明
-20-21)  随从大师   安装/修复 · 说明
-22-24)  刀塔霸业   安装/修复 · 启动 · 说明
+15-17)  Steam     安装/修复 · 卸载 · 说明（旧方案清理已退出菜单，脚本留作手动工具）
+18-19)  随从大师   安装/修复 · 说明
+20-21)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
 ```
 
 内部实现项随之改绑：`17 install_steam_fix`、`18 remove_steam_fix`、
