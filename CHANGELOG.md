@@ -3,6 +3,48 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.09.06 — 刀塔霸业闪退修复：Fossilize pipeline cache 触发厂商 Vulkan 驱动 GPF
+
+### 现象
+
+游戏在宿主直跑 ~73 秒后段错误（status 139，自动重启关闭故直接退出）。
+
+### 根因（journalctl -k 定位）
+
+```
+traps: GlobPool0 general protection fault ... in libvulkan_gf.so
+```
+
+厂商 Vulkan 驱动 `libvulkan_gf.so` 的 GlobPool0 线程 GPF。排查排除游戏更新
+（二进制 08-05 未变）后锁定触发源：**Steam/Fossilize 的 pipeline cache**——
+上次游玩（09-05 22:12）写入的 50M `steam_pipeline_cache.foz` 在下次启动被
+驱动加载/replay 时触发驱动 bug。崩溃那次运行（00:13）Fossilize 又写入了
+replay_cache，形成"越崩越写、越写越崩"的循环。
+
+### 修复
+
+1. 清空 Steam 的 `steamapps/shadercache/1046930/fozpipelinesv6/`（游戏重启后
+   Fossilize 自动重建，代价是下次进游戏 shader 重编译、加载稍久）；
+2. 保持 `-vulkan` 渲染（实测清缓存后 120s+ 稳定、无内核异常）；
+3. 补丁模板 `fix-underlords-native.sh` 顺带补齐 `libudev.so.0 → libudev.so.1`
+   软链（Source 2 GL 渲染系统依赖，Ubuntu 24.04 缺失——为将来 GL 后端备用）；
+4. 厂商 bug 报告追加 `libvulkan_gf.so` GlobPool0 GPF 案例（附内核 traps 原文）。
+
+### 已尝试并放弃的路径
+
+- **`-gl` 渲染**：libudev 补齐后 GL 渲染系统可加载（运行时确认走
+  `gf_dri.so` + `libGLX_gf`），但 Source 2 Linux 的 GL 后端实测**进游戏黑屏**
+  （渲染不输出），不可用；
+- 由此确认厂商 Vulkan 路线仍是唯一可用渲染路径，排障重点是缓存状态。
+
+### 复发排障
+
+再遇 `GlobPool0 ... general protection fault ... libvulkan_gf.so`：
+删除 `~/.local/share/Steam/steamapps/shadercache/1046930/fozpipelinesv6/`
+后重启游戏即可（详见 fix-underlords-native.md 排障节）。
+
+---
+
 ## 2026.09.05 — 交互界面从 Textual 迁移到 Tkinter；移除第三方 GUI 依赖
 
 ### 动机

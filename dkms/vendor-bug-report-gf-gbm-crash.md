@@ -236,3 +236,25 @@ Steam 客户端即恢复。游戏进程树内的 gf env 注入不受此影响（
 - 兼容性背景分析：`docs/system-mesa-analysis.md`
 - 修复脚本：`steam/fix-steam-cef-lock.sh`（问题一、二的注入与锁定）
 - 游戏宿主直跑命令：见 §4"规避"
+
+## 附录：libvulkan_gf.so GlobPool0 线程 GPF（2026-09-06，Dota Underlords）
+
+- 复现：Source 2 原生游戏 Dota Underlords（AppID 1046930）在宿主直跑
+  `-vulkan`，加载期（约 73s，shader 编译高峰）稳定触发段错误。
+- 内核证据（journalctl -k）：
+
+  ```
+  traps: GlobPool0[60664] general protection fault ip:7ff0f1a913c5
+  sp:7ff0fe915190 error:0 in libvulkan_gf.so[913c5,7ff0f1a7f000+32b000]
+  ```
+
+- 影响线程：`GlobPool0`（驱动全局对象池/管线缓存相关工作线程）；
+- 触发源：Steam/Fossilize pipeline cache（`steam_pipeline_cache.foz`）——上次
+  运行写入的管线在下次启动被驱动加载/replay 时崩溃；删除
+  `steamapps/shadercache/<appid>/fozpipelinesv6/` 后同一路径稳定（120s+ 无异常，
+  缓存重建后再观察）；
+- 已试并放弃：GL 后端（`-gl`，gf_dri.so / OpenGL 4.6）——Source 2 Linux 的
+  GL 渲染系统可加载但进游戏黑屏，不可用（需先补 `libudev.so.0` 软链，
+  Ubuntu 24.04 默认缺失）；
+- 状态：**待厂商修复**（与 §3 vkEnumeratePhysicalDevices 问题同属
+  libvulkan_gf.so 用户态缺陷）。

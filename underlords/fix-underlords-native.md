@@ -105,3 +105,25 @@ Ubuntu 24.04 已移除该库，Source 2 的 pango 模块会因找不到它崩溃
 
 然后从 Steam 点"开始游戏"，应正常进入主菜单与对局。被 `kill -9` 强杀后残留的
 `LS_SHARE_MEMORY_*` 会在下次启动自动清理；段错误由智能重试兜底（仅默认开启自动重启时生效）。
+
+## 排障：加载期段错误（GlobPool0 / libvulkan_gf.so）
+
+**症状**：宿主直跑约 70-90 秒（shader 编译高峰）段错误退出，`journalctl -k` 出现：
+
+```
+traps: GlobPool0 general protection fault ... in libvulkan_gf.so
+```
+
+**根因**：Steam/Fossilize 的 pipeline cache（`steam_pipeline_cache.foz`）里
+上次运行写入的管线在驱动加载/replay 时触发 `libvulkan_gf.so` 用户态 bug
+（2026-09-06 实测，详见 `dkms/vendor-bug-report-gf-gbm-crash.md` 附录）。
+
+**对策**：清掉该游戏的 shader 缓存，重启游戏即可（Fossilize 自动重建，
+首次进游戏加载稍久属正常）：
+
+```bash
+rm -rf ~/.local/share/Steam/steamapps/shadercache/1046930/fozpipelinesv6
+```
+
+**不要改走 `-gl`**：Source 2 Linux 的 GL 渲染系统虽能加载（需先补
+`libudev.so.0`，补丁已自动处理），但实测进游戏黑屏，渲染不可用。

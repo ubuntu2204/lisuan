@@ -29,7 +29,9 @@
 #   3. play-native.sh   — native launcher (also usable from the desktop entry)
 #   4. libpng12.so.0    — downloaded into bin/linuxsteamrt64/ if missing
 #                         (Ubuntu 24.04 removed it; Source2 pango needs it)
-#   5. desktop entry    — "Dota Underlords (Lisuan native)"
+#   5. libudev.so.0     — symlink to system libudev.so.1 (Ubuntu 24.04 removed
+#                         it; Source2 GL rendersystem needs it，备用后端)
+#   6. desktop entry    — "Dota Underlords (Lisuan native)"
 #
 # Usage:
 #   sudo ./fix-underlords-native.sh                  # install (or repair), 默认【关闭】自动重启
@@ -75,6 +77,8 @@ status() {
   done
   [[ -f "$GAME_DIR/bin/linuxsteamrt64/libpng12.so.0" ]] \
     && echo "  [OK] libpng12.so.0 就绪" || echo "  [--] libpng12.so.0 缺失"
+  [[ -e "$GAME_DIR/bin/linuxsteamrt64/libudev.so.0" ]] \
+    && echo "  [OK] libudev.so.0 就绪" || echo "  [--] libudev.so.0 缺失（-gl 后端不可用）"
   [[ -f "$REAL_HOME/.local/share/applications/dota-underlords-native.desktop" ]] \
     && echo "  [OK] 桌面项已安装" || echo "  [--] 桌面项未安装"
 }
@@ -92,8 +96,9 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     warn "无 underlords.sh.orig 备份，无法还原（游戏文件可能已被 Steam 更新覆盖）"
   fi
   rm -f "$GAME_DIR/ul-host-run.sh" "$GAME_DIR/play-native.sh" \
+        "$GAME_DIR/bin/linuxsteamrt64/libudev.so.0" \
         "$REAL_HOME/.local/share/applications/dota-underlords-native.desktop"
-  log "ul-host-run.sh / play-native.sh / 桌面项已移除"
+  log "ul-host-run.sh / play-native.sh / libudev 软链 / 桌面项已移除"
   log "libpng12.so.0 与 *.orig 备份保留（无害）"
   exit 0
 fi
@@ -316,6 +321,23 @@ else
   else
     warn "下载失败（无网络?）。手动从 Ubuntu 18.04 归档获取 libpng12-0 并把"
     warn "libpng12.so.0 放到 $GAME_DIR/bin/linuxsteamrt64/"
+  fi
+fi
+
+# ---- 5. libudev.so.0 ----------------------------------------------------------
+# Ubuntu 24.04 只有 libudev.so.1；Source 2 的 GL 渲染系统 librendersystemgl.so
+# dlopen "libudev.so.0" —— 缺失时 GL 后端完全不可用，游戏被迫走厂商 Vulkan
+# （libvulkan_gf.so，2026-09-06 实测 GlobPool0 线程 GPF 崩溃）。
+# 软链到系统 libudev.so.1（Source 2 仅用基础 udev API，ABI 可用）。
+UDEV="$GAME_DIR/bin/linuxsteamrt64/libudev.so.0"
+if [[ -e "$UDEV" ]]; then
+  log "libudev.so.0 已存在，跳过"
+else
+  if [[ -e /usr/lib/x86_64-linux-gnu/libudev.so.1 ]]; then
+    ln -s /usr/lib/x86_64-linux-gnu/libudev.so.1 "$UDEV"
+    log "libudev.so.0 已补齐（→ 系统 libudev.so.1），GL 渲染系统可用"
+  else
+    warn "系统缺 libudev.so.1，无法补 libudev.so.0（-gl 后端将不可用）"
   fi
 fi
 
