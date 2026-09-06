@@ -208,6 +208,36 @@ CI 打包的 deb 安装后：菜单 13（随从大师）恒显"需修复"、14 �
 
 ---
 
+## 2026.09.06 — 随从大师加固目标自动跟随 Steam 中的实际选择
+
+### 背景
+
+本次"玩不了"复发的间接诱因：裸跑修复脚本默认加固 Proton - Experimental，
+而游戏实际用 Steam 里选择的 Proton 11.0——加固与运行对象脱节，且
+CompatToolMapping 被打回 experimental（覆盖用户选择）。
+
+### 变更
+
+`fix-minion-masters-7g100-hw.sh` 的加固目标解析改为三级优先：
+
+1. `MM_PROTON_DIR` 显式指定（沿用，且不改写 CompatToolMapping）；
+2. **自动跟随**：读 `config.vdf` 的 CompatToolMapping 489520，把 Steam 里
+   游戏当前选择的 Proton（如 `proton_11` → `Proton 11.0`）解析为目录并
+   加固它——**裸跑 `bash fix-...sh` 即可加固正确对象**，不再依赖记得带
+   环境变量；
+3. 兜底默认 Proton - Experimental（无记录/目录不存在时）。
+
+`--status` 新增"加固目标"行，可直接核对加固对象与 Steam 选择是否一致；
+`--uninstall` 亦作用于解析后的目标（还原正确的 Proton）。
+
+### 验证
+
+- 裸跑实测：自动检测 `proton_11 → Proton 11.0` 并输出加固目标；
+- `MM_PROTON_DIR=...Proton - Experimental` 显式覆盖仍优先；
+- 语法、`--status`、测试套件 7/7 通过。
+
+---
+
 ## 2026.09.06 — 删除独立卸载菜单项（功能由"卸载"按钮承担）
 
 ### 变更

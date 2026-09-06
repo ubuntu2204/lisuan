@@ -50,10 +50,13 @@ ASSETS="$(cd "$(dirname "$0")/assets-mm-gf-vulkan" && pwd)"
 # 注意 osrelease_redirect.c / libvulkan_gf_shim.c 内的伪造路径写死为
 # /home/ubuntu/gf-compat，因此这里会对源码 sed 改写后重新编译（见 deploy_hook）。
 DEPLOY="$(cd "$(dirname "$0")/gf-compat" && pwd)"
-# 目标 Proton 目录。默认 Proton - Experimental。
-# 若 Steam 里已手动为游戏选择了其它 Proton（如稳定的 Proton 11.0），
-# 用 MM_PROTON_DIR 指向它即可对本目录做加固，且不会改写 CompatToolMapping
-# （保留用户在 Steam 界面里的选择）。例：
+# 目标 Proton 目录（加固对象）。解析优先级：
+#   1) MM_PROTON_DIR 显式指定（且不改写 CompatToolMapping，保留 Steam 内选择）；
+#   2) 自动跟随 Steam 中游戏当前选择的 Proton（读 CompatToolMapping 489520）；
+#   3) 默认 Proton - Experimental。
+# 复发背景（2026-09-06）：游戏实际用 Proton 11.0 而脚本默认加固 Experimental，
+# 且把 CompatToolMapping 打回 experimental——加固与运行对象脱节致游戏不可玩。
+# 例（显式指定）：
 #   MM_PROTON_DIR="$HOME/.local/share/Steam/steamapps/common/Proton 11.0" bash fix-...sh
 PROTON_EX="${MM_PROTON_DIR:-$HOME/.local/share/Steam/steamapps/common/Proton - Experimental}"
 PROTON8="$HOME/.local/share/Steam/steamapps/common/Proton 8.0"
@@ -66,6 +69,58 @@ LAUNCHOPTS="PROTON_USE_WOW64=1 LD_PRELOAD=$DEPLOY/lib/osrelease_redirect.so __GL
 
 say() { echo "[mm-hw] $*"; }
 err() { echo "[mm-hw] !! $*" >&2; }
+
+# ---- 加固目标解析（2026-09-06 固化）----
+# 优先级：MM_PROTON_DIR 显式指定 > Steam 中游戏当前选择的 Proton > 默认 Experimental。
+# 复发背景：游戏实际用 Proton 11.0，而裸跑脚本默认加固 Experimental 并把
+# CompatToolMapping 打回 experimental——导致加固与运行对象脱节、游戏玩不了。
+# 现在自动跟随 Steam 里的实际选择，裸跑也能加固正确对象。
+proton_name_to_dir() {
+  local name="$1" base="$HOME/.local/share/Steam/steamapps/common" ver="${1#proton_}" c
+  case "$name" in
+    proton_experimental)
+      c="Proton - Experimental"
+      [ -d "$base/$c" ] && { echo "$base/$c"; return 0; }
+      return 1 ;;
+    *)
+      for c in "Proton ${ver}.0" "Proton ${ver}" "Proton ${ver//_/.}" "Proton ${ver} (Beta)"; do
+        [ -d "$base/$c" ] && { echo "$base/$c"; return 0; }
+      done
+      return 1 ;;
+  esac
+}
+
+if [ -z "${MM_PROTON_DIR:-}" ]; then
+  SEL_TOOL="$(python3 - "$CONFIG_VDF" <<'PY'
+import re, sys
+try:
+    data = open(sys.argv[1]).read()
+except (OSError, IndexError):
+    sys.exit(0)
+m = re.search(r'"CompatToolMapping"\s*\n\s*\{', data)
+if not m:
+    sys.exit(0)
+seg_start = m.end(); depth = 1; i = seg_start
+while i < len(data) and depth > 0:
+    if data[i] == '{': depth += 1
+    elif data[i] == '}': depth -= 1
+    i += 1
+mm = re.search(r'"489520"\s*\{[^}]*?"name"\s*"([^"]+)"',
+               data[seg_start:i-1], flags=re.S)
+print(mm.group(1) if mm else "")
+PY
+)"
+  if [ -n "$SEL_TOOL" ]; then
+    if SEL_DIR="$(proton_name_to_dir "$SEL_TOOL")" && [ -d "$SEL_DIR" ]; then
+      PROTON_EX="$SEL_DIR"
+      say "检测到游戏当前 Proton: $SEL_TOOL -> $SEL_DIR（自动加固它）"
+    else
+      say "游戏选择 $SEL_TOOL 但本地未找到对应目录，回退默认 Experimental"
+    fi
+  else
+    say "Steam 中未记录游戏 Proton 选择，按默认 Experimental 加固"
+  fi
+fi
 
 # 存在性检查仅约束"安装"模式；--uninstall 允许在环境残缺时做部分还原。
 case "${1:-}" in
@@ -234,6 +289,7 @@ PY
 
 # ---------- 状态 ----------
 status() {
+  echo "== 加固目标 ==";    echo "$PROTON_EX"
   echo "== hook ==";        ls -la "$DEPLOY/lib/osrelease_redirect.so" 2>/dev/null || echo "  缺失"
   echo "== shim ICD ==";    ls -la "$DEPLOY/lib/libvulkan_gf_shim.so" 2>/dev/null || echo "  缺失"
   echo "== gf_icd.json =="; cat "$DEPLOY/gf_icd.json" 2>/dev/null || echo "  缺失"
