@@ -160,6 +160,7 @@ right headers.
 | `packaging/build-deb.sh` | deb 打包脚本，产物输出到 `packaging/dist/` |
 | `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为各主题目录（`steam/` `minion-masters/` `underlords/` `electron/` `dkms/` `mesa/` 等） |
 | `.workflow/gitee-go-test.yml` | Gitee Go 流水线：push/PR 时自动跑 `tests/` |
+| `.workflow/gitee-go-build-deb.yml` | Gitee Go 流水线：push 时先跑测试套件再构建 deb，产物上传为 CI 制品 `lisuan-fix-deb`（版本号 = 构建当天日期） |
 | `_work/` | 本地诊断草稿区（构建日志、探针程序、解包的厂商 DKMS 源码树、Mesa 官方源码等）。仅本机排查用，**不是交付物**；其中的厂商文件不得再分发 |
 | `lisuangpu-*.deb` | 厂商驱动包原件（已被 `.gitignore` 排除，不入库），仅本机留存 |
 
@@ -897,6 +898,17 @@ sudo apt-get install -y ./lisuangpu-dkms-262.2.0.56_amd64.deb ./lisuangpu-lib-26
 | `test-fix-script.sh` | `fix-lisuan-gpu.sh` 内置补丁逻辑正确且幂等 |
 | `test-scripts-syntax.sh` | 所有 shell 脚本 `bash -n` 语法检查 |
 | `test-repo-health.sh` | 必需文件存在、脚本可执行、无厂商专有产物混入、README 引用可解析 |
+
+## 自动打包 deb
+
+Gitee Go 流水线 `.workflow/gitee-go-build-deb.yml`：**push 到 master/main 时**
+先跑测试套件（不打包坏代码），再执行 `packaging/build-deb.sh` 构建
+`lisuan-fix_<当天日期>_all.deb`，产物上传为 CI 制品 **`lisuan-fix-deb`**
+（在 Gitee 仓库 → 流水线 → 对应构建 → 制品下载）。
+
+- 产物不入库：`packaging/dist/` 已被 `.gitignore` 排除；
+- 本地等价：`bash packaging/build-deb.sh`（版本号默认当天日期，可显式传参）；
+- 安装：`sudo dpkg -i lisuan-fix_<版本>_all.deb`（详见 [快速开始](#快速开始)）。
 
 ---
 

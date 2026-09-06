@@ -129,6 +129,18 @@ replay_cache，形成"越崩越写、越写越崩"的循环。
     与 Steam 内"开始游戏"（自动委托宿主）已覆盖全部启动场景，GUI 手动启动入口
     冗余；`launch_underlords()` 死代码一并移除。共 21 项。
 
+## 2026.09.06 — 新增 Gitee Go 流水线：push 自动打包 deb
+
+- `.workflow/gitee-go-build-deb.yml`：push 到 master/main 时依次
+  检出代码 → 跑测试套件（不打包坏代码）→ `packaging/build-deb.sh` 构建
+  `lisuan-fix_<当天日期>_all.deb`（dpkg-deb 自检 + sha256 记录到日志）→
+  上传为 CI 制品 `lisuan-fix-deb`；
+- `packaging/dist/` 本就被 .gitignore 排除，deb 仅作为 CI 制品分发，不入库；
+- 本地等价命令不变：`bash packaging/build-deb.sh`；
+- README「自动化测试」章节追加「自动打包 deb」说明与文件表条目。
+
+---
+
 ## 2026.09.06 — 删除 mesa/use-system-mesa.sh，配方内联进文档
 
 ### 理由

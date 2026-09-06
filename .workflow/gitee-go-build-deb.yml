@@ -1,0 +1,44 @@
+# Gitee Go pipeline: build the deb package on every push to master/main.
+#
+# 流程: 检出代码 -> 离线测试套件（不打包坏代码）-> build-deb.sh -> 上传制品。
+# 产物: packaging/dist/lisuan-fix_<日期版本>_all.deb（版本号 = 构建当天日期）。
+# 说明: packaging/dist/ 已被 .gitignore 排除，deb 只作为 CI 制品分发，不入库。
+# 本地等价命令: bash packaging/build-deb.sh
+name: lisuan-build-deb
+
+on:
+  push:
+    branches:
+      - master
+      - main
+
+stages:
+  - name: build
+    jobs:
+      - name: build-deb
+        steps:
+          - name: 检出代码
+            uses: actions/checkout@v1
+
+          - name: 运行测试套件
+            shell: bash
+            run: |
+              set -euo pipefail
+              bash tests/run-tests.sh
+
+          - name: 构建 deb 包
+            shell: bash
+            run: |
+              set -euo pipefail
+              VER="$(date +%Y.%m.%d)"
+              bash packaging/build-deb.sh "$VER"
+              echo "---- 产物自检 ----"
+              dpkg-deb --info "packaging/dist/lisuan-fix_${VER}_all.deb" | head -8
+              dpkg-deb -c "packaging/dist/lisuan-fix_${VER}_all.deb" | wc -l
+              sha256sum packaging/dist/*.deb
+
+          - name: 上传 deb 制品
+            uses: actions/upload-artifact@v1
+            with:
+              name: lisuan-fix-deb
+              path: packaging/dist/
