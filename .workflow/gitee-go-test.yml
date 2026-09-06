@@ -2,7 +2,22 @@
 #
 # The tests need no GPU, no root, no dkms — only bash, patch, make, perl.
 # See README.md -> 自动化测试 for what each test unit covers.
+#
+# 注: triggers 与 on 双写——Gitee Go 原生识别 triggers，同时兼容 GitHub 风格。
 name: lisuan-test-suite
+displayName: "离线测试套件"
+
+triggers:
+  push:
+    branches:
+      include:
+        - master
+        - main
+  pull_request:
+    branches:
+      include:
+        - master
+        - main
 
 on:
   push:
@@ -13,13 +28,17 @@ on:
 
 stages:
   - name: test
+    displayName: "测试"
     jobs:
       - name: run-tests
+        displayName: "运行测试套件"
         steps:
-          - name: 检出代码
+          - name: checkout
+            displayName: "检出代码"
             uses: actions/checkout@v1
 
-          - name: 运行测试套件
+          - name: run
+            displayName: "运行测试"
             shell: bash
             run: |
               set -euo pipefail

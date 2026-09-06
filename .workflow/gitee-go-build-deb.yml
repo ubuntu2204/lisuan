@@ -4,7 +4,17 @@
 # 产物: packaging/dist/lisuan-fix_<日期版本>_all.deb（版本号 = 构建当天日期）。
 # 说明: packaging/dist/ 已被 .gitignore 排除，deb 只作为 CI 制品分发，不入库。
 # 本地等价命令: bash packaging/build-deb.sh
+#
+# 注: triggers 与 on 双写——Gitee Go 原生识别 triggers，同时兼容 GitHub 风格。
 name: lisuan-build-deb
+displayName: "打包 deb（测试 + 构建 + 制品）"
+
+triggers:
+  push:
+    branches:
+      include:
+        - master
+        - main
 
 on:
   push:
@@ -14,19 +24,24 @@ on:
 
 stages:
   - name: build
+    displayName: "构建"
     jobs:
       - name: build-deb
+        displayName: "构建 deb 包"
         steps:
-          - name: 检出代码
+          - name: checkout
+            displayName: "检出代码"
             uses: actions/checkout@v1
 
-          - name: 运行测试套件
+          - name: run-tests
+            displayName: "运行测试套件"
             shell: bash
             run: |
               set -euo pipefail
               bash tests/run-tests.sh
 
-          - name: 构建 deb 包
+          - name: build
+            displayName: "构建 deb 包"
             shell: bash
             run: |
               set -euo pipefail
@@ -37,7 +52,8 @@ stages:
               dpkg-deb -c "packaging/dist/lisuan-fix_${VER}_all.deb" | wc -l
               sha256sum packaging/dist/*.deb
 
-          - name: 上传 deb 制品
+          - name: upload-artifact
+            displayName: "上传 deb 制品"
             uses: actions/upload-artifact@v1
             with:
               name: lisuan-fix-deb
