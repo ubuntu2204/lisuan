@@ -165,7 +165,18 @@ CI 打包的 deb 安装后：菜单 13（随从大师）恒显"需修复"、14 �
 
 - deb 内容含 minion-masters 主脚本/说明/assets（dpkg-deb -c 核对）；
 - 本机判定 13 = "✓ 已部署"；DXVK 版本 v2.3-21-g1b31aa5d；
-- 编译、测试套件 7/7 通过。
+- 编译、测试套件 7/7 通过；
+- **用户实测能进游戏**（DXVK 重降生效）。
+
+### 附：加固组件消融实测（文件系统级逐个禁用，2026-09-06）
+
+- 必需：LD_PRELOAD hook（禁 → 白名单拒绝 0 设备）、垫片 ICD（禁 → GF
+  适配器建不起来）、DXVK v2.3（禁/覆盖 → 玩不了，天然实验）；
+- 当前可省：libSC 软链（SteamLinuxRuntime_4 自动重建的 ld.so.cache 已含
+  宿主 /usr/lib，文档旧结论过期）、MMPatch/doorstop/winhttp 链（禁用后
+  登录/主菜单 75s+ 正常——IL2CPP 崩溃当前不触发；对局深层未验证，
+  保守保留，复发时为第一嫌疑）；
+- 矩阵已固化至 `minion-masters/fix-minion-masters.md`。
 
 ---
 

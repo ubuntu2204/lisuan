@@ -589,6 +589,22 @@ VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_ov
 > 若按最简形式改写后出现异常，把 `VK_ICD_FILENAMES` 与 `VK_LOADER_LAYERS_DISABLE` 加回去即可——
 > 这两个是"去掉可能出问题、留着绝不出问题"的类型。
 
+### 组件必要性矩阵（2026-09-06 消融实测）
+
+方法：文件系统级逐个禁用组件（改名）→ `steam -applaunch 489520` 启动 →
+观察进程存活 / Player.log / 内核 traps（DXVK 项为 Steam 更新覆盖引发的天然实验）。
+
+| 组件 | 消融结果 | 结论 |
+| --- | --- | --- |
+| LD_PRELOAD hook（os-release 伪造） | 禁用 → 进程退出，Player.log **0 次 LISUAN**（白名单拒绝 → 0 设备） | **必需** |
+| 垫片 ICD（gf_icd.json + shim） | 禁用 → 卡在 `GfxDevice: creating device client` 后退出（GF 适配器建不起来） | **必需** |
+| DXVK 降级 v2.3 | Steam 更新覆盖回 v2.7.1 → 玩不了；重降后能进游戏（天然实验） | **必需** |
+| libSC 软链（Proton 内） | 禁用 → 70s+ 存活，游戏正常推进（**意外**） | 当前可省：SteamLinuxRuntime_4 的 srt-bwrap 自动重建的 ld.so.cache 已含宿主 `/usr/lib`（libSC.so 系统自带）——文档"不在搜索路径"是旧容器时代的结论；软链保留无害 |
+| MMPatch / doorstop / winhttp | 禁用 → 75s+ 存活，登录/主菜单/对局加载正常，无 traps | 登录期可省（IL2CPP 崩溃当前不触发）；对局深层未验证——保守保留，复发时它是第一嫌疑 |
+
+注意：MMPatch 现存 2 个 patch（Vivox patch 已停用——wine 下 Vivox 原生可用）。
+若日后游戏更新重新引入相关崩溃，补丁会自动生效（doorstop 常驻），无需改动。
+
 ### 隔离性（重要）
 
 改动全部收敛在 LD_PRELOAD，而 LD_PRELOAD 是**按游戏配置**的，因此不影响其他游戏：
