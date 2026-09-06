@@ -172,11 +172,13 @@ CI 打包的 deb 安装后：菜单 13（随从大师）恒显"需修复"、14 �
 
 - 必需：LD_PRELOAD hook（禁 → 白名单拒绝 0 设备）、垫片 ICD（禁 → GF
   适配器建不起来）、DXVK v2.3（禁/覆盖 → 玩不了，天然实验）；
-- 当前可省：libSC 软链（SteamLinuxRuntime_4 自动重建的 ld.so.cache 已含
-  宿主 /usr/lib，文档旧结论过期）、MMPatch/doorstop/winhttp 链（禁用后
-  登录/主菜单 75s+ 正常——IL2CPP 崩溃当前不触发；对局深层未验证，
-  保守保留，复发时为第一嫌疑）；
-- 矩阵已固化至 `minion-masters/fix-minion-masters.md`。
+- 当前可省：无——**深度实测推翻初判**：libSC 禁用虽能过登录期，但
+  `vkCreateDevice` 实际失败（弹 `Failed to initialize graphics`，此前 70s+
+  存活是失败弹窗挂住进程的假象）；MMPatch 禁用后登录/对局/胜利全程正常，
+  但**点退出后崩溃**（退出流程触发未观察 async → IL2CPP 机器码 GPF，正是
+  该补丁修复的场景）；
+- **最终结论：5 个组件全部必需，不存在可精简项**，部署保持全量；矩阵已
+  固化至 `minion-masters/fix-minion-masters.md`。
 
 ---
 

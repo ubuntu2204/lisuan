@@ -599,11 +599,15 @@ VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_ov
 | LD_PRELOAD hook（os-release 伪造） | 禁用 → 进程退出，Player.log **0 次 LISUAN**（白名单拒绝 → 0 设备） | **必需** |
 | 垫片 ICD（gf_icd.json + shim） | 禁用 → 卡在 `GfxDevice: creating device client` 后退出（GF 适配器建不起来） | **必需** |
 | DXVK 降级 v2.3 | Steam 更新覆盖回 v2.7.1 → 玩不了；重降后能进游戏（天然实验） | **必需** |
-| libSC 软链（Proton 内） | 禁用 → 70s+ 存活，游戏正常推进（**意外**） | 当前可省：SteamLinuxRuntime_4 的 srt-bwrap 自动重建的 ld.so.cache 已含宿主 `/usr/lib`（libSC.so 系统自带）——文档"不在搜索路径"是旧容器时代的结论；软链保留无害 |
-| MMPatch / doorstop / winhttp | 禁用 → 75s+ 存活，登录/主菜单/对局加载正常，无 traps | 登录期可省（IL2CPP 崩溃当前不触发）；对局深层未验证——保守保留，复发时它是第一嫌疑 |
+| libSC 软链（Proton 内） | 禁用 → 弹 `Failed to initialize graphics / InitializeEngineGraphics failed`（`vkCreateDevice` dlopen 失败 → 设备建不起来）。注：登录期曾观察到 70s+ 存活属假象——失败弹窗本身会挂住进程 | **必需** |
+| MMPatch / doorstop / winhttp | 禁用 → 登录/主菜单/对局/对战胜利全程正常，**点退出后崩溃**（退出流程触发未观察 async → IL2CPP 机器码 GPF，正是本补丁修复的场景） | **必需**（退出期） |
 
 注意：MMPatch 现存 2 个 patch（Vivox patch 已停用——wine 下 Vivox 原生可用）。
 若日后游戏更新重新引入相关崩溃，补丁会自动生效（doorstop 常驻），无需改动。
+
+**最终结论（2026-09-06）**：**5 个组件全部必需**——hook/垫片/libSC 缺任何一个
+都起不来（图形初始化失败或 0 设备）；DXVK 不降到 v2.3 无适配器；MMPatch 链
+缺失则退出时崩（游玩不受影响但属异常退出）。**不存在可精简项**，部署保持全量。
 
 ### 隔离性（重要）
 
