@@ -159,7 +159,6 @@ right headers.
 | `packaging/lisuan_fix_md.py` | 轻量 Markdown → Tkinter Text 渲染器：说明弹窗按标题/代码块/表格/列表/引用/粗体/链接样式呈现 |
 | `packaging/build-deb.sh` | deb 打包脚本，产物输出到 `packaging/dist/` |
 | `tests/` | 离线自动化测试（补丁、脚本幂等性、语法、仓库合规），检验对象为各主题目录（`steam/` `minion-masters/` `underlords/` `electron/` `dkms/` `mesa/` 等） |
-| `.workflow/gitee-go-test.yml` | Gitee Go 流水线：push/PR 时自动跑 `tests/` |
 | `.workflow/gitee-go-build-deb.yml` | Gitee Go 流水线：push 时先跑测试套件再构建 deb，产物上传为 CI 制品 `lisuan-fix-deb`（版本号 = 构建当天日期） |
 | `_work/` | 本地诊断草稿区（构建日志、探针程序、解包的厂商 DKMS 源码树、Mesa 官方源码等）。仅本机排查用，**不是交付物**；其中的厂商文件不得再分发 |
 | `lisuangpu-*.deb` | 厂商驱动包原件（已被 `.gitignore` 排除，不入库），仅本机留存 |
@@ -881,8 +880,7 @@ sudo apt-get install -y ./lisuangpu-dkms-262.2.0.56_amd64.deb ./lisuangpu-lib-26
 
 ## 自动化测试
 
-仓库根目录的 `tests/` 自带一套**离线、无硬件依赖**的测试
-（Gitee Go 流水线 `.workflow/gitee-go-test.yml` 自动执行），
+仓库根目录的 `tests/` 自带一套**离线、无硬件依赖**的测试，
 检验对象是各主题目录的交付物（`steam/` `minion-masters/` `underlords/` `electron/` `dkms/` `mesa/`）：
 
 ```bash

@@ -131,10 +131,15 @@ replay_cache，形成"越崩越写、越写越崩"的循环。
 
 ## 2026.09.06 — 新增 Gitee Go 流水线：push 自动打包 deb
 
-- `.workflow/gitee-go-build-deb.yml`：push 到 master/main 时依次
+- `.workflow/gitee-go-build-deb.yml`（Gitee Go 原生 schema）：push 到 master/main 时依次
   检出代码 → 跑测试套件（不打包坏代码）→ `packaging/build-deb.sh` 构建
   `lisuan-fix_<当天日期>_all.deb`（dpkg-deb 自检 + sha256 记录到日志）→
   上传为 CI 制品 `lisuan-fix-deb`；
+- 构建机为 CentOS 8 系官方镜像（内置阿里源），commands 内临时安装
+  dpkg/make/patch/perl/ShellCheck 等打包与测试依赖；
+- `.workflow/gitee-go-test.yml`（独立测试流水线）已删除——打包流水线内已含
+  同一套测试，独立运行仅多耗构建时长；测试仍可随时本地运行
+  `bash tests/run-tests.sh`；
 - `packaging/dist/` 本就被 .gitignore 排除，deb 仅作为 CI 制品分发，不入库；
 - 本地等价命令不变：`bash packaging/build-deb.sh`；
 - README「自动化测试」章节追加「自动打包 deb」说明与文件表条目。

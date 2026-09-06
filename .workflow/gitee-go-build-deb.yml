@@ -1,60 +1,65 @@
-# Gitee Go pipeline: build the deb package on every push to master/main.
+# Gitee Go 流水线：push 到 master/main 时跑测试并打包 deb，产物上传为制品。
 #
-# 流程: 检出代码 -> 离线测试套件（不打包坏代码）-> build-deb.sh -> 上传制品。
-# 产物: packaging/dist/lisuan-fix_<日期版本>_all.deb（版本号 = 构建当天日期）。
-# 说明: packaging/dist/ 已被 .gitignore 排除，deb 只作为 CI 制品分发，不入库。
-# 本地等价命令: bash packaging/build-deb.sh
-#
-# 注: triggers 与 on 双写——Gitee Go 原生识别 triggers，同时兼容 GitHub 风格。
+# 注意：这是 Gitee Go 原生 schema（非 GitHub Actions 风格）：
+#   - stages 直接带 steps（无 jobs 层）；step 用 "插件@版本" 标识；
+#   - 构建机为 CentOS 8 系官方镜像（内置阿里源），默认没有 dpkg-deb——
+#     打包前需临时安装（yum install dpkg；ShellCheck/make/patch/perl 同理）；
+#   - deb 产物经 artifacts 暂存 + publish@general_artifacts 上传为制品。
+version: '1.0'
 name: lisuan-build-deb
-displayName: "打包 deb（测试 + 构建 + 制品）"
+displayName: 打包deb（测试+构建+制品）
 
 triggers:
   push:
     branches:
-      include:
-        - master
-        - main
-
-on:
-  push:
-    branches:
-      - master
-      - main
+      precise: [master, main]
 
 stages:
-  - name: build
-    displayName: "构建"
-    jobs:
-      - name: build-deb
-        displayName: "构建 deb 包"
-        steps:
-          - name: checkout
-            displayName: "检出代码"
-            uses: actions/checkout@v1
+  - stage: test
+    displayName: 测试
+    strategy: fast
+    trigger: auto
+    steps:
+      - step: build@python
+        name: run_tests
+        displayName: 运行测试套件
+        pythonVersion: '3.9'
+        commands:
+          - yum install -y -q epel-release || true
+          - yum install -y -q make patch perl git ShellCheck || dnf install -y -q make patch perl git ShellCheck || true
+          - bash tests/run-tests.sh
 
-          - name: run-tests
-            displayName: "运行测试套件"
-            shell: bash
-            run: |
-              set -euo pipefail
-              bash tests/run-tests.sh
+  - stage: build
+    displayName: 打包
+    strategy: fast
+    trigger: auto
+    steps:
+      - step: build@python
+        name: build_deb
+        displayName: 构建 deb 包
+        pythonVersion: '3.9'
+        commands:
+          - yum install -y -q epel-release || true
+          - yum install -y -q dpkg make patch perl git ShellCheck || dnf install -y -q dpkg make patch perl git ShellCheck || true
+          - VER=$(date +%Y.%m.%d)
+          - bash packaging/build-deb.sh "$VER"
+          - echo "---- 产物自检 ----"
+          - dpkg-deb --info "packaging/dist/lisuan-fix_${VER}_all.deb" | head -8
+          - dpkg-deb -c "packaging/dist/lisuan-fix_${VER}_all.deb" | wc -l
+          - sha256sum packaging/dist/*.deb
+        artifacts:
+          - name: BUILD_ARTIFACT
+            path:
+              - packaging/dist/*.deb
 
-          - name: build
-            displayName: "构建 deb 包"
-            shell: bash
-            run: |
-              set -euo pipefail
-              VER="$(date +%Y.%m.%d)"
-              bash packaging/build-deb.sh "$VER"
-              echo "---- 产物自检 ----"
-              dpkg-deb --info "packaging/dist/lisuan-fix_${VER}_all.deb" | head -8
-              dpkg-deb -c "packaging/dist/lisuan-fix_${VER}_all.deb" | wc -l
-              sha256sum packaging/dist/*.deb
-
-          - name: upload-artifact
-            displayName: "上传 deb 制品"
-            uses: actions/upload-artifact@v1
-            with:
-              name: lisuan-fix-deb
-              path: packaging/dist/
+  - stage: publish
+    displayName: 制品
+    strategy: fast
+    trigger: auto
+    steps:
+      - step: publish@general_artifacts
+        name: upload_artifact
+        displayName: 上传 deb 制品
+        dependArtifact: BUILD_ARTIFACT
+        artifactRepository: default
+        artifactName: lisuan-fix-deb
