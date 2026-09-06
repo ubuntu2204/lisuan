@@ -169,6 +169,26 @@ CI 打包的 deb 安装后：菜单 13（随从大师）恒显"需修复"、14 �
 
 ---
 
+## 2026.09.06 — CI 产物改为 deb 直出（发布到 Gitee Releases）
+
+### 背景
+
+之前用 `publish@general_artifacts`（上传制品插件），下载时被 Gitee 打包为
+tar.gz——用户要的是 deb 直出。
+
+### 变更
+
+1. 流水线改用 **`release@gitee`** 插件（2026-01 上线）：deb 以**原样附件**
+   发布到仓库 Releases 页（不再经过制品库 tar.gz）；
+2. deb 固定重命名为 `lisuan-fix.deb`（Release 附件路径是静态声明，无法
+   引用动态日期版本号）；
+3. Tag 固定 `deb-latest` + `allowUpdate: true`——每次 push 自动覆盖更新，
+   Release 页始终是最新包；构建号保留在 Release 名称中；
+4. 测试与打包合并为一个 stage（`test-build`），消除跨 stage 制品传递；
+5. 安装命令统一为 `sudo dpkg -i lisuan-fix.deb`。
+
+---
+
 ## 2026.09.06 — 新增 Gitee Go 流水线：push 自动打包 deb
 
 - `.workflow/gitee-go-build-deb.yml`（Gitee Go 原生 schema）：push 到 master/main 时依次

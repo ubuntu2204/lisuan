@@ -7,6 +7,7 @@
 #     打包前需临时安装；ShellCheck/make/patch/perl 同理；
 #   - deb 固定重命名为 lisuan-fix.deb（Release 附件路径是静态声明）；
 #   - 产物经 artifacts 暂存 + release@gitee 直出附件（不经过制品库 tar.gz）。
+version: '1.0'
 name: lisuan-build-deb
 displayName: 打包deb（测试+构建+发布）
 
