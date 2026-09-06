@@ -360,7 +360,6 @@ class UndoAction(TypedDict):
 
 
 # 安装项 -> 卸载动作。GUI 在项状态为"已配置/已修复/有残留"时显示卸载按钮。
-# 未在表中的安装项（如随从大师——脚本无卸载入口）不显示按钮。
 UNDO: dict[int, UndoAction] = {
     4:  {"cmd": _sh("dkms/uninstall-lisuan-gpu.sh"), "root": True, "always": True},
     7:  {"cmd": _sh("electron/use-zcode.sh", "--uninstall-desktop"), "root": False,
@@ -370,6 +369,8 @@ UNDO: dict[int, UndoAction] = {
     9:  {"cmd": _sh("electron/use-qoder.sh", "--uninstall-desktop"), "root": False,
          "always": False},
     11: {"cmd": [], "root": True, "always": False},   # remove_steam_fix（内部实现）
+    13: {"cmd": _sh("minion-masters/fix-minion-masters-7g100-hw.sh", "--uninstall"),
+         "root": True, "always": False},
     15: {"cmd": _sh("underlords/fix-underlords-native.sh", "--uninstall"),
          "root": True, "always": False},
 }

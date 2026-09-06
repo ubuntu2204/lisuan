@@ -41,6 +41,7 @@
 # 用法：
 #   ./fix-minion-masters-7g100-hw.sh            # 安装/修复（幂等）
 #   ./fix-minion-masters-7g100-hw.sh --status   # 检查各环节状态
+#   ./fix-minion-masters-7g100-hw.sh --uninstall # 卸载：还原 Steam 配置/Proton/游戏目录
 #   ./fix-minion-masters-7g100-hw.sh --inject-winhttp   # pfx 重建后重新注入 winhttp=n,b
 set -u
 APPID=489520
@@ -66,9 +67,15 @@ LAUNCHOPTS="PROTON_USE_WOW64=1 LD_PRELOAD=$DEPLOY/lib/osrelease_redirect.so __GL
 say() { echo "[mm-hw] $*"; }
 err() { echo "[mm-hw] !! $*" >&2; }
 
-[ -d "$PROTON_EX" ] || { err "未安装 Proton - Experimental"; exit 1; }
-[ -d "$PROTON8" ] || { err "未安装 Proton 8.0（提供 DXVK v2.3）"; exit 1; }
-[ -d "$GAME" ] || { err "未安装 Minion Masters"; exit 1; }
+# 存在性检查仅约束"安装"模式；--uninstall 允许在环境残缺时做部分还原。
+case "${1:-}" in
+  --uninstall) ;;
+  *)
+    [ -d "$PROTON_EX" ] || { err "未安装 Proton - Experimental"; exit 1; }
+    [ -d "$PROTON8" ] || { err "未安装 Proton 8.0（提供 DXVK v2.3）"; exit 1; }
+    [ -d "$GAME" ] || { err "未安装 Minion Masters"; exit 1; }
+    ;;
+esac
 
 # ---------- 1) 部署 hook / 垫片 / 库副本 ----------
 deploy_hook() {
@@ -240,8 +247,122 @@ status() {
   echo "== winhttp ==";     grep -m1 '"winhttp"' "$PFX/user.reg" 2>/dev/null || echo "  未注入"
 }
 
+# ---------- 卸载：还原本脚本所做的一切 ----------
+uninstall() {
+  say "== 开始卸载 Minion Masters 7G100 硬件渲染加固 =="
+  if pgrep -f "ubuntu12_32/steam" >/dev/null 2>&1; then
+    warn "Steam 正在运行——vdf 改动可能在 Steam 退出时被覆盖。建议先退出 Steam 再卸载。"
+  fi
+
+  # 1a. config.vdf: 移除 CompatToolMapping 的 489520 条目
+  python3 - "$CONFIG_VDF" <<'PY'
+import re, sys
+try:
+    p = sys.argv[1]; data = open(p).read()
+except (OSError, IndexError):
+    sys.exit(0)
+m = re.search(r'"CompatToolMapping"\s*\n\s*\{', data)
+if not m:
+    print("[mm-hw] config.vdf 无 CompatToolMapping"); sys.exit(0)
+seg_start = m.end(); depth = 1; i = seg_start
+while i < len(data) and depth > 0:
+    if data[i] == '{': depth += 1
+    elif data[i] == '}': depth -= 1
+    i += 1
+seg = data[seg_start:i-1]
+seg2 = re.sub(r'\n\s*"489520"\s*\n\s*\{[^}]*\}', '', seg)
+if seg2 != seg:
+    open(p, 'w').write(data[:seg_start] + seg2 + data[i-1:])
+    print("[mm-hw] CompatToolMapping 489520 条目已移除")
+else:
+    print("[mm-hw] CompatToolMapping 无 489520 条目")
+PY
+
+  # 1b. localconfig.vdf: 移除 489520 的 LaunchOptions
+  if [ -n "${LOCALCONFIG_VDF:-}" ] && [ -f "$LOCALCONFIG_VDF" ]; then
+    python3 - "$LOCALCONFIG_VDF" <<'PY'
+import re, sys
+p = sys.argv[1]; data = open(p).read()
+i = data.find('"apps"'); j = data.find('"489520"', i)
+if j < 0:
+    print("[mm-hw] localconfig 无 489520 段"); sys.exit(0)
+brace = data.find('{', j); depth = 1; k = brace + 1
+while depth > 0:
+    if data[k] == '{': depth += 1
+    elif data[k] == '}': depth -= 1
+    k += 1
+seg = data[brace:k]
+seg2 = re.sub(r'\n\s*"LaunchOptions"\s*"[^"]*"', '', seg)
+if seg2 != seg:
+    open(p, 'w').write(data[:brace] + seg2 + data[k:])
+    print("[mm-hw] LaunchOptions 已移除")
+else:
+    print("[mm-hw] LaunchOptions 无本修复写入项")
+PY
+  else
+    say "localconfig.vdf 不存在，跳过"
+  fi
+
+  # 2. user.reg: 移除 winhttp=n,b
+  if [ -f "$PFX/user.reg" ]; then
+    python3 - "$PFX/user.reg" <<'PY'
+import sys
+p = sys.argv[1]; data = open(p).read()
+if '"winhttp"="n,b"' in data:
+    open(p, 'w').write(data.replace('"winhttp"="n,b"\n', '', 1))
+    print("[mm-hw] winhttp=n,b 已移除")
+else:
+    print("[mm-hw] user.reg 无 winhttp override")
+PY
+  else
+    say "pfx/user.reg 不存在，跳过 winhttp 还原"
+  fi
+
+  # 3. DXVK 还原（从 .bak-v3 备份恢复原版 v3）
+  local de="$PROTON_EX/files/lib/wine/dxvk"
+  if [ -d "$de.bak-v3" ]; then
+    chmod -R u+w "$de" 2>/dev/null
+    rm -rf "$de"
+    cp -r "$de.bak-v3" "$de"
+    rm -rf "$de.bak-v3"
+    rm -f "$PFX/drive_c/windows/system32/"{d3d9,d3d10core,d3d11,dxgi}.dll \
+          "$PFX/drive_c/windows/syswow64/"{d3d9,d3d10core,d3d11,dxgi}.dll 2>/dev/null
+    say "DXVK 已还原为原版（.bak-v3 备份已消费），前缀内 dll 将由 Proton 重同步"
+  else
+    say "无 dxvk.bak-v3 备份，跳过 DXVK 还原（可能从未降级或已还原）"
+  fi
+
+  # 4. MMPatch / doorstop 还原
+  if [ -f "$GAME/MMPatch.dll" ] || [ -f "$GAME/doorstop_config.ini.bak-bepinex" ]; then
+    rm -f "$GAME/MMPatch.dll"
+    if [ -f "$GAME/doorstop_config.ini.bak-bepinex" ]; then
+      cp "$GAME/doorstop_config.ini.bak-bepinex" "$GAME/doorstop_config.ini"
+      rm -f "$GAME/doorstop_config.ini.bak-bepinex"
+      say "doorstop_config.ini 已还原"
+    fi
+    say "MMPatch.dll 已移除"
+  else
+    say "游戏目录无 MMPatch/doorstop 改动，跳过"
+  fi
+
+  # 5. libSC 软链移除
+  if [ -L "$PROTON_EX/files/lib/x86_64-linux-gnu/libSC.so" ]; then
+    rm -f "$PROTON_EX/files/lib/x86_64-linux-gnu/libSC.so"
+    say "libSC.so 软链已移除"
+  else
+    say "libSC.so 软链不存在，跳过"
+  fi
+
+  # 6. DEPLOY 运行时产物清理（仅产物，不动 gf-compat 内的源码/构建脚本）
+  rm -rf "$DEPLOY/lib" "$DEPLOY/os-release" "$DEPLOY/gf_icd.json" 2>/dev/null
+  say "DEPLOY 运行时产物已清理: $DEPLOY/{lib,os-release,gf_icd.json}"
+
+  say "== 卸载完成。重启 Steam 使配置生效，游戏回到 Steam 默认 Proton 路线 =="
+}
+
 case "${1:-}" in
   --status) status; exit 0 ;;
+  --uninstall) uninstall; exit 0 ;;
   --inject-winhttp) inject_winhttp; exit 0 ;;
 esac
 

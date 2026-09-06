@@ -191,7 +191,13 @@ replay_cache，形成"越崩越写、越写越崩"的循环。
    `remove_steam_fix`）/ 17（Underlords `--uninstall`）；
    需要 root 的项在 GUI 内仍走终端窗口 `sudo python3 install.py <id> --undo`；
 4. 命令行同步支持 `python3 install.py <编号> --undo`（非交互还原）；
-5. 随从大师（15）脚本无卸载入口，按设计不显示按钮。
+5. **随从大师（13）补齐卸载**：`fix-minion-masters-7g100-hw.sh` 新增
+   `--uninstall`——依序还原 Steam CompatToolMapping 489520 条目、
+   localconfig LaunchOptions、pfx user.reg 的 winhttp=n,b、DXVK（从
+   `.bak-v3` 备份恢复原版 v3）、MMPatch.dll/doorstop_config.ini、libSC
+   软链，并清理 `gf-compat` 运行时产物（保留源码与构建脚本）；
+   存在性检查仅约束安装模式（卸载允许环境残缺时部分还原）；
+6. 每个安装项现均有卸载途径（操作列按钮 / `--undo`）。
 
 ### 验证
 
