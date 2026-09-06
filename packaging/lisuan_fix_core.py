@@ -307,19 +307,20 @@ ITEMS: list[Item] = [
      "root": False, "cmd": None, "doc": _doc("mesa/system-mesa-analysis.md")},
 
     # ---- Electron ----
-    # 每项 = 装桌面项 + 立即启动：做完以后从应用菜单点图标即自动带修复/加速，
-    # 不必再手动跑脚本（wrapper 的 --install-desktop --start）。
-    {"id": 8,  "title": "ZCode：点图标即用（装桌面项 + 立即启动；修显示异常，软件渲染稳定优先）",
+    # 每项 = 把应用菜单图标的 Exec 切到本 wrapper：以后从应用菜单点图标即自动
+    # 带修复参数（ZCode）或 gf 硬件加速（CodeBuddy/Qoder），不必再手动跑脚本。
+    # 只装桌面项、不启动应用（wrapper 的 --start 可让装完即启动，菜单不使用）。
+    {"id": 8,  "title": "ZCode：点图标即用（装桌面项；修显示异常，软件渲染稳定优先）",
      "group": "Electron", "root": False,
-     "cmd": lambda a: _sh("electron/use-zcode.sh", "--install-desktop", "--start"),
+     "cmd": lambda a: _sh("electron/use-zcode.sh", "--install-desktop"),
      "doc": ""},
-    {"id": 9,  "title": "CodeBuddy：点图标即用（装桌面项 + 立即启动；gf 硬件加速）",
+    {"id": 9,  "title": "CodeBuddy（含国内版 buddycn）：点图标即用（装桌面项；gf 硬件加速）",
      "group": "Electron", "root": False,
-     "cmd": lambda a: _sh("electron/use-codebuddy.sh", "--install-desktop", "--start"),
+     "cmd": lambda a: _sh("electron/use-codebuddy.sh", "--install-desktop"),
      "doc": ""},
-    {"id": 10, "title": "Qoder：点图标即用（装桌面项 + 立即启动；gf 硬件加速）",
+    {"id": 10, "title": "Qoder：点图标即用（装桌面项；gf 硬件加速）",
      "group": "Electron", "root": False,
-     "cmd": lambda a: _sh("electron/use-qoder.sh", "--install-desktop", "--start"),
+     "cmd": lambda a: _sh("electron/use-qoder.sh", "--install-desktop"),
      "doc": ""},
     {"id": 11, "title": "说明：Electron 类应用适配（显示异常 / 硬件加速）", "group": "Electron",
      "root": False, "cmd": None, "doc": _doc("electron/README.md")},
@@ -563,9 +564,12 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     st[8] = (("✓ 已配置", "ok")
              if _desktop_configured([user_apps / "zcode.desktop"], "use-zcode.sh")
              else ("未配置", "dim"))
+    # CodeBuddy 桌面项：国际版 codebuddy.desktop / 国内版 buddycn.desktop
     st[9] = (("✓ 已配置", "ok")
              if _desktop_configured([user_apps / "codebuddy.desktop",
-                                     sys_apps / "codebuddy.desktop"],
+                                     sys_apps / "codebuddy.desktop",
+                                     user_apps / "buddycn.desktop",
+                                     sys_apps / "buddycn.desktop"],
                                     "use-electron-gf.sh")
              else ("未配置", "dim"))
     qoder = [user_apps / n for n in ("qoder.desktop", "qoder-cn.desktop")]

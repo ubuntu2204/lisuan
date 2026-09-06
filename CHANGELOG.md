@@ -137,12 +137,28 @@ replay_cache，形成"越崩越写、越写越崩"的循环。
    启动应用**（原先 `--install-desktop` 装完即 `exit 0`）。自身标志从下游
    参数中剔除，不污染应用启动参数；
 2. 菜单合并（原 8+9 / 10+11 / 12+13 → 新 8/9/10）：每个应用一项，名为
-   "XXX：点图标即用（装桌面项 + 立即启动）"——执行后桌面图标的 Exec 切到
-   wrapper 并立刻拉起应用，**以后像平时一样点图标就自动带修复参数（ZCode）
-   或 gf 硬件加速（CodeBuddy/Qoder）**，不必再手动跑脚本；
-3. 菜单状态（✓ 已配置 / 未配置）随之改绑到 8/9/10；
-4. 编号重排：Electron 7 项 → 4 项，后段依次前移，共 18 项；
+   "XXX：点图标即用（装桌面项）"——执行后桌面图标的 Exec 切到 wrapper，
+   **以后像平时一样点图标就自动带修复参数（ZCode）或 gf 硬件加速
+   （CodeBuddy/Qoder）**。**只装桌面项、不启动应用**（菜单不传 `--start`）；
+3. 菜单状态（✓ 已配置 / 未配置）改绑到 8/9/10，并修正两处检测错误：
+   - CodeBuddy/Qoder 的桌面项 Exec 实际指向通用 wrapper
+     （`use-electron-gf.sh --app <name>`，因脚本内 SELF 解析为自身），
+     检测标记改为 `use-electron-gf.sh`，此前恒误报"未配置"；
+   - **CodeBuddy 国内版识别**：本机以 "CodeBuddy CN" 安装，命令名 `buddycn`、
+     桌面项 `buddycn.desktop`，而 wrapper 只认 `codebuddy` → 报"未解析到启动
+     命令"。现按 codebuddy → buddycn → 常见路径顺序探测，桌面项列表加入
+     buddycn.desktop；
+4. 桌面项改写只替换**第一个 `Exec=`**（主入口）：CodeBuddy CN 等桌面项含
+   Desktop Action 的第二个 Exec（`--new-window`），全文替换会丢动作参数；
+5. 编号重排：Electron 7 项 → 4 项，后段依次前移，共 18 项；
    `README.md` 编号表与快速开始示例同步。
+
+### 验证
+
+- 三项实测：`[8] ✓ 已配置`、`[9] ✓ 已配置`、`[10] ✓ 已配置`；
+- `~/.local/share/applications/buddycn.desktop`：主入口走 wrapper，
+  `New Empty Window` 动作保留 `--new-window`，功能不丢；
+- 编译、GUI 存活、deb、测试套件 7/7 均通过。
 
 ### 验证
 

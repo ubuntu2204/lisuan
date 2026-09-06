@@ -94,14 +94,19 @@ done
 resolve_app() {
   case "$APP" in
     codebuddy)
-      # codebuddy 国内版常见命令名/路径 (可按需扩展)
-      for c in codebuddy codebuddy-ai "$HOME/development/CodeBuddy-*.AppImage" \
+      # CodeBuddy（国际版 / 国内版）。国内版在 Ubuntu 上以 "CodeBuddy CN" 的
+      # 名字安装，命令名为 buddycn、桌面项为 buddycn.desktop（2026-09-06 实测）。
+      # 按顺序探测：codebuddy(国际) → buddycn(国内) → 常见安装路径。
+      for c in codebuddy codebuddy-ai buddycn /usr/share/buddycn/bin/buddycn \
+               "$HOME/development/CodeBuddy-*.AppImage" \
                "$HOME/.local/share/codebuddy/codebuddy" /opt/codebuddy/codebuddy; do
         if command -v "$c" >/dev/null 2>&1; then CMD="$(command -v "$c")"; break; fi
         if [ -e "$c" ]; then CMD="$c"; break; fi
       done
       DESKTOP_FILES=("$HOME/.local/share/applications/codebuddy.desktop"
-                      "/usr/share/applications/codebuddy.desktop")
+                      "/usr/share/applications/codebuddy.desktop"
+                      "$HOME/.local/share/applications/buddycn.desktop"
+                      "/usr/share/applications/buddycn.desktop")
       ;;
     qoder|qoder-cn)
       # --app qoder 优先国际版, 未安装时回退国内版 (qoder-cn);
@@ -167,7 +172,9 @@ if [ "$INSTALL_DESKTOP" = 1 ]; then
     if [[ "$d" == /usr/share/* ]]; then
       cp "$d" "$target" 2>/dev/null || { echo "!! 无法复制 $d -> $target (需 sudo?)" >&2; continue; }
     fi
-    if sed -i "s|^Exec=.*|Exec=$SELF --app $APP %U|" "$target" 2>/dev/null; then
+    # 只改第一个 Exec=（主入口）：某些桌面项还有 Desktop Action 的 Exec
+    # （如 CodeBuddy CN 的 --new-window），全改会丢动作参数导致功能缺失。
+    if sed -i "0,/^Exec=/s|^Exec=.*|Exec=$SELF --app $APP %U|" "$target" 2>/dev/null; then
       # 补齐执行位: 系统桌面项复制过来时通常无执行位, 且 sed -i 会丢失执行位;
       # 不可执行的脚本型桌面项会被 GNOME 从应用菜单隐藏
       chmod +x "$target" 2>/dev/null || true

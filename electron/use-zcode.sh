@@ -43,7 +43,8 @@ if [ "$INSTALL_DESKTOP" = 1 ]; then
   [ -f "$DESKTOP_USER" ] || { echo "!! 未找到 $DESKTOP_USER" >&2; exit 1; }
   # 仅当 Exec 指向 AppImage 本体时才改写 (避免重复套娃)
   if grep -q "$APPIMAGE" "$DESKTOP_USER" && ! grep -q "$(readlink -f "$0")" "$DESKTOP_USER"; then
-    sed -i "s|^Exec=.*|Exec=$(readlink -f "$0") %U|" "$DESKTOP_USER"
+    # 只改第一个 Exec=（主入口），保留 Desktop Action 的 Exec 与参数
+    sed -i "0,/^Exec=/s|^Exec=.*|Exec=$(readlink -f "$0") %U|" "$DESKTOP_USER"
     echo "OK: $DESKTOP_USER 的 Exec 已切到本 wrapper"
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
   else
