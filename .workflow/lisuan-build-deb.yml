@@ -1,0 +1,6 @@
+set -euo pipefail
+bash tests/run-tests.sh
+VER="$(date +%Y.%m.%d)"
+bash packaging/build-deb.sh "$VER"
+dpkg-deb --info "packaging/dist/lisuan-fix_${VER}_all.deb" | head -8
+sha256sum packaging/dist/*.deb
