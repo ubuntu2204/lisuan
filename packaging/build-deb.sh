@@ -58,6 +58,23 @@ for d in dkms mesa steam underlords electron; do
   find "$T/usr/share/$PKG/$d" -name '*.sh' -exec chmod 755 {} +
 done
 
+# minion-masters（按需精简打包）：
+#   主脚本 + 说明 + assets-mm-gf-vulkan（部署源：MMPatch/hook 源码/ICD）。
+#   不打包：gf-compat/lib（34M 驱动库副本——部署时由脚本从宿主重建）、
+#   dxvk23/、gf-lowmem-shim/（本地实验树）、MinionMasters-*.md（历史记录）。
+MM="$ROOT/minion-masters"
+mkdir -p "$T/usr/share/$PKG/minion-masters/assets-mm-gf-vulkan"
+install -m 755 "$MM/fix-minion-masters-7g100-hw.sh" \
+               "$T/usr/share/$PKG/minion-masters/"
+install -m 644 "$MM/fix-minion-masters.md" "$T/usr/share/$PKG/minion-masters/"
+(cd "$MM" && find assets-mm-gf-vulkan -type f \
+    ! -name '*.bak' ! -name '__pycache__/*' ! -name '*.pyc' -print0) |
+while IFS= read -r -d '' f; do
+  mkdir -p "$T/usr/share/$PKG/minion-masters/$(dirname "$f")"
+  install -m 644 "$MM/$f" "$T/usr/share/$PKG/minion-masters/$f"
+done
+find "$T/usr/share/$PKG/minion-masters" -name '*.sh' -exec chmod 755 {} +
+
 # 菜单项（终端运行 TUI/文本菜单）
 cat > "$T/usr/share/applications/$PKG.desktop" <<EOF
 [Desktop Entry]

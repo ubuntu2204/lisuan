@@ -639,11 +639,32 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
             fixed = False
         st[11] = ("✓ 已修复", "ok") if fixed else ("✗ 需修复", "bad")
 
-    # 13 Minion Masters：hook 产物 + 游戏目录
-    mm_game = home / ".steam/root/steamapps/common/Minion Masters"
-    if not mm_game.is_dir():
+    # 13 Minion Masters：以 Steam 配置层的"实际生效标志"判定
+    # （与修复的安装位置无关——deb 安装版/源码仓库均通用）：
+    #   a. localconfig.vdf 的 489520 LaunchOptions 含 osrelease_redirect（LD_PRELOAD 生效）
+    #   b. 游戏目录 doorstop_config.ini 的 target_assembly = MMPatch.dll（hook 生效）
+    ul_mm = home / ".steam/root/steamapps/common/Minion Masters"
+    ud = home / ".local/share/Steam/userdata"
+    # 遍历所有 Steam 用户的 localconfig（含 anonymous）——任一命中即视为生效
+    launched = False
+    if ud.is_dir():
+        for p in ud.glob("*/config/localconfig.vdf"):
+            try:
+                if "osrelease_redirect" in p.read_text(errors="replace"):
+                    launched = True
+                    break
+            except OSError:
+                pass
+    doorstop = False
+    try:
+        doorstop = ((ul_mm / "doorstop_config.ini").is_file()
+                    and "MMPatch.dll" in (ul_mm / "doorstop_config.ini").read_text(
+                        errors="replace"))
+    except OSError:
+        doorstop = False
+    if not ul_mm.is_dir():
         st[13] = ("未安装", "dim")
-    elif (S / "minion-masters/gf-compat/lib/osrelease_redirect.so").is_file():
+    elif launched and doorstop:
         st[13] = ("✓ 已部署", "ok")
     else:
         st[13] = ("✗ 需修复", "bad")

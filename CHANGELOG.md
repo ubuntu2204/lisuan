@@ -129,6 +129,46 @@ replay_cache，形成"越崩越写、越写越崩"的循环。
     与 Steam 内"开始游戏"（自动委托宿主）已覆盖全部启动场景，GUI 手动启动入口
     冗余；`launch_underlords()` 死代码一并移除。共 21 项。
 
+## 2026.09.06 — deb 补齐随从大师；状态判定改为"实际生效标志"
+
+### 问题
+
+CI 打包的 deb 安装后：菜单 13（随从大师）恒显"需修复"、14 说明文档提示
+"文档不存在 /usr/share/lisuan-fix/minion-masters/fix-minion-masters.md"，
+且实测游戏玩不了（Proton 11.0 的 DXVK 降级被 Steam 更新覆盖回 v2.7.1）。
+
+### 根因
+
+1. `build-deb.sh` 的目录循环不含 `minion-masters/`（此前设计"体积大不打包"）——
+   状态判定与说明文档都指向该目录，deb 版必然缺失；
+2. 13 的"✓ 已部署"判定依赖 `S/minion-masters/gf-compat/lib/osrelease_redirect.so`
+   ——这是**安装侧**产物（34M 驱动库副本，部署时由脚本从宿主拷贝），deb 模式
+   下不存在，判定必然失败。
+
+### 修复
+
+1. `build-deb.sh` 按**运行时最小集**打包 minion-masters（约 300K）：
+   主脚本 + `fix-minion-masters.md` + `assets-mm-gf-vulkan/`（部署源：
+   MMPatch.dll、hook 源码/产物、gf_icd.json、os-release）；不打打包
+   `gf-compat/lib`（34M 驱动库副本——目标机由脚本从宿主重建）、`dxvk23/`、
+   `gf-lowmem-shim/`、历史记录 md；
+2. 13 的判定改为 **Steam 配置层的"实际生效标志"**（与修复安装位置解耦，
+   deb/源码两模式通用）：a) 任一 Steam 用户的 localconfig.vdf 含
+   `osrelease_redirect`（LD_PRELOAD 生效）；b) 游戏目录
+   `doorstop_config.ini` 的 target_assembly = MMPatch.dll（hook 生效）；
+   遍历所有用户目录（含 anonymous）避免误判；
+3. 本机随从大师同步修复：Proton 11.0 更新覆盖了 DXVK 降级（v2.3 → v2.7.1），
+   `MM_PROTON_DIR` 指向 Proton 11.0 重跑加固，DXVK 回到 v2.3-21、
+   CompatToolMapping 保留 proton_11 选择。
+
+### 验证
+
+- deb 内容含 minion-masters 主脚本/说明/assets（dpkg-deb -c 核对）；
+- 本机判定 13 = "✓ 已部署"；DXVK 版本 v2.3-21-g1b31aa5d；
+- 编译、测试套件 7/7 通过。
+
+---
+
 ## 2026.09.06 — 新增 Gitee Go 流水线：push 自动打包 deb
 
 - `.workflow/gitee-go-build-deb.yml`（Gitee Go 原生 schema）：push 到 master/main 时依次
