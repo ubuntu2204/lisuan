@@ -129,6 +129,79 @@ replay_cache，形成"越崩越写、越写越崩"的循环。
     与 Steam 内"开始游戏"（自动委托宿主）已覆盖全部启动场景，GUI 手动启动入口
     冗余；`launch_underlords()` 死代码一并移除。共 21 项。
 
+## 2026.09.06 — 删除 mesa/use-system-mesa.sh，配方内联进文档
+
+### 理由
+
+- 无菜单入口、无脚本依赖、无实际案例——纯边缘实验/应急工具；
+- 实测能力上限为 **GL 3.0**（zink 受厂商 Vulkan ICD 限制），低于厂商栈的
+  GL 4.6，重 GL 应用不适用；
+- zink 建立在 `libvulkan_gf.so` 上，而该驱动刚发现 GlobPool0 GPF 崩溃
+  bug（见同日刀塔霸业条目），地基本身不稳。
+
+### 变更
+
+1. 删除 `mesa/use-system-mesa.sh`（从磁盘移除，git 历史保留可找回）；
+2. **环境变量配方内联**进 `mesa/system-mesa-analysis.md` §7 与 `README.md`
+   （三个变量：`__GLX_VENDOR_LIBRARY_NAME=mesa`、
+   `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`、
+   `GBM_BACKEND=dri`）——文档不再依赖脚本即可复现实验；
+3. README 4 处引用清理；`mesa/verify-system-mesa.sh`（体检）与
+   `system-mesa-analysis.md`（菜单 8 说明）保留。
+
+---
+
+## 2026.09.06 — 删除独立卸载菜单项（功能由"卸载"按钮承担）
+
+### 变更
+
+1. **删除菜单 5「卸载：DKMS Makefile 补丁」**——还原只是退回厂商的坏
+   Makefile（下次内核升级又会编译失败），无人会主动做；且 `dkms/uninstall
+   -lisuan-gpu.sh` 幂等，已由菜单 4 的**卸载按钮**（恒显示）承担；
+2. **删除菜单 13「卸载：移除 GBM_BACKEND 并解锁」**——功能 = 菜单 11 的
+   `remove_steam_fix`，已由 11 的**卸载按钮**承担；原"有残留/干净"状态与
+   11 的已修复/需修复判定同源，合并进 11（文件被 `chattr +i` 锁定时显示
+   "! 文件被锁定"）；
+3. `UNDO` 映射表与 `install.py <编号> --undo` 均保留——**卸载能力未减少**，
+   只是入口从独立菜单项变为所属安装项的操作列按钮；
+4. 编号重排（5/13 删除后各前移），共 16 项。
+
+### 验证
+
+- 16 项编号连续；UNDO 键 {4,7,8,9,11,15}；实测 7/8/9/11/15 均"✓ 已配置/
+  已修复"且卸载按钮在位；
+- 编译、GUI 存活、deb、测试套件 7/7 通过。
+
+---
+
+## 2026.09.06 — 安装项增加"卸载"按钮（已配置后显示）
+
+### 变更
+
+1. 菜单树新增**操作列**：安装项在"已配置/已修复/已部署/有残留"状态下，
+   标题后显示 **卸载** 按钮，点击即还原该配置；还原后状态变"未配置/干净"、
+   按钮自动消失（执行完自动重测刷新）；
+2. wrapper 新增 `--uninstall-desktop`（`use-zcode.sh` / `use-electron-gf.sh`）：
+   - 把桌面项 `Exec` 还原为应用本体；
+   - **优先复用系统原版桌面项的 Exec**，以保留原始占位符（如 CodeBuddy CN
+     的 `%F`）；
+   - 只还原第一个 `Exec=`，不动 Desktop Action；
+3. `lisuan_fix_core` 新增卸载映射表 `UNDO` 与 `undo_item()`：
+   4（DKMS，脚本幂等故恒显示）/ 8 / 9 / 10（Electron）/ 12（Steam，内部
+   `remove_steam_fix`）/ 17（Underlords `--uninstall`）；
+   需要 root 的项在 GUI 内仍走终端窗口 `sudo python3 install.py <id> --undo`；
+4. 命令行同步支持 `python3 install.py <编号> --undo`（非交互还原）；
+5. 随从大师（15）脚本无卸载入口，按设计不显示按钮。
+
+### 验证
+
+- 按钮按状态正确显示：8 / 9 / 10 / 12 / 17（+ 4 恒显示）；
+- 往返实测：`install.py 8 --undo` → 状态转"未配置"、`Exec` 还原为 AppImage
+  真身 → `install.py 8` 重装 → 回到"✓ 已配置"；
+- 编译、GUI 存活、deb、测试套件 7/7 通过。
+
+---
+
 ## 2026.09.06 — Electron 三项合并为"点图标即用"
 
 ### 变更
@@ -185,12 +258,12 @@ replay_cache，形成"越崩越写、越写越崩"的循环。
 
 ```
  1-3)   环境检测  重新检测 · GPU 体检 · Mesa 体检
- 4-6)   DKMS      安装/修复 · 卸载 · 说明
- 7)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
- 8-11)  Electron  ZCode / CodeBuddy / Qoder（各一项：装桌面项 + 立即启动）· 说明
-12-14)  Steam     安装/修复 · 卸载 · 说明（旧方案清理已退出菜单，脚本留作手动工具）
-15-16)  随从大师   安装/修复 · 说明
-17-18)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
+ 4-5)   DKMS      安装/修复 · 说明（卸载走 4 的"卸载"按钮，见操作列）
+ 6)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
+ 7-10)  Electron  ZCode / CodeBuddy / Qoder（各一项：装桌面项）· 说明
+11-12)  Steam     安装/修复 · 说明（卸载走 11 的"卸载"按钮）
+13-14)  随从大师   安装/修复 · 说明
+15-16)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
 ```
 
 内部实现项随之改绑：`17 install_steam_fix`、`18 remove_steam_fix`、

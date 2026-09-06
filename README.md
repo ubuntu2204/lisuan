@@ -130,7 +130,6 @@ right headers.
 
 | 路径 | 说明 |
 |---|---|
-| `mesa/use-system-mesa.sh` | 让指定应用运行在系统 Mesa（zink）之上，绕开厂商 Mesa 22.0.4 分叉 |
 | `electron/use-zcode.sh` | **ZCode（Electron AppImage）显示异常修复**：`--no-sandbox` + `--ozone-platform-hint=x11` + 禁用 GPU 合成；`--install-desktop` 把桌面项切到本 wrapper |
 | `electron/use-electron-gf.sh` | **通用 Electron / Chromium 应用 gf 硬件加速 wrapper**：显示异常三件套 + gf 驱动 GPU 加速（默认开），`--no-hw` 回退软件渲染；支持 `--app codebuddy\|qoder\|zcode` / `--cmd` / `--appimage` |
 | `electron/use-codebuddy.sh` | **CodeBuddy 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
@@ -172,7 +171,7 @@ right headers.
 python3 install.py                    # 桌面窗口（Tkinter，需 python3-tk）
 python3 install.py --detect           # 只做环境检测并打印报告
 python3 install.py --detect --json    # JSON 输出，便于脚本化/排障
-python3 install.py 12                 # 直接执行第 12 项（修复 Steam 界面崩溃）
+python3 install.py 11                 # 直接执行第 11 项（修复 Steam 界面崩溃）
 ```
 
 **deb 包安装**（推荐给其他砺算 7G100 机器使用，无需带源码仓库）：
@@ -189,12 +188,12 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 
 ```
  1-3)   环境检测  重新检测 · GPU 体检 · Mesa 体检
- 4-6)   DKMS      安装/修复 · 卸载 · 说明
- 7)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
- 8-11)  Electron  ZCode / CodeBuddy / Qoder（各一项：装桌面项 + 立即启动）· 说明
-12-14)  Steam     安装/修复 · 卸载 · 说明（旧方案清理已退出菜单，脚本留作手动工具）
-15-16)  随从大师   安装/修复 · 说明
-17-18)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
+ 4-5)   DKMS      安装/修复 · 说明（卸载走 4 的"卸载"按钮，见操作列）
+ 6)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
+ 7-10)  Electron  ZCode / CodeBuddy / Qoder（各一项：装桌面项）· 说明
+11-12)  Steam     安装/修复 · 说明（卸载走 11 的"卸载"按钮）
+13-14)  随从大师   安装/修复 · 说明
+15-16)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
 ```
 
 > 注意：编号已按新分组**重新编排**。
@@ -226,9 +225,10 @@ GBM_BACKEND=dri steam
 # 若曾被 chattr 锁死过（会引发更新回滚、游戏反复重下），先解锁：
 sudo chattr -i ~/.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh
 
-# 4) 想让某个应用走系统 Mesa（25.2.x，zink）而非厂商 Mesa 22.0.4
-./mesa/use-system-mesa.sh --print-env
-./mesa/use-system-mesa.sh glxinfo -B
+# 4) 想让某个应用走系统 Mesa（25.2.x，zink，仅 GL 3.0）而非厂商 Mesa 22.0.4
+__GLX_VENDOR_LIBRARY_NAME=mesa \
+__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json \
+GBM_BACKEND=dri some-app --args
 ./mesa/verify-system-mesa.sh
 
 # 5) Electron 类应用 (ZCode) 显示异常: 界面空白 / 花屏 / 黑块
@@ -454,7 +454,10 @@ sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
   `libvulkan_gf.so` 之上）：GLX 自动回退可用（GL 3.0 上限）；
 - **地雷**：厂商 `gf_gbm.so` 在系统 libgbm 25.x 下段错误（ABI 漂移）——任何走
   系统 libgbm 默认后端解析的场景需 `GBM_BACKEND=dri` 规避；
-- 想让某应用走系统 Mesa：`./mesa/use-system-mesa.sh -- <cmd>`。
+- 想让某应用走系统 Mesa（zink，GL 3.0）：前置三个环境变量——
+  `__GLX_VENDOR_LIBRARY_NAME=mesa`、
+  `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`、
+  `GBM_BACKEND=dri`（配方详见 `mesa/system-mesa-analysis.md` §7）。
 
 ---
 
@@ -609,7 +612,7 @@ bash use-zcode.sh                       # 启动 ZCode (带完整修复开关)
 bash use-zcode.sh --install-desktop     # 把系统 zcode.desktop 的 Exec 切到本 wrapper
 ```
 
-`use-zcode.sh` 实际执行的开关（与 `use-system-mesa.sh` 同级，属"按需包装单应用环境"）：
+`use-zcode.sh` 实际执行的开关（属"按需包装单应用环境"类 wrapper）：
 
 ```bash
 "$APPIMAGE" \

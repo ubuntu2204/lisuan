@@ -75,6 +75,7 @@ CMD=""
 APPIMAGE=""
 DESKTOP_FILES=()
 INSTALL_DESKTOP=0
+UNINSTALL_DESKTOP=0
 START_AFTER=0
 ACCEL=1
 
@@ -84,6 +85,7 @@ while [ $# -gt 0 ]; do
     --cmd) CMD="$2"; shift 2 ;;
     --appimage) APPIMAGE="$2"; shift 2 ;;
     --install-desktop) INSTALL_DESKTOP=1; shift ;;
+    --uninstall-desktop) UNINSTALL_DESKTOP=1; shift ;;
     --start) START_AFTER=1; shift ;;
     --no-hw) ACCEL=0; shift ;;
     --hw) ACCEL=1; shift ;;
@@ -140,6 +142,38 @@ fi
 if [ ! -e "$CMD" ] && ! command -v "$CMD" >/dev/null 2>&1; then
   echo "!! 启动命令不存在: $CMD" >&2
   exit 1
+fi
+
+# ---- 逆操作: 还原桌面项 Exec ----
+if [ "$UNINSTALL_DESKTOP" = 1 ]; then
+  SELF="$(readlink -f "$0")"
+  UDIR="$HOME/.local/share/applications"
+  found=0
+  for d in "${DESKTOP_FILES[@]}"; do
+    target="$d"
+    [[ "$d" == /usr/share/* ]] && target="$UDIR/$(basename "$d")"
+    [ -f "$target" ] || continue
+    if ! grep -q "$SELF" "$target"; then
+      echo "    跳过 $target (未指向本 wrapper)"
+      continue
+    fi
+    # 优先复用系统原版桌面项的 Exec（可保留原始占位符, 如 %F）
+    orig=""
+    for sys in "/usr/share/applications/$(basename "$d")" "$d"; do
+      [ -f "$sys" ] || continue
+      line="$(grep -m1 '^Exec=' "$sys" 2>/dev/null || true)"
+      case "$line" in *"$SELF"*) ;; "") ;; *) orig="$line" ;; esac
+      [ -n "$orig" ] && break
+    done
+    [ -n "$orig" ] || orig="Exec=$CMD %U"
+    if sed -i "0,/^Exec=/s|^Exec=.*|${orig}|" "$target" 2>/dev/null; then
+      echo "OK: $target 的 Exec 已还原 (${orig})"
+      found=1
+    fi
+  done
+  [ "$found" = 0 ] && echo "    未找到指向本 wrapper 的桌面项, 无需还原"
+  update-desktop-database "$UDIR" 2>/dev/null || true
+  exit 0
 fi
 
 # 桌面项改写 (把应用菜单 Exec 切到本 wrapper, 之后从菜单直启即带修复+加速)

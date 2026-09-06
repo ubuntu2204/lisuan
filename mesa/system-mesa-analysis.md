@@ -82,7 +82,7 @@
    GNOME 合成器目前安然(gnome-shell 持有 card1 但未踩崩溃路径;
    mutter-x11-frames 走 renderD128)。**不要**为了"清理"而删除它:
    合成器内存里已经映射该库,且其 render 节点路径仍被依赖;
-   规避方式是按需 `GBM_BACKEND=dri`(见 `mesa/use-system-mesa.sh`)。
+   规避方式是按需 `GBM_BACKEND=dri`(配方见 §7)。
 2. **`MESA_LOADER_DRIVER_OVERRIDE` 救不了 EGL**:override 只影响驱动名解析,
    改变不了 §3.4 的"EGL 无 zink 回退"与 §3.2 的静态描述符表。
 3. `drirc` 告警 `/usr/share/drirc.d/01-gf_drv.conf:<option> should be
@@ -100,16 +100,40 @@ Gallium 驱动再对齐新 ABI,等于重写驱动,工程量以人年计,且无�
 **现实路径(按优先级)**:
 1. 推动厂商发布 Gallium 驱动源码并移植到当前 Mesa(京微先耕 JM9、
    Moore Threads 等国产 GPU 均走上游化路线);zink  meanwhile 兜底。
-2. 短期:应用按需切到系统 Mesa zink(`mesa/use-system-mesa.sh`),
-   接受 GL 3.0 上限;重 GL 应用继续走厂商栈。
+2. 短期:应用按需切到系统 Mesa zink(配方见 §7,接受 GL 3.0 上限);
+   重 GL 应用继续走厂商栈。
 3. 厂商提升 Vulkan ICD 的特性覆盖(更多 VK features/extensions),
    zink 的 GL 版本上限会随之自动提高 —— 这是**不改 Mesa 就能受益**的方向。
 
-## 7. 交付物
+## 7. 配方与验证工具
+
+### 切到系统 Mesa zink 的环境变量配方
+
+> 原包装脚本 `mesa/use-system-mesa.sh` 已删除(2026-09-06,无菜单入口、
+> 无脚本依赖、无实际案例;配方内联于此,git 历史可找回)。三个变量按需组合:
+
+```bash
+export __GLX_VENDOR_LIBRARY_NAME=mesa
+export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+export GBM_BACKEND=dri        # 可选: 规避 gf_gbm.so 在 libgbm 25.2 下的段错误
+```
+
+- 前两个强制 glvnd 把 GLX/EGL 分发给 Mesa 实现(glvnd 按 JSON 文件名排序,
+  `10_gf.json` 优先于 `50_mesa.json`,故必须显式指定);
+- `GBM_BACKEND=dri` 让系统 libgbm 走发行版 dri 后端(zink/kms)。
+
+对单个应用生效:
+
+```bash
+__GLX_VENDOR_LIBRARY_NAME=mesa \
+__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json \
+GBM_BACKEND=dri  some-app --args
+```
+
+### 验证工具
 
 | 文件 | 作用 |
 |---|---|
-| `mesa/use-system-mesa.sh` | 让指定应用运行在系统 Mesa(zink)之上;`--print-env` 输出配方;`--force-dri-gbm` 规避 gf_gbm 地雷 |
 | `mesa/verify-system-mesa.sh` | 只读体检:DRM 名、glvnd 配置、zink 回退、GBM dri 后端 |
 | 本文档 | 源码级根因与实验记录 |
 

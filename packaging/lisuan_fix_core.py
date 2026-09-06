@@ -205,7 +205,7 @@ def detect() -> Env:
                 env.add("Steam", "ok", "桌面启动器已配置 GBM_BACKEND=dri（CEF 崩溃已修复）")
             else:
                 env.add("Steam", "bad",
-                        "桌面启动器缺 GBM_BACKEND=dri —— Steam 界面会崩溃，菜单 [16]", "16")
+                        "桌面启动器缺 GBM_BACKEND=dri —— Steam 界面会崩溃，菜单 [11]", "11")
 
         if STEAM_WRAP.is_file():
             try:
@@ -223,7 +223,7 @@ def detect() -> Env:
             if "i" in flags:
                 env.add("Steam", "bad",
                         "wrap.sh 被 chattr +i 锁定 —— 会触发 Steam 更新回滚循环，"
-                        "导致游戏反复重新下载，请立即解锁（菜单 [13]）", "13")
+                        "导致游戏反复重新下载，请立即解锁（python3 install.py 11 --undo）", "11")
     else:
         env.add("Steam", "info", "未安装 Steam（跳过 Steam 相关项）")
 
@@ -245,7 +245,7 @@ def detect() -> Env:
         env.add("游戏", "ok",
                 "Dota Underlords 修复已安装（Steam 内直接点开始游戏，或用桌面项）")
     elif ul.is_dir():
-        env.add("游戏", "warn", "Dota Underlords 修复未安装 —— 菜单 [17]", "17")
+        env.add("游戏", "warn", "Dota Underlords 修复未安装 —— 菜单 [15]", "15")
 
     return env
 
@@ -296,60 +296,101 @@ ITEMS: list[Item] = [
     {"id": 4,  "title": "安装/修复：DKMS 驱动构建与加载（vermagic 错配、黑屏）",
      "group": "DKMS", "root": True,
      "cmd": lambda a: _sh("dkms/fix-lisuan-gpu.sh", *a), "doc": ""},
-    {"id": 5,  "title": "卸载：DKMS Makefile 补丁（还原原厂，不影响已装驱动）",
-     "group": "DKMS", "root": True,
-     "cmd": lambda a: _sh("dkms/uninstall-lisuan-gpu.sh"), "doc": ""},
-    {"id": 6,  "title": "说明：厂商 gf/gbm 崩溃 Bug 报告", "group": "DKMS",
+    {"id": 5,  "title": "说明：厂商 gf/gbm 崩溃 Bug 报告", "group": "DKMS",
      "root": False, "cmd": None, "doc": _doc("dkms/vendor-bug-report-gf-gbm-crash.md")},
 
     # ---- Mesa ----
-    {"id": 7,  "title": "说明：系统 Mesa 兼容性分析", "group": "Mesa",
+    {"id": 6,  "title": "说明：系统 Mesa 兼容性分析", "group": "Mesa",
      "root": False, "cmd": None, "doc": _doc("mesa/system-mesa-analysis.md")},
 
     # ---- Electron ----
     # 每项 = 把应用菜单图标的 Exec 切到本 wrapper：以后从应用菜单点图标即自动
     # 带修复参数（ZCode）或 gf 硬件加速（CodeBuddy/Qoder），不必再手动跑脚本。
     # 只装桌面项、不启动应用（wrapper 的 --start 可让装完即启动，菜单不使用）。
-    {"id": 8,  "title": "ZCode：点图标即用（装桌面项；修显示异常，软件渲染稳定优先）",
+    {"id": 7,  "title": "ZCode：点图标即用（装桌面项；修显示异常，软件渲染稳定优先）",
      "group": "Electron", "root": False,
      "cmd": lambda a: _sh("electron/use-zcode.sh", "--install-desktop"),
      "doc": ""},
-    {"id": 9,  "title": "CodeBuddy（含国内版 buddycn）：点图标即用（装桌面项；gf 硬件加速）",
+    {"id": 8,  "title": "CodeBuddy（含国内版 buddycn）：点图标即用（装桌面项；gf 硬件加速）",
      "group": "Electron", "root": False,
      "cmd": lambda a: _sh("electron/use-codebuddy.sh", "--install-desktop"),
      "doc": ""},
-    {"id": 10, "title": "Qoder：点图标即用（装桌面项；gf 硬件加速）",
+    {"id": 9,  "title": "Qoder：点图标即用（装桌面项；gf 硬件加速）",
      "group": "Electron", "root": False,
      "cmd": lambda a: _sh("electron/use-qoder.sh", "--install-desktop"),
      "doc": ""},
-    {"id": 11, "title": "说明：Electron 类应用适配（显示异常 / 硬件加速）", "group": "Electron",
+    {"id": 10, "title": "说明：Electron 类应用适配（显示异常 / 硬件加速）", "group": "Electron",
      "root": False, "cmd": None, "doc": _doc("electron/README.md")},
 
     # ---- Steam ----
-    {"id": 12, "title": "安装/修复：Steam 界面崩溃（桌面启动器写入 GBM_BACKEND=dri）",
+    {"id": 11, "title": "安装/修复：Steam 界面崩溃（桌面启动器写入 GBM_BACKEND=dri）",
      "group": "Steam", "root": False, "cmd": None, "doc": ""},  # install_steam_fix
-    {"id": 13, "title": "卸载：移除 GBM_BACKEND 并解锁 Steam 文件", "group": "Steam",
-     "root": True, "cmd": None, "doc": ""},  # remove_steam_fix
-    {"id": 14, "title": "说明：Steam 在砺算上的适配细节（容器/CEF/Proton）", "group": "Steam",
+    {"id": 12, "title": "说明：Steam 在砺算上的适配细节（容器/CEF/Proton）", "group": "Steam",
      "root": False, "cmd": None, "doc": _doc("steam/steam-on-lisuan.md")},
 
     # ---- 随从大师 ----
-    {"id": 15, "title": "安装/修复：硬件渲染加固（libSC.so 链接 + DXVK 降级 + hook）",
+    {"id": 13, "title": "安装/修复：硬件渲染加固（libSC.so 链接 + DXVK 降级 + hook）",
      "group": "随从大师", "root": True,
      "cmd": lambda a: _sh("minion-masters/fix-minion-masters-7g100-hw.sh", *a), "doc": ""},
-    {"id": 16, "title": "说明：随从大师（Minion Masters）修复文档", "group": "随从大师",
+    {"id": 14, "title": "说明：随从大师（Minion Masters）修复文档", "group": "随从大师",
      "root": False, "cmd": None, "doc": _doc("minion-masters/fix-minion-masters.md")},
 
     # ---- 刀塔霸业 ----
-    {"id": 17, "title": "安装/修复：Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项）",
+    {"id": 15, "title": "安装/修复：Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项）",
      "group": "刀塔霸业", "root": True,
      "cmd": lambda a: _sh("underlords/fix-underlords-native.sh"), "doc": ""},
-    {"id": 18, "title": "说明：Dota Underlords 修复文档", "group": "刀塔霸业",
+    {"id": 16, "title": "说明：Dota Underlords 修复文档", "group": "刀塔霸业",
      "root": False, "cmd": None, "doc": _doc("underlords/fix-underlords-native.md")},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
 GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业"]
+
+
+class UndoAction(TypedDict):
+    """安装项的卸载（还原）动作。
+
+    cmd 为空表示内部实现函数（见 undo_item）；
+    always 为 True 时无视状态始终显示按钮（卸载脚本幂等，如 DKMS）。
+    """
+
+    cmd: list[str]
+    root: bool
+    always: bool
+
+
+# 安装项 -> 卸载动作。GUI 在项状态为"已配置/已修复/有残留"时显示卸载按钮。
+# 未在表中的安装项（如随从大师——脚本无卸载入口）不显示按钮。
+UNDO: dict[int, UndoAction] = {
+    4:  {"cmd": _sh("dkms/uninstall-lisuan-gpu.sh"), "root": True, "always": True},
+    7:  {"cmd": _sh("electron/use-zcode.sh", "--uninstall-desktop"), "root": False,
+         "always": False},
+    8:  {"cmd": _sh("electron/use-codebuddy.sh", "--uninstall-desktop"),
+         "root": False, "always": False},
+    9:  {"cmd": _sh("electron/use-qoder.sh", "--uninstall-desktop"), "root": False,
+         "always": False},
+    11: {"cmd": [], "root": True, "always": False},   # remove_steam_fix（内部实现）
+    15: {"cmd": _sh("underlords/fix-underlords-native.sh", "--uninstall"),
+         "root": True, "always": False},
+}
+
+# 显示卸载按钮的状态（"已生效"类的状态），见 collect_statuses 的文本
+UNDO_SHOWN_WHEN = ("✓ 已配置", "✓ 已修复", "✓ 已部署", "有残留", "启用中")
+
+
+def undo_item(item_id: int) -> int:
+    """执行安装项的卸载/还原（命令行模式）。返回进程返回码。"""
+    act = UNDO.get(item_id)
+    if act is None:
+        print(f"  菜单项 {item_id} 无卸载动作")
+        return 1
+    if not act["cmd"]:
+        return remove_steam_fix() if item_id == 11 else 1
+    cmd = [*act["cmd"]]
+    if act["root"] and os.geteuid() != 0:
+        cmd = ["sudo", *cmd]
+    print(f"  还原：{' '.join(cmd)}")
+    return subprocess.run(cmd).returncode
 
 
 def item_label(it: Item) -> str:
@@ -436,10 +477,8 @@ def run_item(item_id: int, extra: list[str] | None = None) -> int:
         return 0
     if it.get("doc"):
         return show_doc(it["doc"])
-    if item_id == 12:
+    if item_id == 11:
         return install_steam_fix()
-    if item_id == 13:
-        return remove_steam_fix()
 
     cmd = it["cmd"](extra) if it["cmd"] else None
     if cmd is None:
@@ -513,7 +552,7 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
     级别：ok=已就绪，bad=需修复，warn=需注意，dim=不适用/可选/按需。
-    说明与纯操作项（1/6/7/11/14/16/18）不返回状态。
+    说明与纯操作项（1/5/6/10/12/14/16）不返回状态。
     """
     env = env or detect()
     st: dict[int, tuple[str, str]] = {}
@@ -561,11 +600,11 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     # 用 use-electron-gf.sh 而非 use-codebuddy.sh / use-qoder.sh。
     user_apps = home / ".local/share/applications"
     sys_apps = Path("/usr/share/applications")
-    st[8] = (("✓ 已配置", "ok")
+    st[7] = (("✓ 已配置", "ok")
              if _desktop_configured([user_apps / "zcode.desktop"], "use-zcode.sh")
              else ("未配置", "dim"))
     # CodeBuddy 桌面项：国际版 codebuddy.desktop / 国内版 buddycn.desktop
-    st[9] = (("✓ 已配置", "ok")
+    st[8] = (("✓ 已配置", "ok")
              if _desktop_configured([user_apps / "codebuddy.desktop",
                                      sys_apps / "codebuddy.desktop",
                                      user_apps / "buddycn.desktop",
@@ -574,22 +613,11 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
              else ("未配置", "dim"))
     qoder = [user_apps / n for n in ("qoder.desktop", "qoder-cn.desktop")]
     qoder += [sys_apps / n for n in ("qoder.desktop", "qoder-cn.desktop")]
-    st[10] = (("✓ 已配置", "ok")
-              if _desktop_configured(qoder, "use-electron-gf.sh")
-              else ("未配置", "dim"))
+    st[9] = (("✓ 已配置", "ok")
+             if _desktop_configured(qoder, "use-electron-gf.sh")
+             else ("未配置", "dim"))
 
-    # 12/13 Steam
-    if not shutil.which("steam"):
-        st[12] = ("未安装", "dim")
-    else:
-        try:
-            fixed = (STEAM_DESKTOP.is_file()
-                     and STEAM_DESKTOP_EXEC_FIXED in
-                     STEAM_DESKTOP.read_text(errors="replace"))
-        except OSError:
-            fixed = False
-        st[12] = ("✓ 已修复", "ok") if fixed else ("✗ 需修复", "bad")
-
+    # 11 Steam（锁定检查与已修复判定同源，合并为一项状态）
     wrap_txt = ""
     if STEAM_WRAP.is_file():
         try:
@@ -597,36 +625,39 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
         except OSError:
             wrap_txt = ""
     locked = "i" in ((out(["lsattr", str(STEAM_WRAP)]).split() or [""])[0])
-    desktop_txt = ""
-    if STEAM_DESKTOP.is_file():
+    if not shutil.which("steam"):
+        st[11] = ("未安装", "dim")
+    elif locked:
+        st[11] = ("! 文件被锁定", "bad")
+    else:
         try:
-            desktop_txt = STEAM_DESKTOP.read_text(errors="replace")
+            fixed = (STEAM_DESKTOP.is_file()
+                     and STEAM_DESKTOP_EXEC_FIXED in
+                     STEAM_DESKTOP.read_text(errors="replace"))
         except OSError:
-            desktop_txt = ""
-    st[13] = (("有残留", "warn")
-              if ("GBM_BACKEND=dri" in desktop_txt or locked)
-              else ("干净", "ok"))
+            fixed = False
+        st[11] = ("✓ 已修复", "ok") if fixed else ("✗ 需修复", "bad")
 
-    # 15 Minion Masters：hook 产物 + 游戏目录
+    # 13 Minion Masters：hook 产物 + 游戏目录
     mm_game = home / ".steam/root/steamapps/common/Minion Masters"
     if not mm_game.is_dir():
-        st[15] = ("未安装", "dim")
+        st[13] = ("未安装", "dim")
     elif (S / "minion-masters/gf-compat/lib/osrelease_redirect.so").is_file():
-        st[15] = ("✓ 已部署", "ok")
+        st[13] = ("✓ 已部署", "ok")
     else:
-        st[15] = ("✗ 需修复", "bad")
+        st[13] = ("✗ 需修复", "bad")
 
-    # 17 Underlords：注入标记
+    # 15 Underlords：注入标记
     ul_root = home / ".local/share/Steam/steamapps/common/Underlords"
     if not ul_root.is_dir():
-        st[17] = ("未安装", "dim")
+        st[15] = ("未安装", "dim")
     else:
         try:
             injected = ("Lisuan 7G100 fix (injected)"
                         in (ul_root / "game/underlords.sh").read_text(errors="replace"))
         except OSError:
             injected = False
-        st[17] = ("✓ 已修复", "ok") if injected else ("✗ 需修复", "bad")
+        st[15] = ("✓ 已修复", "ok") if injected else ("✗ 需修复", "bad")
 
     return st
 
@@ -657,6 +688,8 @@ def main(argv: list[str]) -> int:
     if args and args[0].isdigit():
         item_id = int(args[0])
         print(render_report(detect()))
+        if "--undo" in args:
+            return undo_item(item_id)
         return run_item(item_id, args[1:])
 
     if args and args[0] in ("-h", "--help"):

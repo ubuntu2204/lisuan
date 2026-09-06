@@ -33,6 +33,8 @@ from lisuan_fix_core import (
     GROUP_ORDER,
     REPO_ROOT,
     S,
+    UNDO,
+    UNDO_SHOWN_WHEN,
     Env,
     collect_statuses,
     detect,
@@ -75,20 +77,22 @@ def _install_entry() -> str:
     return str(REPO_ROOT / "install.py")
 
 
-def open_in_terminal(item_id: int) -> int:
+def open_in_terminal(item_id: int, extra: str = "") -> int:
     """需要 root 的项：打开终端窗口，在终端里以 sudo 重跑本工具的非交互模式。
 
+    extra 为附加参数（如 "--undo" 表示执行该项的卸载/还原）。
     密码输入与脚本内的交互提示都发生在真实终端里，结束后驻留显示结果。
     """
     term = (shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal")
             or shutil.which("konsole") or shutil.which("xterm"))
+    suffix = f" {extra}" if extra else ""
     if not term:
         print("  未找到终端模拟器，无法获取 root 授权。请改在命令行执行：")
-        print(f"    sudo python3 {_install_entry()} {item_id}")
+        print(f"    sudo python3 {_install_entry()} {item_id}{suffix}")
         return 127
     inner = (
         f"cd {shlex.quote(str(REPO_ROOT))} && "
-        f"sudo python3 {shlex.quote(_install_entry())} {item_id}; "
+        f"sudo python3 {shlex.quote(_install_entry())} {item_id}{suffix}; "
         f'echo; read -n1 -p "完成，按任意键关闭..."'
     )
     if "gnome-terminal" in term and "x-terminal-emulator" not in term:
@@ -159,15 +163,19 @@ class App:
         style.map("Fix.Treeview",
                   background=[("selected", CLR["sel"])],
                   foreground=[("selected", CLR["fg"])])
-        self.tree = ttk.Treeview(rf, show="tree", selectmode="browse",
-                                 style="Fix.Treeview")
+        self.tree = ttk.Treeview(rf, columns=("act",), show="tree headings",
+                                 selectmode="browse", style="Fix.Treeview")
         tsb = ttk.Scrollbar(rf, command=self.tree.yview)
         self.tree.configure(yscrollcommand=tsb.set)
         tsb.pack(side="right", fill="y")
         self.tree.pack(fill="both", expand=True, padx=4, pady=4)
-        self.tree.column("#0", width=460)
+        self.tree.column("#0", width=440)
+        # "操作"列：已配置的安装项在此显示"卸载"按钮
+        self.tree.heading("act", text="操作")
+        self.tree.column("act", width=70, anchor="center", stretch=False)
         self.tree.bind("<Double-1>", self._on_double)
         self.tree.bind("<Return>", self._on_double)
+        self.tree.bind("<Button-1>", self._on_click)
         # 修复状态行染色（标题后缀符号 + 整行着色）
         self.tree.tag_configure("st_ok", foreground=CLR["ok"])
         self.tree.tag_configure("st_bad", foreground=CLR["bad"])
@@ -246,7 +254,7 @@ class App:
                                 foreground=ACCENT_DARK)
 
     def _apply_status(self, st: dict[int, tuple[str, str]]) -> None:
-        """把各项修复状态追加到菜单标题后，并整行染色。"""
+        """把各项修复状态追加到菜单标题后，并整行染色；已生效的安装项显示卸载按钮。"""
         row_tag = {"ok": "st_ok", "bad": "st_bad", "warn": "st_warn",
                    "dim": "st_dim"}
         for g in self.tree.get_children():
@@ -255,11 +263,84 @@ class App:
                 base = self._titles.get(it["id"], "")
                 info = st.get(it["id"])
                 if not info:
-                    self.tree.item(child, text=base, tags=())
+                    self.tree.item(child, text=base, values=("",), tags=())
                     continue
                 label, level = info
+                # 仅在"已生效"状态且有卸载动作时显示卸载按钮
+                # （always=True 的项：卸载脚本幂等，无视状态始终显示）
+                act = UNDO.get(it["id"])
+                show_undo = bool(act) and (
+                    act.get("always")
+                    or any(label.startswith(w) for w in UNDO_SHOWN_WHEN))
                 self.tree.item(child, text=f"{base}　{label}",
+                               values=("卸载" if show_undo else "",),
                                tags=(row_tag.get(level, "st_dim"),))
+
+    # ---- 卸载按钮 ----
+    def _on_click(self, event) -> None:
+        """点击"操作"列（卸载按钮）时触发还原；其余区域交给原有双击逻辑。"""
+        row = self.tree.identify_row(event.y)
+        col = self.tree.identify_column(event.x)
+        if not row or not row.startswith("i:") or col != "#1":
+            return
+        if (self.tree.item(row, "values") or ("",))[0] != "卸载":
+            return
+        self.undo(int(row[2:]))
+
+    def undo(self, item_id: int) -> None:
+        """执行安装项的卸载/还原。"""
+        if self.busy:
+            self._log("已有任务在执行，请稍候…", "warn")
+            return
+        act = UNDO.get(item_id)
+        if act is None:
+            return
+        title = ITEMS_BY_ID[item_id]["title"]
+        if act["root"] and os.geteuid() != 0:
+            self._log(f"[{item_id}] 还原需要 root —— 已在新终端窗口打开，"
+                      "请在其中输入密码，完成后回到本窗口点「重新检测」。", "warn")
+            open_in_terminal(item_id, extra="--undo")
+            return
+        self.busy = True
+        self._set_status(f"还原 [{item_id}] {title} …")
+        self._log(f"$ 还原 [{item_id}] {title}", "dim")
+        threading.Thread(target=self._undo_worker, args=(item_id,),
+                         daemon=True).start()
+
+    def _undo_worker(self, item_id: int) -> None:
+        act = UNDO[item_id]
+        title = ITEMS_BY_ID[item_id]["title"]
+        if not act["cmd"]:
+            # 内部实现（12 remove_steam_fix）
+            import contextlib
+            import io as _io
+
+            buf = _io.StringIO()
+            try:
+                with contextlib.redirect_stdout(buf):
+                    code = remove_steam_fix() if item_id == 11 else 1
+                self.q.put(("log", buf.getvalue(), ""))
+            except Exception as e:  # noqa: BLE001
+                self.q.put(("log", f"还原失败：{e}", "bad"))
+                code = 1
+            self.q.put(("done", code, f"还原：{title}"))
+            return
+
+        try:
+            proc = subprocess.Popen(
+                [*act["cmd"]], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, errors="replace", bufsize=1)
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                self.q.put(("log", line.rstrip(), ""))
+            code = proc.wait()
+        except FileNotFoundError as e:
+            self.q.put(("log", f"命令不存在：{e}", "bad"))
+            code = 127
+        except Exception as e:  # noqa: BLE001
+            self.q.put(("log", f"还原失败：{e}", "bad"))
+            code = 1
+        self.q.put(("done", code, f"还原：{title}"))
 
     # ---- 交互 ----
     def _sel_item(self):
@@ -323,7 +404,7 @@ class App:
             buf = _io.StringIO()
             try:
                 with contextlib.redirect_stdout(buf):
-                    if item_id == 12:
+                    if item_id == 11:
                         code = install_steam_fix()
                     elif item_id == 13:
                         code = remove_steam_fix()

@@ -29,15 +29,31 @@ DESKTOP_USER="$HOME/.local/share/applications/zcode.desktop"
 # --start: 装完桌面项后继续启动应用（两者合用 = "点图标即用" 一键生效）。
 # 自身标志从下游参数中剔除, 避免污染应用启动参数。
 INSTALL_DESKTOP=0
+UNINSTALL_DESKTOP=0
 START_AFTER=0
 ARGS=()
 for arg in "$@"; do
   case "$arg" in
-    --install-desktop) INSTALL_DESKTOP=1 ;;
-    --start)           START_AFTER=1 ;;
-    *)                 ARGS+=("$arg") ;;
+    --install-desktop)   INSTALL_DESKTOP=1 ;;
+    --uninstall-desktop) UNINSTALL_DESKTOP=1 ;;
+    --start)             START_AFTER=1 ;;
+    *)                   ARGS+=("$arg") ;;
   esac
 done
+
+# 逆操作：把桌面项 Exec 还原为 AppImage 真身（卸载修复）
+if [ "$UNINSTALL_DESKTOP" = 1 ]; then
+  SELF="$(readlink -f "$0")"
+  [ -f "$DESKTOP_USER" ] || { echo "!! 未找到 $DESKTOP_USER" >&2; exit 1; }
+  if grep -q "$SELF" "$DESKTOP_USER"; then
+    sed -i "0,/^Exec=/s|^Exec=.*|Exec=$APPIMAGE %U|" "$DESKTOP_USER"
+    echo "OK: $DESKTOP_USER 的 Exec 已还原为应用本体"
+    update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+  else
+    echo "    $DESKTOP_USER 未指向本 wrapper, 无需还原"
+  fi
+  exit 0
+fi
 
 if [ "$INSTALL_DESKTOP" = 1 ]; then
   [ -f "$DESKTOP_USER" ] || { echo "!! 未找到 $DESKTOP_USER" >&2; exit 1; }
