@@ -682,7 +682,7 @@ bash use-electron-gf.sh --appimage /path/to.appimage
 > 症状：`--hw` 模式下 Electron 报
 > `vkCreateInstance() failed: -7`（`VK_ERROR_INCOMPATIBLE_DRIVER`），界面白屏/花屏。
 >
-> 根因（与随从大师 `MinionMasters-攻坚全记录.md` 显卡坑 15 同源）：
+> 根因（与随从大师 `minion-masters/fix-minion-masters.md` 同源于 gf ICD 协商问题）：
 > gf 厂商**裁掉了**实例扩展 `VK_KHR_external_semaphore_capabilities` /
 > `VK_KHR_external_fence_capabilities`，而新版 Vulkan loader 严格校验
 > "请求的实例扩展必须由某个 ICD 暴露"；Electron/Chromium 会请求前者 → 直接被拒。
@@ -778,8 +778,8 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
   —— Source 2 原生 Linux 游戏在 Steam pressure-vessel 容器内崩溃，容器委托宿主直跑；libpng12 补齐、panorama 随机段错误智能重试与退出检测。
 - [随从大师（Minion Masters）修复](./minion-masters/fix-minion-masters.md)
   —— Unity/IL2CPP 游戏：Vivox 登录崩溃 + 图片下载 Texture 异常的 BepInEx 运行时 patch 三件套（Vivox `LoginAsync`、新闻下载状态机 `MoveNext`、`DownloadHandlerTexture.InternalGetTexture`）；证书 patch 反致黑屏（Zenject 异常循环）的回归教训；游戏后端 `LoginQueueService.Post` 404 与 Azure IP 封锁（2026-08-31 复测：**不阻塞**，已完整打完一局对战）；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染；**推荐 Proton 11.0 稳定版**，更新频率低于 Experimental）、user_settings.py 注入无效教训、Steam 状态卡死坑。
-- [随从大师攻坚全记录](./minion-masters/MinionMasters-攻坚全记录.md)
-  —— 32 位游戏 × 只有 64 位 gf 驱动的完整攻坚：WoW64 路线、发行版白名单绕过、libSC 依赖、DXVK 降级、`vkMapMemory` 高地址 vs 32 位 thunk 的根因与驱动 `MAP_32BIT` 补丁。**2026-08-29 硬件渲染链路已端到端打通**（协商垫片 + 低 4GB 重映射池，`Renderer: LISUAN 7G100` + 登录流程）；剩余阻塞仅服务端 API 404。
+- [随从大师（Minion Masters）修复（一篇通）](./minion-masters/fix-minion-masters.md)
+  —— 32 位游戏 × 只有 64 位 gf 驱动的完整攻坚：WoW64 路线、发行版白名单绕过（os-release 重定向）、libSC 依赖、DXVK 降级 v2.3、`vkMapMemory` 高地址 vs 32 位 thunk 的根因与**低 4GB 重映射池**。**2026-08-29 硬件渲染链路端到端打通**（`Renderer: LISUAN 7G100` + 登录流程），系统驱动保持原版、改动隔离在 LD_PRELOAD；含 2026-09-06 组件消融实测（5 项全部必需）、排障速查与废弃路线清单。剩余阻塞仅服务端 API 404。
 
 ---
 

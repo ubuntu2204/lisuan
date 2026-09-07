@@ -1,4 +1,4 @@
-# 随从大师（Minion Masters）修复
+# 随从大师（Minion Masters）修复（一篇通）
 
 > 适用机型：**砺算 7G100 GPU + Ubuntu 24.04 + Proton（Steam）**。
 > 现象：Steam 里启动 Minion Masters 先后崩在 Vivox 登录 / 黑屏（Zenject 异常循环）；
@@ -6,17 +6,23 @@
 > 修复脚本：`./fix-minion-masters-7g100-hw.sh`（7G100 硬件渲染，**当前用这个**）；
 > 另有 `./fix-minion-masters.sh`（llvmpipe 软件渲染路线，早期方案，仅存档）；
 > 真正的崩溃修复是运行时 IL2CPP patch：**当前为 `MMPatch.dll`**（doorstop 直载，纯 P/Invoke，
-> 源码 `assets/mm-gf-vulkan/MMPatch.cs`）。早期的 BepInEx 插件 `MMSkipVivox.dll`
+> 源码 `assets-mm-gf-vulkan/MMPatch.cs`）。早期的 BepInEx 插件 `MMSkipVivox.dll`
 > （源码 `/home/ubuntu/mm_patch/plugin/Patcher.cs`）已于 2026-08-26 退役，见游戏坑 1。
 >
-> **渲染状态（2026-08-30）**：7G100 **硬件渲染**已打通，见文末「游戏坑 8」。
-> 本文只保留**可照做的成功方案**；失败尝试与排查弯路统一收在
-> `MinionMasters-攻坚全记录.md`。
+> **渲染状态（2026-08-30 起）**：7G100 **硬件渲染**已打通，见「游戏坑 8」。
+>
+> **文档整合（2026-09-06）**：原 `MinionMasters-攻坚全记录.md`（研发日志）与
+> `MinionMasters-成功运行报告.md`（llvmpipe 时代实测快照）**已合并进本文**——
+> 失败尝试/废弃路线收在「历史方案与已废弃路线」，实测时间线与可容忍错误收在
+> 「启动流程与健康判读」。git 历史仍可查阅原始文件，**本文是随从大师的唯一文档**。
 >
 > **编号约定**：本文的「**游戏坑 N**」指**游戏/应用层**问题（Vivox、证书、BepInEx、Proton 配置等）；
-> 显卡/渲染层问题用「**显卡坑 N**」，统一记录在 `MinionMasters-攻坚全记录.md`。
-> 两套数字会撞车但含义不同——例如**游戏坑 3 = 服务端 API 404**，
-> 而**显卡坑 3 = Steam 报内容文件损坏**，别看混。
+> 显卡/渲染层问题历史上用「**显卡坑 N**」（原攻坚全记录），合并后统一收在
+> 「游戏坑 8 / 历史方案」章节。两套数字历史上会撞车但含义不同——例如
+> **游戏坑 3 = 服务端 API 404**，而**显卡坑 3 = Steam 报内容文件损坏**，别看混。
+
+**阅读顺序建议**：赶时间 → 只看「TL;DR」+「排障速查」；要理解原理 → 「游戏坑 8」；
+要判断"现在是否正常" → 「启动流程与健康判读」。
 
 ---
 
@@ -630,3 +636,157 @@ VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_ov
 游戏后端 `api.prod.mm21.minionmastersthegame.com` 的 `/v1/*` API 仍 **404**（`/health` 200 Healthy，
 BetaDwarf 服务器端问题，游戏坑 7 已记录）。游戏用 7G100 渲染推进到登录队列后，因 404 自行退出
 （无 crash report 的主动退出）。**7G100 硬件渲染链路本身已完全打通并验证**。
+
+---
+
+## 环境与架构矛盾（合并自成功运行报告）
+
+### 环境基线
+
+| 项目 | 值 |
+|---|---|
+| CPU | Hygon C86-4G (OPN:3450)，16 核 |
+| 内存 | 15.2 GB |
+| 显卡 | 砺算 7G100（`lspci` `4c54:5006` VGA；音频 `4c54:5010`） |
+| 系统 | Ubuntu 24.04.4 LTS，内核 7.0.0-30-generic |
+| 桌面会话 | **Wayland**（`XDG_SESSION_TYPE=wayland`，`DISPLAY=:0`，经 XWayland） |
+| 驱动包 | `lisuangpu-dkms / lisuangpu-lib 262.2.0.56`，模块 `gf` 已加载 |
+| DRM | `/dev/dri/card1`、`/dev/dri/renderD128` |
+| Unity 引擎 | 2020.3.44f1（游戏自带） |
+
+> ⚠️ **Wayland 是关键约束**：手动在宿主机直接跑 Proton 时，winevulkan 拿不到
+> `VK_KHR_surface`（`Required Vulkan extension VK_KHR_surface not supported`）。
+> **必须经由 Steam（Steam Runtime 容器）启动**才有正确的 WSI 环境。
+
+### 根本矛盾：32 位游戏 vs 只有 64 位驱动
+
+| 事实 | 说明 |
+|---|---|
+| 游戏是 **32 位** exe | `MinionMasters.exe`，PE Machine=0x14c (i386) |
+| gf 只发布 **64 位** Vulkan 驱动 | 仅 `/usr/lib/x86_64-linux-gnu/libvulkan_gf.so`，无 32 位版 |
+| 32 位游戏用 64 位驱动 | 必须走 Proton **WoW64**（`PROTON_USE_WOW64=1`） |
+
+WoW64 下映射显存落在 >4GB → 32 位 DXVK 访问不了 → `VK_ERROR_OUT_OF_HOST_MEMORY`
+（最终由「低 4GB 重映射池」解决，见游戏坑 8 障碍 5）。
+
+---
+
+## 启动流程与健康判读（合并自成功运行报告，已按硬件渲染更新）
+
+### 阶段时间线（Player.log 约 1100～1500 行）
+
+| 阶段 | 日志位置 | 约耗时 | 关键标志 |
+|---|---|---|---|
+| 1 引擎与图形初始化 | 1–15 行 | 0–10s | `Renderer: LISUAN 7G100 Series Graphics (ID=0x5006)` ← **健康标志** |
+| 2 资源与场景加载 | 16–100 行 | 10–30s | `Addressable scene load took …ms` |
+| 3 登录界面 | 195–236 行 | 20–30s | `Pushing LoginMainViewModel`、`Login queue entered` |
+| 4 主菜单内部 | 499 行起 | 40–45s | `CardCollectionViewModel`（卡牌收藏）/ `BattleModeViewModel` |
+| 5 Vivox 语音登录 | 826–927 行 | 55–60s | `Login started with token e30…` → `OnLoginStateChanged: LoggedIn` |
+
+> 若第 7 行是 `llvmpipe` 说明走了软件渲染（启动选项未生效）；`LISUAN 7G100` 才是硬件渲染。
+> 看不到 Vivox token / `LoggedIn`：Vivox 被错误 patch 或没起来（游戏坑 1）。
+
+### 可容忍的错误与警告（**成功运行同样存在，别误判**）
+
+| 类别 | 典型输出 | 影响 | 需处理 |
+|---|---|---|---|
+| Curl 证书错误 | `Curl error 35/42`、`UNITYTLS_X509VERIFY_FATAL_ERROR` | 仅新闻图片/遥测；登录走另一条链路 | 否 |
+| Standard Shader 警告 | `Shader Unsupported: 'Standard'` | 个别材质偏色，不影响流程 | 否 |
+| UniTask 未观察异常 | `PublishUnobservedTaskException` | 无（**但退出期触发会崩**——MMPatch 的用武之地） | 否 |
+| LoginQueue Post 异常 | `LoginQueueService+<Post>…MoveNext` | 无，照常拿 token | 否 |
+| 容器 locale 警告 | `setlocale "zh_CN.UTF-8"` / `pv-locale-gen` | 启动慢约 1 秒 | 否 |
+
+### 健康 vs 异常速查
+
+```bash
+LOG=~/.local/share/Steam/steamapps/compatdata/489520/pfx/drive_c/users/steamuser/AppData/LocalLow/BetaDwarf\ ApS/Minion\ Masters/Player.log
+grep -m1 "Renderer:" "$LOG"                      # 应为 LISUAN 7G100
+grep -c  "failed to create buffer" "$LOG"        # 应为 0
+grep -c  "OnLoginStateChanged: LoggedIn" "$LOG"  # 应 >= 1
+```
+
+| 检查项 | 健康值 | 异常处理 |
+|---|---|---|
+| `Renderer:` | `LISUAN 7G100` | `llvmpipe` = 启动选项/加固未生效；重跑固化脚本 |
+| `failed to create buffer` | `0` | 非 0 = 低 4GB 重映射没生效，查 LD_PRELOAD |
+| `LoggedIn` | `>= 1` | 0 = Vivox 被错误 patch（游戏坑 1） |
+
+---
+
+## 排障速查（症状 → 定位 → 修复）
+
+| 症状 | 根因 | 处置 |
+|---|---|---|
+| `Failed to initialize player` / `Failed to initialize graphics` / `InitializeEngineGraphics failed` | `vkCreateDevice` 失败——多为 libSC 软链缺失/悬空 | 重跑固化脚本（补 libSC 软链） |
+| 日志 0 次 `LISUAN`、只有 llvmpipe | hook（os-release 伪造）未生效 → 白名单拒绝 | 查 LaunchOptions 是否含 `LD_PRELOAD=…/osrelease_redirect.so` |
+| 卡 `GfxDevice: creating device client` 后退出 | 垫片 ICD / 驱动库副本缺失 | 重跑固化脚本（重建 gf-compat 产物） |
+| 能进游戏但退出时崩 | MMPatch 未加载（doorstop/winhttp/MMPatch.dll 缺失） | 重跑固化脚本；确认 `doorstop_config.ini` target = MMPatch.dll |
+| 玩着玩着突然不行了（此前正常） | Steam 更新 Proton：覆盖 DXVK 降级 + libSC 链接 | 重跑固化脚本（脚本会自动跟随游戏当前 Proton） |
+| Steam 报"内容文件损坏"（dxgi.dll） | 手动替换过 Proton 文件 | 从 `dxvk.bak-v3` 还原（**不要手动改 Proton 文件**） |
+| 卡登录队列 / 自行退出 | 厂商后端 `/v1/*` 404（与显卡无关） | 已知噪音，无需处理 |
+| 手动 `proton run` 启动失败 `failed to open steam.exe` | 缺 Steam 启动器上下文 | 用 `steam -applaunch 489520` 或从 Steam 界面启动 |
+
+诊断三连（把 `PE` 换成实际 Proton 目录）：
+
+```bash
+cat "$PE/version"                                  # Proton 版本
+ls -l "$PE/files/lib/x86_64-linux-gnu/libSC.so"    # 是否悬空
+head -1 "$PE/files/lib/wine/dxvk/version"          # 应为 v2.3
+```
+
+> 另：`Proton - MM GF`（Experimental 的独立副本，内置 v2.3 + libSC）不会被 Experimental
+> 更新冲掉——长期用更省心（在 Steam 里为游戏手动选它即可）。
+
+---
+
+## 历史方案与已废弃路线（合并自攻坚全记录，**勿再踩**）
+
+| 路线 | 结论 | 教训 |
+|---|---|---|
+| **llvmpipe 软件渲染**（`fix-minion-masters.sh`） | 已过时：8-29 硬件渲染打通后弃用 | 早期唯一可用路径；帧率低、Standard Shader 材质异常 |
+| **给系统驱动打 `MAP_32BIT` 单字节补丁** | **已废弃**：全局生效，连累刀塔霸业（64 位原生游戏被锁进低 2GB 必崩） | 全局补丁不可接受；改按游戏隔离的 LD_PRELOAD |
+| **ICD 层拦截 `vkMapMemory`**（`gf_shim_low4.so`） | 放弃：只能看到走 `vkMapMemory` 的映射，游戏根本没起来 | **改的层次越低覆盖面越全**——mmap 层天然覆盖所有路径 |
+| **BepInEx 6 + `MMSkipVivox.dll`** | 退役：wine11 wow64 下 Chainloader 不执行，插件不加载 | 改为 doorstop 直载纯 P/Invoke（MMPatch） |
+| **Vivox `LoginAsync` patch 成空操作** | **闪退真凶**：游戏等不到登录回调直接退出 | Vivox 在 wine 下原生可用，不要 patch |
+| **证书 patch（`ValidateCertificate`）** | 反而破坏 IL2CPP runtime → 黑屏 + NotSupportedException 死循环 | 改 patch `InternalGetTexture` 返回 null |
+| **`user_settings.py` 注入** | 无效 | Proton 不读它，别浪费时间 |
+| **A1「d3d11 failed to create factory 用 wined3d 绕过」** | 已过时 | 现由硬件渲染方案覆盖 |
+| **手动降级/替换 Proton 的 DXVK** | 触发 Steam"内容文件损坏" | 由固化脚本统一处理（带 `.bak-v3` 备份） |
+
+### 已排除的嫌疑（不必再查）
+
+| 嫌疑 | 结论 |
+|---|---|
+| 系统内存不足 / `vm.max_map_count` 过小 | 排除（可用 9.5GB；已是 1048576） |
+| 2GB 用户地址空间限制 | 排除（exe 已 `LARGE_ADDRESS_AWARE`） |
+| `overcommit_memory` / `ulimit -v` | 排除（0 / unlimited） |
+| MMPatch 干扰导致映射失败 | 排除（禁用后仍失败 18 次） |
+| `dxvk.maxChunkSize=16` | 排除（无效，失败次数不变） |
+| 驱动本身有问题 | **排除**：原生 64 位下 `vkMapMemory`/`vkCreateBuffer` 全部成功（驱动侧无辜） |
+
+---
+
+## 产出物与文件清单（合并自攻坚全记录）
+
+| 路径 | 说明 | 状态 |
+|---|---|---|
+| `fix-minion-masters-7g100-hw.sh` | **固化脚本**（幂等；支持 `--status` / `--uninstall` / `--inject-winhttp`） | ✅ 用这个 |
+| `fix-minion-masters.sh` | llvmpipe 早期路线 | 存档 |
+| `assets-mm-gf-vulkan/` | 部署源：`bin/MMPatch.dll`、`os-release`、`osrelease_redirect.{c,so}`、`libvulkan_gf_shim.{c,so}`、`gf_icd.json`、`MMPatch.cs` | ✅ 随 deb 分发 |
+| `gf-compat/lib/` | **运行时产物**（部署时生成）：驱动库副本、`osrelease_redirect.so`、`libvulkan_gf_shim.so` | 不入库（体积大，目标机重建） |
+| `gf-compat/{README.md,deploy.sh,variants/}` | 构建/调试工具 | 保留 |
+| `gf-lowmem-shim/` | 实验：`patch_gf_map32.py`（已停用）、`gf_icd_shim_orig.c`（shim 源码归档）、`gf_shim_low4.so`（废弃支路） | 仅调试对照 |
+| `dxvk23/`、`MinionMasters-*.md`（旧） | 本地实验树 / 已合并的旧文档 | 已删（git 历史可查） |
+
+> 教训（已归档）：验证类程序也应落盘到项目内——曾把 `/tmp/vk_dmabuf_32bit_test.c`
+> 留在 /tmp 被清理，虽最终未采用该路线，但浪费了可复现的材料。
+
+---
+
+## 文档沿革
+
+| 日期 | 变更 |
+|---|---|
+| 2026-08-26 ~ 08-30 | 硬件渲染突破（低 4GB 重映射池、隔离方案）、MMPatch 取代 BepInEx 插件 |
+| 2026-08-31 | 改 Proton 11.0 稳定版；"进程 40–90 秒被移除"不再复现，完整对局验证 |
+| 2026-09-06 | 固化脚本支持自动跟随 Steam 选择的 Proton、新增 `--uninstall`；组件消融实测（5 项全部必需）；**三份文档合并为本文** |

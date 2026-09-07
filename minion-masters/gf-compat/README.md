@@ -65,7 +65,7 @@ DEST=/other/path ./deploy.sh   # 部署到别处
 ## 相关文档
 
 - 低 4GB 映射池、发行版白名单、ICD 垫片等来龙去脉：`../fix-minion-masters.md`
-  （游戏坑 8）与 `../MinionMasters-攻坚全记录.md`（显卡坑 12–17）
+  （游戏坑 8「硬件渲染」+「历史方案与已废弃路线」章；原攻坚全记录已并入该文）
 - 随从大师专属的 C# 补丁工程（MMPatch）在 `../assets-mm-gf-vulkan/`
   （其 `MMPatch.cs` 是**唯一权威版本**；原开发工作目录 `mm-patch/`
   已于 2026-08-31 删除，git 历史可查）
