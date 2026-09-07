@@ -311,10 +311,17 @@ class App:
         act = UNDO[item_id]
         title = ITEMS_BY_ID[item_id]["title"]
         if not act["cmd"]:
-            # 内部实现（12 remove_steam_fix）
+            # 内部实现（11 remove_steam_fix）
             import contextlib
             import io as _io
 
+            self.q.put(("log", "$ 内部实现，操作文件：", "dim"))
+            self.q.put(("log",
+                        f"    {Path.home() / '.local/share/applications/steam.desktop'}",
+                        "dim"))
+            self.q.put(("log",
+                        f"    {Path.home() / '.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh'}",
+                        "dim"))
             buf = _io.StringIO()
             try:
                 with contextlib.redirect_stdout(buf):
@@ -326,6 +333,8 @@ class App:
             self.q.put(("done", code, f"还原：{title}"))
             return
 
+        # 日志中给出还原所执行的命令与脚本路径
+        self.q.put(("log", f"$ {' '.join(act['cmd'])}", "dim"))
         try:
             proc = subprocess.Popen(
                 [*act["cmd"]], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -360,7 +369,7 @@ class App:
             return
         it = ITEMS_BY_ID[item_id]
 
-        # 说明项：弹只读窗口显示 md
+        # 说明项：弹只读窗口显示 md（日志中给出文档完整路径）
         if it.get("doc"):
             path = S / it["doc"]
             if not path.is_file():
@@ -378,7 +387,8 @@ class App:
             except OSError as e:
                 txt.insert("1.0", f"读取失败：{e}")
             txt.configure(state="disabled")
-            self._log(f"已打开说明：{it['title']}")
+            self._log(f"已打开说明：{path}")
+            self._log(f"  （{it['title']}）")
             return
 
         # 需要root：打开终端窗口，在终端里以 sudo 重跑本工具非交互模式
@@ -397,10 +407,18 @@ class App:
     def _exec_worker(self, item_id: int) -> None:
         it = ITEMS_BY_ID[item_id]
         if it["cmd"] is None:
-            # 内部实现（12 install_steam_fix / 13 remove_steam_fix）
+            # 内部实现（11 install_steam_fix / 13 remove_steam_fix）
             import contextlib
             import io as _io
 
+            # 无外部脚本：日志中说明实际操作的文件路径
+            self.q.put(("log", "$ 内部实现，操作文件：", "dim"))
+            self.q.put(("log",
+                        f"    {Path.home() / '.local/share/applications/steam.desktop'}",
+                        "dim"))
+            self.q.put(("log",
+                        f"    {Path.home() / '.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh'}",
+                        "dim"))
             buf = _io.StringIO()
             try:
                 with contextlib.redirect_stdout(buf):
@@ -425,6 +443,8 @@ class App:
             self.q.put(("done", 127, it["title"]))
             return
 
+        # 日志中给出实际执行的命令与脚本路径，便于核对/手动复现
+        self.q.put(("log", f"$ {' '.join(cmd)}", "dim"))
         try:
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
