@@ -325,7 +325,7 @@ class App:
             buf = _io.StringIO()
             try:
                 with contextlib.redirect_stdout(buf):
-                    code = remove_steam_fix() if item_id == 11 else 1
+                    code = remove_steam_fix() if item_id == 12 else 1
                 self.q.put(("log", buf.getvalue(), ""))
             except Exception as e:  # noqa: BLE001
                 self.q.put(("log", f"还原失败：{e}", "bad"))
@@ -407,7 +407,7 @@ class App:
     def _exec_worker(self, item_id: int) -> None:
         it = ITEMS_BY_ID[item_id]
         if it["cmd"] is None:
-            # 内部实现（11 install_steam_fix / 13 remove_steam_fix）
+            # 内部实现（12 install_steam_fix / 14 remove_steam_fix）
             import contextlib
             import io as _io
 
@@ -422,9 +422,9 @@ class App:
             buf = _io.StringIO()
             try:
                 with contextlib.redirect_stdout(buf):
-                    if item_id == 11:
+                    if item_id == 12:
                         code = install_steam_fix()
-                    elif item_id == 13:
+                    elif item_id == 14:
                         code = remove_steam_fix()
                     else:
                         code = 1

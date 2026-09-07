@@ -205,7 +205,7 @@ def detect() -> Env:
                 env.add("Steam", "ok", "桌面启动器已配置 GBM_BACKEND=dri（CEF 崩溃已修复）")
             else:
                 env.add("Steam", "bad",
-                        "桌面启动器缺 GBM_BACKEND=dri —— Steam 界面会崩溃，菜单 [11]", "11")
+                        "桌面启动器缺 GBM_BACKEND=dri —— Steam 界面会崩溃，菜单 [12]", "12")
 
         if STEAM_WRAP.is_file():
             try:
@@ -223,7 +223,7 @@ def detect() -> Env:
             if "i" in flags:
                 env.add("Steam", "bad",
                         "wrap.sh 被 chattr +i 锁定 —— 会触发 Steam 更新回滚循环，"
-                        "导致游戏反复重新下载，请立即解锁（python3 install.py 11 --undo）", "11")
+                        "导致游戏反复重新下载，请立即解锁（python3 install.py 12 --undo）", "12")
     else:
         env.add("Steam", "info", "未安装 Steam（跳过 Steam 相关项）")
 
@@ -245,7 +245,7 @@ def detect() -> Env:
         env.add("游戏", "ok",
                 "Dota Underlords 修复已安装（Steam 内直接点开始游戏，或用桌面项）")
     elif ul.is_dir():
-        env.add("游戏", "warn", "Dota Underlords 修复未安装 —— 菜单 [15]", "15")
+        env.add("游戏", "warn", "Dota Underlords 修复未安装 —— 菜单 [16]", "16")
 
     return env
 
@@ -319,27 +319,31 @@ ITEMS: list[Item] = [
      "group": "Electron", "root": False,
      "cmd": lambda a: _sh("electron/use-qoder.sh", "--install-desktop"),
      "doc": ""},
-    {"id": 10, "title": "说明：Electron 类应用适配（显示异常 / 硬件加速）", "group": "Electron",
+    {"id": 10, "title": "Trae：点图标即用（装桌面项；软件渲染稳定优先，绕开 gf EGL 显示错误）",
+     "group": "Electron", "root": False,
+     "cmd": lambda a: _sh("electron/use-trae.sh", "--install-desktop"),
+     "doc": ""},
+    {"id": 11, "title": "说明：Electron 类应用适配（显示异常 / 硬件加速）", "group": "Electron",
      "root": False, "cmd": None, "doc": _doc("electron/README.md")},
 
     # ---- Steam ----
-    {"id": 11, "title": "安装/修复：Steam 界面崩溃（桌面启动器写入 GBM_BACKEND=dri）",
+    {"id": 12, "title": "安装/修复：Steam 界面崩溃（桌面启动器写入 GBM_BACKEND=dri）",
      "group": "Steam", "root": False, "cmd": None, "doc": ""},  # install_steam_fix
-    {"id": 12, "title": "说明：Steam 在砺算上的适配细节（容器/CEF/Proton）", "group": "Steam",
+    {"id": 13, "title": "说明：Steam 在砺算上的适配细节（容器/CEF/Proton）", "group": "Steam",
      "root": False, "cmd": None, "doc": _doc("steam/steam-on-lisuan.md")},
 
     # ---- 随从大师 ----
-    {"id": 13, "title": "安装/修复：硬件渲染加固（libSC.so 链接 + DXVK 降级 + hook）",
+    {"id": 14, "title": "安装/修复：硬件渲染加固（libSC.so 链接 + DXVK 降级 + hook）",
      "group": "随从大师", "root": True,
      "cmd": lambda a: _sh("minion-masters/fix-minion-masters-7g100-hw.sh", *a), "doc": ""},
-    {"id": 14, "title": "说明：随从大师（Minion Masters）修复文档", "group": "随从大师",
+    {"id": 15, "title": "说明：随从大师（Minion Masters）修复文档", "group": "随从大师",
      "root": False, "cmd": None, "doc": _doc("minion-masters/fix-minion-masters.md")},
 
     # ---- 刀塔霸业 ----
-    {"id": 15, "title": "安装/修复：Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项）",
+    {"id": 16, "title": "安装/修复：Dota Underlords 补丁集（容器委托+重试+libpng12+桌面项）",
      "group": "刀塔霸业", "root": True,
      "cmd": lambda a: _sh("underlords/fix-underlords-native.sh"), "doc": ""},
-    {"id": 16, "title": "说明：Dota Underlords 修复文档", "group": "刀塔霸业",
+    {"id": 17, "title": "说明：Dota Underlords 修复文档", "group": "刀塔霸业",
      "root": False, "cmd": None, "doc": _doc("underlords/fix-underlords-native.md")},
 ]
 
@@ -368,10 +372,12 @@ UNDO: dict[int, UndoAction] = {
          "root": False, "always": False},
     9:  {"cmd": _sh("electron/use-qoder.sh", "--uninstall-desktop"), "root": False,
          "always": False},
-    11: {"cmd": [], "root": True, "always": False},   # remove_steam_fix（内部实现）
-    13: {"cmd": _sh("minion-masters/fix-minion-masters-7g100-hw.sh", "--uninstall"),
+    10: {"cmd": _sh("electron/use-trae.sh", "--uninstall-desktop"), "root": False,
+         "always": False},
+    12: {"cmd": [], "root": True, "always": False},   # remove_steam_fix（内部实现）
+    14: {"cmd": _sh("minion-masters/fix-minion-masters-7g100-hw.sh", "--uninstall"),
          "root": True, "always": False},
-    15: {"cmd": _sh("underlords/fix-underlords-native.sh", "--uninstall"),
+    16: {"cmd": _sh("underlords/fix-underlords-native.sh", "--uninstall"),
          "root": True, "always": False},
 }
 
@@ -386,7 +392,7 @@ def undo_item(item_id: int) -> int:
         print(f"  菜单项 {item_id} 无卸载动作")
         return 1
     if not act["cmd"]:
-        return remove_steam_fix() if item_id == 11 else 1
+        return remove_steam_fix() if item_id == 12 else 1
     cmd = [*act["cmd"]]
     if act["root"] and os.geteuid() != 0:
         cmd = ["sudo", *cmd]
@@ -478,7 +484,7 @@ def run_item(item_id: int, extra: list[str] | None = None) -> int:
         return 0
     if it.get("doc"):
         return show_doc(it["doc"])
-    if item_id == 11:
+    if item_id == 12:
         return install_steam_fix()
 
     cmd = it["cmd"](extra) if it["cmd"] else None
@@ -553,7 +559,7 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
     级别：ok=已就绪，bad=需修复，warn=需注意，dim=不适用/可选/按需。
-    说明与纯操作项（1/5/6/10/12/14/16）不返回状态。
+    说明与纯操作项（1/5/6/11/13/15/17）不返回状态。
     """
     env = env or detect()
     st: dict[int, tuple[str, str]] = {}
@@ -617,8 +623,13 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     st[9] = (("✓ 已配置", "ok")
              if _desktop_configured(qoder, "use-electron-gf.sh")
              else ("未配置", "dim"))
+    # Trae 桌面项：国际版 trae.desktop / 国内版 trae-cn.desktop
+    trae = [user_apps / n for n in ("trae.desktop", "trae-cn.desktop")]
+    trae += [sys_apps / n for n in ("trae.desktop", "trae-cn.desktop")]
+    st[10] = (("✓ 已配置", "ok") if _desktop_configured(trae, "use-electron-gf.sh")
+              else ("未配置", "dim"))
 
-    # 11 Steam（锁定检查与已修复判定同源，合并为一项状态）
+    # 12 Steam（锁定检查与已修复判定同源，合并为一项状态）
     wrap_txt = ""
     if STEAM_WRAP.is_file():
         try:
@@ -627,9 +638,9 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
             wrap_txt = ""
     locked = "i" in ((out(["lsattr", str(STEAM_WRAP)]).split() or [""])[0])
     if not shutil.which("steam"):
-        st[11] = ("未安装", "dim")
+        st[12] = ("未安装", "dim")
     elif locked:
-        st[11] = ("! 文件被锁定", "bad")
+        st[12] = ("! 文件被锁定", "bad")
     else:
         try:
             fixed = (STEAM_DESKTOP.is_file()
@@ -637,9 +648,9 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
                      STEAM_DESKTOP.read_text(errors="replace"))
         except OSError:
             fixed = False
-        st[11] = ("✓ 已修复", "ok") if fixed else ("✗ 需修复", "bad")
+        st[12] = ("✓ 已修复", "ok") if fixed else ("✗ 需修复", "bad")
 
-    # 13 Minion Masters：以 Steam 配置层的"实际生效标志"判定
+    # 14 Minion Masters：以 Steam 配置层的"实际生效标志"判定
     # （与修复的安装位置无关——deb 安装版/源码仓库均通用）：
     #   a. localconfig.vdf 的 489520 LaunchOptions 含 osrelease_redirect（LD_PRELOAD 生效）
     #   b. 游戏目录 doorstop_config.ini 的 target_assembly = MMPatch.dll（hook 生效）
@@ -663,23 +674,23 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     except OSError:
         doorstop = False
     if not ul_mm.is_dir():
-        st[13] = ("未安装", "dim")
+        st[14] = ("未安装", "dim")
     elif launched and doorstop:
-        st[13] = ("✓ 已部署", "ok")
+        st[14] = ("✓ 已部署", "ok")
     else:
-        st[13] = ("✗ 需修复", "bad")
+        st[14] = ("✗ 需修复", "bad")
 
     # 15 Underlords：注入标记
     ul_root = home / ".local/share/Steam/steamapps/common/Underlords"
     if not ul_root.is_dir():
-        st[15] = ("未安装", "dim")
+        st[16] = ("未安装", "dim")
     else:
         try:
             injected = ("Lisuan 7G100 fix (injected)"
                         in (ul_root / "game/underlords.sh").read_text(errors="replace"))
         except OSError:
             injected = False
-        st[15] = ("✓ 已修复", "ok") if injected else ("✗ 需修复", "bad")
+        st[16] = ("✓ 已修复", "ok") if injected else ("✗ 需修复", "bad")
 
     return st
 

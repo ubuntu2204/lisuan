@@ -59,6 +59,17 @@ SW_FLAGS=(
   --disable-gpu
 )
 
+# Trae 专用软渲染：经本机验证（原 ~/.local/bin/trae-fix，2026-08-26）——
+# 直接 --disable-gpu 会丢内容合成，改用 ANGLE/SwiftShader 更稳。
+SW_TRAE_FLAGS=(
+  "${BASE_FLAGS[@]}"
+  --ozone-platform=x11
+  --use-gl=angle
+  --use-angle=swiftshader
+  --enable-unsafe-swiftshader
+  --disable-gpu-sandbox
+)
+
 # ---- gf 硬件加速开关 ----
 HW_FLAGS=(
   "${BASE_FLAGS[@]}"
@@ -78,6 +89,7 @@ INSTALL_DESKTOP=0
 UNINSTALL_DESKTOP=0
 START_AFTER=0
 ACCEL=1
+ACCEL_EXPLICIT=0   # 用户是否显式指定了 --hw / --no-hw
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -87,8 +99,8 @@ while [ $# -gt 0 ]; do
     --install-desktop) INSTALL_DESKTOP=1; shift ;;
     --uninstall-desktop) UNINSTALL_DESKTOP=1; shift ;;
     --start) START_AFTER=1; shift ;;
-    --no-hw) ACCEL=0; shift ;;
-    --hw) ACCEL=1; shift ;;
+    --no-hw) ACCEL=0; ACCEL_EXPLICIT=1; shift ;;
+    --hw) ACCEL=1; ACCEL_EXPLICIT=1; shift ;;
     *) break ;;
   esac
 done
@@ -122,6 +134,24 @@ resolve_app() {
                       "/usr/share/applications/qoder-cn.desktop"
                       "$HOME/.local/share/applications/qoder.desktop"
                       "$HOME/.local/share/applications/qoder-cn.desktop")
+      ;;
+    trae|trae-cn)
+      # Trae（字节 AI IDE）：国际版 trae / 国内版 trae-cn。
+      # --app trae 优先国际版，未安装时回退国内版；--app trae-cn 只认国内版。
+      # 桌面项按 Exec 实际指向过滤，不会把另一个变体误改到本二进制。
+      if [ "$APP" = "trae-cn" ]; then
+        CMD="${TRAE_CN_BIN:-/usr/share/trae-cn/trae-cn}"
+        [ -e "$CMD" ] || CMD="$(command -v trae-cn || echo /usr/bin/trae-cn)"
+      else
+        # /usr/share/trae/trae 是 ELF 真身，也是桌面项 Exec 指向的路径
+        # （/usr/share/trae/bin/trae 是 sh 启动脚本，与桌面项不一致会导致跳过改写）
+        CMD="${TRAE_BIN:-/usr/share/trae/trae}"
+        [ -e "$CMD" ] || CMD="$(command -v trae || echo /usr/bin/trae)"
+      fi
+      DESKTOP_FILES=("/usr/share/applications/trae.desktop"
+                      "/usr/share/applications/trae-cn.desktop"
+                      "$HOME/.local/share/applications/trae.desktop"
+                      "$HOME/.local/share/applications/trae-cn.desktop")
       ;;
     zcode)
       CMD="${HOME}/development/ZCode-3.7.7-linux-x64.AppImage"
@@ -237,6 +267,12 @@ if [ "$APP" = "qoder" ] || [ "$APP" = "qoder-cn" ]; then
   unset ELECTRON_PA_APP_NAME
 fi
 
+# Trae 在 gf EGL(Wayland/ANGLE 合成) 路径下有显示错误（黑屏/花屏/闪烁），
+# 默认走软件渲染（沿用本机验证过的 trae-fix 开关）；需硬件加速时显式 --hw。
+if [ "$ACCEL_EXPLICIT" = 0 ] && [ "$APP" = "trae" -o "$APP" = "trae-cn" ]; then
+  ACCEL=0
+fi
+
 if [ "$ACCEL" = 1 ]; then
   # gf 硬件加速: 注入 gf 驱动 env + Chromium GPU 加速开关
   export __GLX_VENDOR_LIBRARY_NAME=gf
@@ -253,6 +289,13 @@ if [ "$ACCEL" = 1 ]; then
   echo ">> 以 gf 硬件加速模式启动: $CMD (ICD=${VK_ICD_FILENAMES:-默认})"
   exec env "$CMD" "${HW_FLAGS[@]}" $EXTRA "$@"
 else
+  if [ "$APP" = "trae" ] || [ "$APP" = "trae-cn" ]; then
+    # Trae 专用软渲染：强制 X11 + ANGLE/SwiftShader，完全绕开 gf EGL
+    export GDK_BACKEND=x11
+    export EGL_PLATFORM=surfaceless
+    echo ">> 以软件渲染(稳定)模式启动: $CMD（X11 + ANGLE/SwiftShader，绕开 gf EGL）"
+    exec "$CMD" "${SW_TRAE_FLAGS[@]}" $EXTRA "$@"
+  fi
   echo ">> 以软件渲染(稳定)模式启动: $CMD"
   exec "$CMD" "${SW_FLAGS[@]}" $EXTRA "$@"
 fi

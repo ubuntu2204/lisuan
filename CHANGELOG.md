@@ -241,6 +241,36 @@ tar.gz——用户要的是 deb 直出。
 
 ---
 
+## 2026.09.07 — 新增 Trae（字节 AI IDE）Electron 启动 wrapper
+
+### 背景
+
+本机已装 Trae（`/usr/bin/trae` 国际版 + `/usr/bin/trae-cn` 国内版），且用户此前
+自制过 `~/.local/bin/trae-fix`：Trae 在 **gf EGL（Wayland/ANGLE 合成）路径下有
+显示错误**——黑屏/花屏/窗口不刷新，需强制 X11 + ANGLE/SwiftShader 软件渲染
+（与走 gf 加速的 CodeBuddy/Qoder 相反，更接近 ZCode 的"软件渲染稳定优先"）。
+
+### 变更
+
+1. `electron/use-trae.sh`：Trae 启动 wrapper（转调通用脚本 `--app trae`）；
+2. `use-electron-gf.sh` 支持 Trae：
+   - `--app trae|trae-cn`：命令解析为 `/usr/share/trae/trae`（**ELF 真身，也是
+     桌面项 Exec 指向的路径**；`bin/trae` 是 sh 启动脚本，用它会让桌面项
+     改写被过滤跳过），桌面项列表含国际/国内两版；
+   - 新增 `SW_TRAE_FLAGS` + `GDK_BACKEND=x11` / `EGL_PLATFORM=surfaceless`：
+     合并本机验证过的 `trae-fix` 开关；
+   - `--app trae` 默认软件渲染（除非显式 `--hw`）：新增 `ACCEL_EXPLICIT`
+     区分"用户显式指定"与"应用默认值"；
+   - 桌面项改写在 Trae 上实测通过（主入口切 wrapper，`--new-window` 动作保留，
+     `trae-cn.desktop` 按 Exec 过滤正确跳过）。
+
+### 菜单
+
+Electron 组新增 **10 Trae：点图标即用**（装桌面项；默认软件渲染）：
+编号 7 ZCode / 8 CodeBuddy / 9 Qoder / **10 Trae** / 11 说明，后续各 +1，共 17 项。
+
+---
+
 ## 2026.09.07 — GUI 执行日志显示脚本/文档完整路径
 
 - 执行脚本类菜单项：日志增加一行实际命令（含脚本绝对路径），便于核对与手动复现：

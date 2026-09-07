@@ -134,6 +134,7 @@ right headers.
 | `electron/use-electron-gf.sh` | **通用 Electron / Chromium 应用 gf 硬件加速 wrapper**：显示异常三件套 + gf 驱动 GPU 加速（默认开），`--no-hw` 回退软件渲染；支持 `--app codebuddy\|qoder\|zcode` / `--cmd` / `--appimage` |
 | `electron/use-codebuddy.sh` | **CodeBuddy 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
 | `electron/use-qoder.sh` | **Qoder 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
+| `electron/use-trae.sh` | **Trae**（字节 AI IDE）启动 wrapper——**默认软件渲染稳定模式**（X11 + ANGLE/SwiftShader，绕开 gf EGL 的显示错误）；`--hw` 可切 gf 硬件加速（实验，可能复现花屏） |
 
 **文档（docs）**：
 
@@ -171,7 +172,7 @@ right headers.
 python3 install.py                    # 桌面窗口（Tkinter，需 python3-tk）
 python3 install.py --detect           # 只做环境检测并打印报告
 python3 install.py --detect --json    # JSON 输出，便于脚本化/排障
-python3 install.py 11                 # 直接执行第 11 项（修复 Steam 界面崩溃）
+python3 install.py 12                 # 直接执行第 12 项（修复 Steam 界面崩溃）
 ```
 
 **deb 包安装**（推荐给其他砺算 7G100 机器使用，无需带源码仓库）：
@@ -190,10 +191,10 @@ lisuan-fix --detect                                     # PATH 直达，资源�
  1-3)   环境检测  重新检测 · GPU 体检 · Mesa 体检
  4-5)   DKMS      安装/修复 · 说明（卸载走 4 的"卸载"按钮，见操作列）
  6)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
- 7-10)  Electron  ZCode / CodeBuddy / Qoder（各一项：装桌面项）· 说明
-11-12)  Steam     安装/修复 · 说明（卸载走 11 的"卸载"按钮）
-13-14)  随从大师   安装/修复 · 说明
-15-16)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
+ 7-11)  Electron  ZCode / CodeBuddy / Qoder / Trae（各一项：装桌面项）· 说明
+12-13)  Steam     安装/修复 · 说明（卸载走 12 的"卸载"按钮）
+14-15)  随从大师   安装/修复 · 说明
+16-17)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
 ```
 
 > 注意：编号已按新分组**重新编排**。
