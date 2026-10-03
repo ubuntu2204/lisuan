@@ -41,7 +41,7 @@ for f in lisuan_fix_core.py lisuan_fix_gui.py lisuan_fix_md.py; do
 done
 
 # 修复脚本目录（保持相对结构；排除测试专用厂商源码与脏文件）
-for d in dkms mesa steam underlords electron; do
+for d in dkms mesa steam underlords electron kingdom-rush; do
   mkdir -p "$T/usr/share/$PKG/$d"
   (cd "$ROOT" && find "$d" -type f \
       ! -path '*/vendor-src/*' \

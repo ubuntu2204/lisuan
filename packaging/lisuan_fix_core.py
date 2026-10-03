@@ -247,6 +247,21 @@ def detect() -> Env:
     elif ul.is_dir():
         env.add("游戏", "warn", "Dota Underlords 修复未安装 —— 菜单 [16]", "16")
 
+    kr = Path.home() / ".local/share/Steam/steamapps/common/Kingdom Rush"
+    krsh = kr / "run.sh"
+    kr_injected = False
+    if krsh.is_file():
+        try:
+            kr_injected = "Lisuan 7G100 fix (injected)" in krsh.read_text(errors="replace")
+        except OSError:
+            kr_injected = False
+    if kr_injected:
+        env.add("游戏", "ok",
+                "Kingdom Rush 修复已安装（容器内自动委托到宿主直跑，修 GLXBadFBConfig）")
+    elif kr.is_dir():
+        env.add("游戏", "warn",
+                "Kingdom Rush 修复未安装（Steam 启动会报 GLXBadFBConfig）—— 菜单 [18]", "18")
+
     return env
 
 
@@ -345,10 +360,17 @@ ITEMS: list[Item] = [
      "cmd": lambda a: _sh("underlords/fix-underlords-native.sh"), "doc": ""},
     {"id": 17, "title": "说明：Dota Underlords 修复文档", "group": "刀塔霸业",
      "root": False, "cmd": None, "doc": _doc("underlords/fix-underlords-native.md")},
+
+    # ---- 王国保卫战 ----
+    {"id": 18, "title": "安装/修复：Kingdom Rush（修 GLXBadFBConfig：容器委托宿主直跑 + 补 64 位 libopenal）",
+     "group": "王国保卫战", "root": True,
+     "cmd": lambda a: _sh("kingdom-rush/fix-kingdom-rush.sh"), "doc": ""},
+    {"id": 19, "title": "说明：Kingdom Rush 修复文档", "group": "王国保卫战",
+     "root": False, "cmd": None, "doc": _doc("kingdom-rush/README.md")},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
-GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业"]
+GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业", "王国保卫战"]
 
 
 class UndoAction(TypedDict):
@@ -378,6 +400,8 @@ UNDO: dict[int, UndoAction] = {
     14: {"cmd": _sh("minion-masters/fix-minion-masters-7g100-hw.sh", "--uninstall"),
          "root": True, "always": False},
     16: {"cmd": _sh("underlords/fix-underlords-native.sh", "--uninstall"),
+         "root": True, "always": False},
+    18: {"cmd": _sh("kingdom-rush/fix-kingdom-rush.sh", "--uninstall"),
          "root": True, "always": False},
 }
 
@@ -691,6 +715,18 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
         except OSError:
             injected = False
         st[16] = ("✓ 已修复", "ok") if injected else ("✗ 需修复", "bad")
+
+    # 18 Kingdom Rush：run.sh 注入标记
+    kr_root = home / ".local/share/Steam/steamapps/common/Kingdom Rush"
+    if not kr_root.is_dir():
+        st[18] = ("未安装", "dim")
+    else:
+        try:
+            kr_inj = ("Lisuan 7G100 fix (injected)"
+                      in (kr_root / "run.sh").read_text(errors="replace"))
+        except OSError:
+            kr_inj = False
+        st[18] = ("✓ 已修复", "ok") if kr_inj else ("✗ 需修复", "bad")
 
     return st
 
