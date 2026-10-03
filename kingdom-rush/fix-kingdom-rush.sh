@@ -47,7 +47,11 @@ die()  { printf '\033[1;31mXX\033[0m %s\n'  "$*" >&2; exit 1; }
 MARKER='# --- Lisuan 7G100 fix (injected)'
 
 has_openal64() {
-  ldconfig -p 2>/dev/null | grep -q 'libopenal.so.1 (libc6,x86-64)'
+  # 不用 `ldconfig -p | grep -q`：grep -q 命中即退会触发上游 SIGPIPE，
+  # 在 set -o pipefail 下整条管道被判失败（即使已装也误报“缺失”）。
+  # 先捕获到变量再做子串判定，彻底避开该陷阱。
+  local out; out="$(ldconfig -p 2>/dev/null || true)"
+  [[ "$out" == *'libopenal.so.1 (libc6,x86-64)'* ]]
 }
 
 status() {
@@ -134,10 +138,19 @@ exec 3>&2 2>>/tmp/kr-hostrun.log
 if SS is-active "\$UNIT" >/dev/null 2>&1; then
   echo "[kr-host-run] host game already running, waiting for it to exit" >&2
 else
+  # 转发 Steam 注入游戏的启动环境到宿主：否则宿主上 libsteam_api 认不出
+  # appID → SteamAPI_Init() failed; no appID found，且
+  # SteamAPI_RestartAppIfNecessary() 返回 true（自己调 steam.sh 重拉→ ABRT）。
+  # RestartAppIfNecessary 判“是否由 Steam 启动”就是看有无 SteamAppId 环境变量。
+  SPID_ENV=""
+  [ -n "\${SteamPID:-}" ] && SPID_ENV="--setenv=SteamPID=\$SteamPID"
   SR --unit="\$UNIT" --collect \\
     --setenv=HOME=$REAL_HOME \\
     --setenv=DISPLAY=:0 \\
     --setenv=XAUTHORITY="\$XAUTH" \\
+    --setenv=SteamAppId="\${SteamAppId:-$APPID}" \\
+    --setenv=SteamGameId="\${SteamGameId:-$APPID}" \\
+    \$SPID_ENV \\
     /bin/bash "\$G/run.sh" || echo "[kr-host-run] systemd-run failed rc=\$?" >&2
 fi
 
