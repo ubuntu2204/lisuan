@@ -117,7 +117,9 @@ LDSO=/lib64/ld-linux-x86-64.so.2
 LIBPATH=/run/host/usr/lib/x86_64-linux-gnu:/run/host/lib/x86_64-linux-gnu:/run/host/usr/lib/x86_64-linux-gnu/systemd
 SR() { \$LDSO --library-path "\$LIBPATH" /run/host/usr/bin/systemd-run --user "\$@"; }
 SS() { \$LDSO --library-path "\$LIBPATH" /run/host/usr/bin/systemctl --user "\$@"; }
-G=$GAME_DIR
+# 注意：GAME_DIR 可能含空格（"Kingdom Rush"），此处必须加引号，否则赋值被
+# 拆成“执行命令 Rush”、G 变空，\$G/run.sh 退化成 /run.sh → 服务 status=127 秒退。
+G="$GAME_DIR"
 
 # 宿主侧 X 认证文件（Xwayland 会话每次登录随机后缀）
 XAUTH=\$(ls /run/host/run/user/$REAL_UID/.mutter-Xwaylandauth.* /run/host/run/user/$REAL_UID/.Xauthority 2>/dev/null | head -1)
@@ -181,8 +183,8 @@ cat > "$DESK" <<EOF
 [Desktop Entry]
 Name=Kingdom Rush (Lisuan native)
 Comment=绕开 Steam 容器、用砺算 7G100 宿主图形栈直跑
-Exec=$LAUNCHER
-Path=$GAME_DIR
+Exec="$LAUNCHER"
+Path="$GAME_DIR"
 Type=Application
 Terminal=false
 Categories=Game;
