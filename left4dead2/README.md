@@ -187,7 +187,7 @@ bash fix-l4d2.sh --status
 | `err: D3D9: Cannot create texture / Format: D3D9Format::D16 / 400x400` | **真问题**：Venus 链路下创建 D16 深度纹理失败（L4D2 的手电筒阴影贴图）。会让游戏以**退出码 0 静默退出**（启动约 26 秒后）。默认已规避：启动器自动加 `+r_flashlightdepthtexture 0`；要保留原画质用 `L4D2_NO_D16_WORKAROUND=1`（代价是随时可能退出） |
 | `CMaterialReference::Init got error material for particle\*.vmt` | 粒子材质在已下载资源里查不到（不在 `pak01_dir.vpk` 索引中），游戏退回 error material。表现为部分粒子特效缺失，**不致命** |
 | `failed to get driver name for fd 7 / No driver found` | SDL 启动时探测 OpenGL DRI（`4c54:5006` 在 Mesa 无驱动）失败。走 `-vulkan` 不需要 GL，**无害噪音** |
-| `setlocale('en_US.UTF-8') failed` | 系统未生成 `en_US.UTF-8`（本机只有 `zh_CN.utf8`/`C.utf8`）。要消除可 `sudo locale-gen en_US.UTF-8` |
+| `SetLocale('en_US.UTF-8') failed. Using 'LC_CTYPE=C;…'. You may have limited glyph support. Please install 'en_US.UTF-8' locale.`（弹「Warning」框 + stdout 一行 `WARNING: setlocale('en_US.UTF-8') failed, using locale:'C'.`） | 系统未生成 `en_US.UTF-8` 时出现，纯提示不影响渲染与对局。**已于 2026-10-06 20:33 执行 `sudo locale-gen en_US.UTF-8` 消除**（`/usr/lib/locale/locale-archive` 已含 `en_US.utf8`）；此后 20:43、21:23 两次运行日志均无该告警。Steam 客户端自身启动时的同名告警要重启 Steam 才会消失 |
 | `warn: D3D9Cursor::ShowCursor: Not supported` | DXVK 在 Linux 原生的已知限制，无害 |
 | `File ...pak01_0xx.vpk was never closed` | Source 引擎退出时未关闭 VPK 句柄，正常噪音 |
 | `ld.so: gameoverlayrenderer.so ... ELFCLASS64: ignored` | 64 位 overlay 注入 32 位进程被 ld.so 拒绝，无害 |
