@@ -167,11 +167,28 @@ export VN_DEBUG=vtest
 # Steam overlay 的 Vulkan 层会绕过 Venus ICD 直连，禁用
 export VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_32,VK_LAYER_VALVE_STEAM_OVERLAY_64
 export STEAM_RUNTIME=0
+# Source 引擎硬编码要求进程 locale 为 en_US.UTF-8（glyph 支持），
+# 否则每次启动弹 "setlocale(en_US.UTF-8) failed" 警告框。
+# 仅影响 C 库本地化，游戏界面语言由 -language schinese 决定。
+export LC_ALL=en_US.UTF-8
 
 cd "\$GAME"
 # 允许生成 core：默认 ulimit -c 常为 0，段错误拿不到现场
 ulimit -c unlimited 2>/dev/null || true
-exec ./hl2.sh "\$@"
+
+# Venus 链路下 D3D9 D16 深度纹理创建失败（L4D2 手电筒阴影贴图 400x400），
+# 实测会让游戏以退出码 0 静默退出。默认关掉该特性规避；
+# 设置 L4D2_NO_D16_WORKAROUND=1 可保留原画质（代价是可能随时退出）。
+EXTRA=()
+case " \$* " in
+  *r_flashlightdepthtexture*) ;;
+  *)
+    if [ "\${L4D2_NO_D16_WORKAROUND:-0}" != "1" ]; then
+      EXTRA=(+r_flashlightdepthtexture 0)
+    fi
+    ;;
+esac
+exec ./hl2.sh "\$@" "\${EXTRA[@]}"
 EOF
   chmod +x "$HOST_RUN"
   say "宿主启动器已部署: $HOST_RUN"
@@ -244,6 +261,12 @@ if [ "\$IN_CT" = 1 ]; then
   done
   [ -n "\$LDSO" ] || { echo "FAIL: no host ld.so under \$HOSTPFX" >> "\$LOG"; exit 1; }
   LIBPATH="\$HOSTPFX/usr/lib/x86_64-linux-gnu:\$HOSTPFX/lib/x86_64-linux-gnu:\$HOSTPFX/usr/lib/x86_64-linux-gnu/systemd"
+  # 容器内的 XDG_RUNTIME_DIR 是空的（看不到宿主 /run/user/<uid>/bus），
+  # 必须显式把会话总线指向宿主前缀，否则 systemd-run --user 连不上用户 systemd。
+  BUS="unix:path=\$HOSTPFX/run/user/\$UID_NUM/bus"
+  export DBUS_SESSION_BUS_ADDRESS="\$BUS"
+  export XDG_RUNTIME_DIR="\$HOSTPFX/run/user/\$UID_NUM"
+  echo "bus=\$BUS exists=\$([ -e \"\$HOSTPFX/run/user/\$UID_NUM/bus\" ] && echo yes || echo no)" >> "\$LOG"
   SR() { \$LDSO --library-path "\$LIBPATH" \$HOSTPFX/usr/bin/systemd-run --user "\$@"; }
   SS() { \$LDSO --library-path "\$LIBPATH" \$HOSTPFX/usr/bin/systemctl --user "\$@"; }
 
@@ -259,8 +282,8 @@ if [ "\$IN_CT" = 1 ]; then
       --setenv=HOME="\$HOME" \\
       --setenv=DISPLAY="\${DISPLAY:-:0}" \\
       --setenv=XAUTHORITY="\$XAUTH" \\
-      /bin/bash "\$HOST_RUN" "\${args[@]}" \\
-      || echo "[l4d2-venus] !! systemd-run 失败 rc=\$?" >&2
+      /bin/bash "\$HOST_RUN" "\${args[@]}" 2>>"\$LOG" \\
+      || echo "[l4d2-venus] !! systemd-run 失败 rc=\$?" >> "\$LOG"
   fi
 
   sleep 5

@@ -90,10 +90,23 @@ Steam 会**把 Linux 原生游戏也包进容器**（实测启动命令含
 - 没有 `libvulkan_virtio.so`；
 - 且其 glibc 太旧，无法加载宿主编译的 i386 ICD。
 
-所以启动包装 `l4d2-venus-launch.sh` 检测到容器（`/usr/lib/pressure-vessel` 存在）
-就**委托宿主**运行游戏：经共享会话总线调宿主的 `systemd-run --user` 启动
-`l4d2-host-run.sh`，并轮询服务状态阻塞到游戏退出，让 Steam 的时长/退出检测依然有效。
-机制与 `../underlords/ul-host-run.sh` 完全相同。
+所以启动包装 `l4d2-venus-launch.sh` 检测到容器就**委托宿主**运行游戏：经共享会话总线
+调宿主的 `systemd-run --user` 启动 `l4d2-host-run.sh`，并轮询服务状态阻塞到游戏退出，
+让 Steam 的时长/退出检测依然有效。机制与 `../underlords/ul-host-run.sh` 同源。
+
+> ⚠️ **容器判定不能只看 `/usr/lib/pressure-vessel`**（2026-10-06 实测踩坑）。
+> 本游戏走的是 `SteamLinuxRuntime_soldier` + `scout-on-soldier`，这个容器里
+> `/usr/lib/pressure-vessel`、`/run/pressure-vessel`、`/run/host` **三个都不存在**，
+> 宿主根实际挂载在 **`/host`**。误判为宿主的后果是：游戏直接在容器内启动 →
+> 32 位栈不完整 → **挂起成"无响应"**。
+> 现在按 `/run/host`、`/host` 自动探测宿主前缀，并检查多个标志。
+>
+> 另一个坑：容器内的 `XDG_RUNTIME_DIR=/run/user/<uid>` 是**空目录**（看不到宿主的
+> `bus`），`systemd-run --user` 会连不上用户 systemd。必须显式设
+> `DBUS_SESSION_BUS_ADDRESS=unix:path=<hostpfx>/run/user/<uid>/bus`。
+>
+> 调试：每次启动会把判定结果写到 `/tmp/l4d2-venus-launch.log`
+> （`in_container` / `hostpfx` / `bus` / 分支）。
 
 > ⚠️ **vdf 改动必须在 Steam 完全退出后进行**：Steam 退出时会用内存中的配置覆盖
 > `config.vdf` / `localconfig.vdf`。`steam -shutdown` 可优雅退出。
@@ -152,7 +165,7 @@ bash fix-l4d2.sh --status
 | 告警 | 性质 |
 |---|---|
 | `Couldn't find custom font file 'resource/linux_fonts/*.ttf'` | **已修**：Valve 的 Linux 版没随包带字体，`fix-l4d2.sh` 会软链系统 DejaVu/Liberation 补齐（也影响中文 VGUI 文本） |
-| `err: D3D9: Cannot create texture / Format: D3D9Format::D16 / 400x400` | **真问题**：Venus 链路下创建 D16 深度纹理失败（L4D2 的手电筒阴影贴图）。当前不影响进游戏，但可能是后续渲染崩溃的诱因 |
+| `err: D3D9: Cannot create texture / Format: D3D9Format::D16 / 400x400` | **真问题**：Venus 链路下创建 D16 深度纹理失败（L4D2 的手电筒阴影贴图）。会让游戏以**退出码 0 静默退出**（启动约 26 秒后）。默认已规避：启动器自动加 `+r_flashlightdepthtexture 0`；要保留原画质用 `L4D2_NO_D16_WORKAROUND=1`（代价是随时可能退出） |
 | `CMaterialReference::Init got error material for particle\*.vmt` | 粒子材质在已下载资源里查不到（不在 `pak01_dir.vpk` 索引中），游戏退回 error material。表现为部分粒子特效缺失，**不致命** |
 | `failed to get driver name for fd 7 / No driver found` | SDL 启动时探测 OpenGL DRI（`4c54:5006` 在 Mesa 无驱动）失败。走 `-vulkan` 不需要 GL，**无害噪音** |
 | `setlocale('en_US.UTF-8') failed` | 系统未生成 `en_US.UTF-8`（本机只有 `zh_CN.utf8`/`C.utf8`）。要消除可 `sudo locale-gen en_US.UTF-8` |
