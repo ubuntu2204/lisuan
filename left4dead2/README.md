@@ -56,7 +56,41 @@ ICD，DXVK 把 DX9 翻译成 Vulkan → 7G100 硬件渲染。
 > 被抹掉，游戏随之回退到原生 32 位路径（pressure-vessel 容器内挂起 =「无响应」，
 > 2026-10-06 实测踩坑）。`steam -shutdown` 可优雅退出。
 
-## 三、历史方案（已废弃，仅存档）
+## 三、实验方案：原生 32 位 + Venus 进程外垫片
+
+`vtest-forward/` 提供不修改系统驱动的实验链路：
+
+```
+L4D2 Linux i386（-vulkan）
+  -> Mesa Venus i386（libvulkan_virtio.so）
+  -> Unix socket
+  -> virglrenderer/Venus x86_64
+  -> libvulkan_gf.so x86_64
+  -> 7G100
+```
+
+这不是在 32 位进程内加载 64 位 `.so`，而是把 Vulkan 命令通过进程外 RPC
+交给 64 位服务端。2026-10-06 已用 32 位 `vkcube` 端到端验证，设备显示为
+`Virtio-GPU Venus (LISUAN 7G100 Series Graphics)`；L4D2 自带
+`shaderapivk.so`，可通过 `-vulkan` 使用同一链路。
+
+```bash
+# 构建私有服务端到 ~/.local/share/l4d2-venus，不需要 root
+bash vtest-forward/build-venus-bridge.sh
+
+# 先跑 8 秒硬件渲染冒烟测试
+bash vtest-forward/run-l4d2-venus.sh --test
+
+# 启动原生 Linux 32 位版
+bash vtest-forward/run-l4d2-venus.sh --game
+```
+
+该方案目前标记为实验性：Venus/virglrenderer 增加了一层 IPC，性能和完整游戏
+稳定性仍需实测。脚本只向目标进程设置 `VK_ICD_FILENAMES` 和
+`VTEST_SOCKET_NAME`，不会替换系统 ICD；游戏退出后 64 位服务端随即清理。
+稳定游玩仍优先使用上一节已验证的 Proton WoW64 方案。
+
+## 四、历史方案（已废弃，仅存档）
 
 原方案 = 原生 Linux 32 位 + `STEAM_RUNTIME=0` 宿主直跑 + Mesa llvmpipe 软渲染
 （曾依次修过：容器挂起 → 32 位 `libopenal` 缺失致 `engine.so` 加载失败 →
@@ -64,7 +98,7 @@ ICD，DXVK 把 DX9 翻译成 Vulkan → 7G100 硬件渲染。
 按「游戏禁用软件渲染」原则废弃：厂商无 32 位 gf 驱动，原生路线永远到不了 GPU。
 为旧方案装的 i386 库与 `bin/libpng12.so.0` 保留无害。
 
-## 四、相关
+## 五、相关
 
 - 随从大师（32 位 Windows，同一 WoW64 配方 + IL2CPP patch）：`../minion-masters/`
 - 刀塔霸业（Source 2 原生 Linux，容器委托宿主直跑）：`../underlords/`

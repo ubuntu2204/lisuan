@@ -1,0 +1,20 @@
+diff --git a/src/venus/venus-protocol/vn_protocol_renderer_util.h b/src/venus/venus-protocol/vn_protocol_renderer_util.h
+index 37ed85f..a4fb19a 100644
+--- a/src/venus/venus-protocol/vn_protocol_renderer_util.h
++++ b/src/venus/venus-protocol/vn_protocol_renderer_util.h
+@@ -376,9 +376,13 @@ vn_util_init_physical_device_proc_table(VkInstance instance,
+    proc_table->EnumerateDeviceExtensionProperties = VN_GIPA(instance, vkEnumerateDeviceExtensionProperties);
+    proc_table->EnumerateDeviceLayerProperties = VN_GIPA(instance, vkEnumerateDeviceLayerProperties);
+    proc_table->GetDeviceProcAddr = VN_GIPA(instance, vkGetDeviceProcAddr);
+-   proc_table->GetPhysicalDeviceCalibrateableTimeDomainsKHR = VN_GIPA(instance, vkGetPhysicalDeviceCalibrateableTimeDomainsKHR);
++
++   /* Some older ICDs expose EXT only.  The loader may still return a KHR
++    * trampoline which fails when called, so prefer the actual EXT entrypoint.
++    */
++   proc_table->GetPhysicalDeviceCalibrateableTimeDomainsKHR = VN_GIPA(instance, vkGetPhysicalDeviceCalibrateableTimeDomainsEXT);
+    if (!proc_table->GetPhysicalDeviceCalibrateableTimeDomainsKHR)
+-      proc_table->GetPhysicalDeviceCalibrateableTimeDomainsKHR = VN_GIPA(instance, vkGetPhysicalDeviceCalibrateableTimeDomainsEXT);
++      proc_table->GetPhysicalDeviceCalibrateableTimeDomainsKHR = VN_GIPA(instance, vkGetPhysicalDeviceCalibrateableTimeDomainsKHR);
+    proc_table->GetPhysicalDeviceCooperativeMatrixPropertiesKHR = VN_GIPA(instance, vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR);
+    proc_table->GetPhysicalDeviceExternalBufferProperties = VN_GIPA(instance, vkGetPhysicalDeviceExternalBufferProperties);
+    if (!proc_table->GetPhysicalDeviceExternalBufferProperties)
