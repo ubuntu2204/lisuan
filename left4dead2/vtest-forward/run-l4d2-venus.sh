@@ -12,7 +12,8 @@ WORKER="$BUILD/server/virgl_render_server"
 GAME="${L4D2_GAME_DIR:-$HOME/.local/share/Steam/steamapps/common/Left 4 Dead 2}"
 GF_ICD="${L4D2_GF_ICD:-/usr/share/vulkan/icd.d/gf_icd.x86_64.json}"
 VIRTIO_ICD="${L4D2_VIRTIO_ICD:-/usr/share/vulkan/icd.d/virtio_icd.json}"
-SOCKET="${XDG_RUNTIME_DIR:-/tmp}/l4d2-venus-$UID.sock"
+# 与 fix-l4d2.sh 部署的 systemd --user 单元共用同一 socket，便于复用常驻服务端
+SOCKET="${L4D2_VENUS_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/l4d2-venus.sock}"
 LOG="${XDG_STATE_HOME:-$HOME/.local/state}/l4d2-venus/server.log"
 SERVER_PID=""
 GAME_PID=""
@@ -64,15 +65,26 @@ cleanup() {
         kill "$SERVER_PID" 2>/dev/null || true
         wait "$SERVER_PID" 2>/dev/null || true
     fi
-    rm -f "$SOCKET"
+    # 只清理自己拉起的服务端的 socket；复用常驻服务端时不能删
+    [ -n "$SERVER_PID" ] && rm -f "$SOCKET"
 }
 
 start_server() {
+    # 常驻服务端（systemd --user l4d2-venus.service）已在跑就直接复用
+    if [ -S "$SOCKET" ] && systemctl --user is-active l4d2-venus.service >/dev/null 2>&1; then
+        say "reusing running Venus server: $SOCKET"
+        return 0
+    fi
+
     check_files >/dev/null || die "bridge prerequisites are incomplete"
     mkdir -p "$(dirname "$LOG")"
     rm -f "$SOCKET"
 
-    say "starting 64-bit Venus server with gf ICD"
+    local node="${L4D2_RENDER_NODE:-/dev/dri/renderD128}"
+    [ -c "$node" ] || node="$(ls /dev/dri/renderD* 2>/dev/null | head -1)"
+    [ -c "$node" ] || die "no /dev/dri/renderD* found"
+
+    say "starting 64-bit Venus server with gf ICD (rendernode $node)"
     env \
         RENDER_SERVER_EXEC_PATH="$WORKER" \
         VK_ICD_FILENAMES="$GF_ICD" \
@@ -80,7 +92,7 @@ start_server() {
             --no-loop-or-fork \
             --no-virgl \
             --venus \
-            --rendernode /dev/dri/renderD128 \
+            --rendernode "$node" \
             --socket-path "$SOCKET" >"$LOG" 2>&1 &
     SERVER_PID=$!
 

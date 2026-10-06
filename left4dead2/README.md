@@ -1,22 +1,23 @@
 # 《求生之路 2》（Left 4 Dead 2, AppID 550）7G100 硬件渲染修复
 
-> 状态：**GPU 硬件渲染方案已部署**（2026-10-06，替代已废弃的原生 32 位软渲染方案）
+> 状态：**已部署并实测**（2026-10-06）——原生 Linux 32 位 + Vulkan 直连，GPU 硬件渲染
 > 修复脚本：`./fix-l4d2.sh`（幂等，支持 `--status` / `--uninstall`）
+>
+> **不使用** `left4dead2.exe`、**不使用 Proton/DXVK**、**不使用软件渲染**。
 
-## 至砺算：官方实现什么可以让本游戏原生运行
+## 至砺算：官方实现什么可以让本方案退役
 
-> 本节写给砺算官方驱动 / 图形栈研发。按投入产出比排序；**任意一项落地，本目录对应 workaround 即可退役**。
+> 本节写给砺算官方驱动 / 图形栈研发。按投入产出比排序；**任意一项落地，本目录 workaround 即可退役**。
 
-1. **发布 32 位（i386）用户态驱动**：`gf_dri.so (i386)` + 32 位 Vulkan ICD。
-   一旦提供，L4D2 **原生 Linux 32 位版**（ToGL/OpenGL）可直接 GPU 硬件渲染——
-   不需要 Proton WoW64 + DXVK 整套 workaround，帧率与兼容性都更好；同时解锁
-   所有 32 位原生 Linux 游戏。这是本游戏最彻底的解法。
-2. 若短期无法出 32 位驱动：按随从大师文档「至砺算」清单加固 64 位栈（ICD
-   规范化、`VK_KHR_load_store_op_none` / `VK_KHR_maintenance5`、去掉 os-release
-   白名单、libSC 自解析、去除 MAP_32BIT 约束）——本目录的 Proton WoW64 方案
-   自动受益（DXVK 升回 v3.x、垫片与 hook 全部退役）。
-3. 注：原生路线曾缺的 32 位 `libopenal.so.1` / `libpng12.so.0` 属发行版依赖，
-   与驱动无关（且 Proton 路线根本不需要它们）。
+1. **发布 32 位（i386）用户态驱动**：32 位 `gf_dri.so` + 32 位 Vulkan ICD。
+   一旦提供，L4D2 原生 32 位版可以直接加载厂商 ICD，本目录的**整套 Venus 转发链路
+   （私有服务端、systemd 单元、启动包装）全部退役**，少一层 IPC，性能与兼容性都更好；
+   同时解锁所有 32 位原生 Linux 游戏。
+2. 若短期无法出 32 位驱动：按随从大师文档「至砺算」清单加固 64 位栈
+   （ICD 规范化、`VK_KHR_load_store_op_none` / `VK_KHR_maintenance5`、去掉 os-release
+   白名单、libSC 自解析）—— 本方案的服务端会直接受益（它用的就是 64 位
+   `libvulkan_gf.so`）。
+3. 注：原生路线曾缺的 32 位 `libopenal.so.1` / `libpng12.so.0` 属发行版依赖，与驱动无关。
 
 ---
 
@@ -28,77 +29,130 @@
 bash fix-l4d2.sh
 # 3) 重启 Steam → 从库里启动《Left 4 Dead 2》
 bash fix-l4d2.sh --status     # 随时查看各环节状态
+bash fix-l4d2.sh --uninstall  # 停服务 + 还原 Steam 配置
 ```
 
 游戏内验证 GPU 生效：控制台 `mat_info`，Renderer 应显示 **LISUAN**（而非 llvmpipe）。
 
-## 二、方案
+---
 
-L4D2 目录自带 Windows 版（`left4dead2.exe`）。走 **Proton new WoW64**：
-`PROTON_USE_WOW64=1` 让 32 位游戏进程经 wine wow64 thunk 调用【64 位】gf Vulkan
-ICD，DXVK 把 DX9 翻译成 Vulkan → 7G100 硬件渲染。
+## 二、方案：原生 32 位 `-vulkan` + Venus 进程外转发
 
-脚本自动完成（与随从大师 `fix-minion-masters-7g100-hw.sh` 同源五层配方）：
+### 2.1 原理
 
-| # | 步骤 | 解决的障碍 |
-|---|---|---|
-| 1 | 部署 os-release 重定向 hook | gf 白名单不认 Steam Runtime 容器 → 0 设备 |
-| 2 | 部署协商垫片 ICD（`VK_ICD_FILENAMES`） | Vulkan loader 1.4.x 丢弃老式 ICD |
-| 3 | `VK_LOADER_LAYERS_DISABLE` 禁 Steam overlay 层 | overlay 绕过垫片直连真 ICD → 崩 |
-| 4 | libSC.so 软链进 Proton 库目录 | `vkCreateDevice` 依赖伴生库 |
-| 5 | 目标 Proton 的 DXVK 为 v3.x 时降级 v2.3 | gf 缺 `load_store_op_none`/`maintenance5` |
+L4D2 的原生 Linux 版自带 **32 位** `bin/shaderapivk.so`（Valve 官方 Vulkan 后端），
+所以游戏本体不需要任何 wine/DXVK。
 
-写入：`CompatToolMapping 550 → proton_11`（推荐稳定版，与随从大师同款；脚本默认
-跟随 Steam 中 550 的选择）+ LaunchOptions（保留用户参数如 `-language schinese`）。
+剩下的唯一矛盾是**位数**：32 位进程不能 `dlopen` 64 位 `libvulkan_gf.so`
+（同一进程不能混 ABI）。这里不硬加载，而是把渲染指令**转发出进程**：
+
+```
+hl2_linux -vulkan
+  -> bin/shaderapivk.so          (ELF32)
+  -> libvulkan_virtio.so         (ELF32, Mesa Venus 客户端 ICD)
+  == Unix socket ==
+  -> virgl_test_server --venus   (ELF64, 私有构建)
+  -> libvulkan_gf.so             (ELF64, 厂商)
+  -> 砺算 7G100
+```
+
+32 位侧只做命令序列化，像素由 gf 驱动在 GPU 上算 —— 因此**不是软件渲染**。
+客户端 ICD 用的是 Ubuntu 自带的 i386 Mesa（`libvulkan_virtio.so`），无需自编译。
+
+### 2.2 部署内容
+
+| # | 组件 | 位置 | 作用 |
+|---|---|---|---|
+| 1 | 64 位 Venus 服务端 | `~/.local/share/l4d2-venus/build/` | 加载 gf ICD 真正渲染；由 `vtest-forward/build-venus-bridge.sh` 私有构建，不动系统 |
+| 2 | systemd --user 单元 | `~/.config/systemd/user/l4d2-venus.service` | 随登录常驻服务端（`WantedBy=default.target`） |
+| 3 | 启动包装 | `~/.local/share/l4d2-venus/l4d2-venus-launch.sh` | 确认 socket 就绪 → 注入环境变量 → `exec` 游戏 |
+| 4 | Steam 启动选项 | localconfig.vdf | `STEAM_RUNTIME=0 <包装器> %command% -vulkan` |
+
+两个关键环境变量（由包装器注入，只影响游戏进程）：
+
+- `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/virtio_icd.json`
+  → 该 JSON 的 `library_path` 是裸文件名，loader 按进程位数解析，32 位进程自动取 i386 版本。
+- `VTEST_SOCKET_NAME=$XDG_RUNTIME_DIR/l4d2-venus.sock`
+- `VK_LOADER_LAYERS_DISABLE=...steam_overlay_32,_64`：overlay 的 Vulkan 层会绕过 Venus ICD 直连，禁用。
+
+### 2.3 为什么要 `STEAM_RUNTIME=0`
+
+pressure-vessel 容器内是 steamrt 自带的 i386 栈，**没有 `libvulkan_virtio.so`**。
+必须在宿主直跑，才能用上系统 i386 Mesa 的 Venus ICD。
 
 > ⚠️ **vdf 改动必须在 Steam 完全退出后进行**：Steam 退出时会用内存中的配置覆盖
-> `config.vdf` / `localconfig.vdf`——在 Steam 运行中跑本脚本，改动会在下次退出时
-> 被抹掉，游戏随之回退到原生 32 位路径（pressure-vessel 容器内挂起 =「无响应」，
-> 2026-10-06 实测踩坑）。`steam -shutdown` 可优雅退出。
+> `config.vdf` / `localconfig.vdf`。`steam -shutdown` 可优雅退出。
 
-## 三、实验方案：原生 32 位 + Venus 进程外垫片
+> ⚠️ **服务端必须常驻**：单元里的 `virgl_test_server` **不能**加 `--no-loop-or-fork`
+> —— 该选项服务完第一个客户端就退出，会导致第二次启动游戏连不上 socket。
+> 单元已用 `ExecStartPre=/bin/rm -f <socket>` 清理残留 socket 再 bind。
 
-`vtest-forward/` 提供不修改系统驱动的实验链路：
+---
 
-```
-L4D2 Linux i386（-vulkan）
-  -> Mesa Venus i386（libvulkan_virtio.so）
-  -> Unix socket
-  -> virglrenderer/Venus x86_64
-  -> libvulkan_gf.so x86_64
-  -> 7G100
-```
-
-这不是在 32 位进程内加载 64 位 `.so`，而是把 Vulkan 命令通过进程外 RPC
-交给 64 位服务端。2026-10-06 已用 32 位 `vkcube` 端到端验证，设备显示为
-`Virtio-GPU Venus (LISUAN 7G100 Series Graphics)`；L4D2 自带
-`shaderapivk.so`，可通过 `-vulkan` 使用同一链路。
+## 三、验证与排障
 
 ```bash
-# 构建私有服务端到 ~/.local/share/l4d2-venus，不需要 root
-bash vtest-forward/build-venus-bridge.sh
-
-# 先跑 8 秒硬件渲染冒烟测试
+# 32 位冒烟测试（复用常驻服务端）
 bash vtest-forward/run-l4d2-venus.sh --test
+# 期望: Selected GPU 0: Virtio-GPU Venus (LISUAN 7G100 Series Graphics) → PASS
 
-# 启动原生 Linux 32 位版
-bash vtest-forward/run-l4d2-venus.sh --game
+bash fix-l4d2.sh --status
+# 期望: shaderapivk.so ✅ ELF 32-bit / systemd: active / socket ✅ /
+#       CompatTool 未绑定 ✅ / LaunchOpts 含 -vulkan
 ```
 
-该方案目前标记为实验性：Venus/virglrenderer 增加了一层 IPC，性能和完整游戏
-稳定性仍需实测。脚本只向目标进程设置 `VK_ICD_FILENAMES` 和
-`VTEST_SOCKET_NAME`，不会替换系统 ICD；游戏退出后 64 位服务端随即清理。
-稳定游玩仍优先使用上一节已验证的 Proton WoW64 方案。
+| 症状 | 检查 |
+|---|---|
+| 游戏起不来 / 无画面 | `systemctl --user status l4d2-venus`；socket 是否存在 |
+| 服务端崩 | `journalctl --user -u l4d2-venus` |
+| `mat_info` 显示 llvmpipe | LaunchOptions 未生效（Steam 覆盖）或走了 `-gl` |
+| 手动直跑调试 | `bash vtest-forward/run-l4d2-venus.sh --game` |
 
-## 四、历史方案（已废弃，仅存档）
+手动直跑脚本会复用已运行的常驻服务端（不会重复拉起，也不会删它的 socket）；
+若服务端没起，它会临时拉起一个并在脚本退出时清理。
 
-原方案 = 原生 Linux 32 位 + `STEAM_RUNTIME=0` 宿主直跑 + Mesa llvmpipe 软渲染
-（曾依次修过：容器挂起 → 32 位 `libopenal` 缺失致 `engine.so` 加载失败 →
-32 位 `libpng12` 缺失致 `vguimatsurface.so` 加载失败进游戏黑屏）。2026-10-06
-按「游戏禁用软件渲染」原则废弃：厂商无 32 位 gf 驱动，原生路线永远到不了 GPU。
-为旧方案装的 i386 库与 `bin/libpng12.so.0` 保留无害。
+---
+
+## 四、未采用的备选方案
+
+### 4.1 Zink（OpenGL-on-Vulkan）—— 可用但非首选
+
+系统 i386 Mesa 带 `zink_dri.so`，可让原生版走默认 ToGL/OpenGL 路径：
+
+```
+hl2_linux（默认 -gl） -> libGLX_mesa(32) -> zink_dri.so(32)
+  -> libvulkan_virtio.so(32) -> socket -> 64 位服务端 -> gf
+```
+
+未采用的原因：比 `-vulkan` 多一层 GL→Vulkan 转换；且系统 Mesa zink 架在 gf 上
+只报 **OpenGL 3.0**（见 `../mesa/system-mesa-analysis.md` §1），Source 1 的 ToGL
+可能不够用。`-vulkan` 是 Valve 官方后端，无此限制。
+
+### 4.2 Proton new WoW64 + DXVK —— 已删除（2026-10-06）
+
+历史方案：用游戏目录自带的 Windows 版 `left4dead2.exe`，`PROTON_USE_WOW64=1` 让
+32 位游戏经 wine wow64 thunk 调 64 位 gf Vulkan，DXVK 把 DX9 转 Vulkan。
+五层配方（os-release hook / 协商垫片 ICD / overlay 层禁用 / libSC 软链 / DXVK 降 v2.3）
+与随从大师同源，实测可用，但：
+
+- 引入 wine + DXVK 翻译层，链路最长；
+- 需要改动 Proton 目录（DXVK 降级、libSC 链接），Steam 更新 Proton 后会失效、需重跑；
+- 用户明确要求走原生、不走 exe。
+
+已从 `fix-l4d2.sh` 与本文档中彻底移除。若需回退，见 git 历史。
+相关的 `gf-compat/` 部署目录（hook / 垫片 ICD / 驱动副本）不再生成，
+已存在者可安全删除。
+
+### 4.3 原生 32 位 + llvmpipe —— 已废弃
+
+更早的方案（宿主直跑 + Mesa 软渲染），按「游戏禁用软件渲染」原则废弃。
+为其安装的 i386 库（`libopenal.so.1`）与 `bin/libpng12.so.0` 保留无害，
+本方案的原生路径同样需要它们。
+
+---
 
 ## 五、相关
 
-- 随从大师（32 位 Windows，同一 WoW64 配方 + IL2CPP patch）：`../minion-masters/`
-- 刀塔霸业（Source 2 原生 Linux，容器委托宿主直跑）：`../underlords/`
+- 随从大师（32 位 Windows，Proton WoW64 + IL2CPP patch）：`../minion-masters/`
+- 刀塔霸业（Source 2 原生 Linux 64 位，容器委托宿主直跑）：`../underlords/`
+- 系统 Mesa / zink 能力分析：`../mesa/system-mesa-analysis.md`
