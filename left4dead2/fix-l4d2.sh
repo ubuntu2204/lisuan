@@ -201,15 +201,55 @@ for a in "\$@"; do
 done
 if [ "\${#args[@]}" = 0 ]; then args=(-game left4dead2 -steam -vulkan); fi
 
-if [ -d /usr/lib/pressure-vessel ]; then
-  LDSO=/lib64/ld-linux-x86-64.so.2
-  LIBPATH=/run/host/usr/lib/x86_64-linux-gnu:/run/host/lib/x86_64-linux-gnu:/run/host/usr/lib/x86_64-linux-gnu/systemd
-  SR() { \$LDSO --library-path "\$LIBPATH" /run/host/usr/bin/systemd-run --user "\$@"; }
-  SS() { \$LDSO --library-path "\$LIBPATH" /run/host/usr/bin/systemctl --user "\$@"; }
+# 容器判定：不同 runtime（soldier / scout-on-soldier / sniper）布局不同，
+# 单看 /usr/lib/pressure-vessel 会漏判（漏判 = 在容器内直接跑游戏 = 挂起"无响应"）。
+LOG=/tmp/l4d2-venus-launch.log
+# pressure-vessel 的宿主根挂载点有两种布局：/run/host（旧）与 /host（soldier）
+HOSTPFX=""
+for p in /run/host /host; do
+  [ -d "\$p/usr/bin" ] && HOSTPFX="\$p" && break
+done
+IN_CT=0
+for m in /usr/lib/pressure-vessel /run/pressure-vessel /run/host /host; do
+  [ -d "\$m" ] && IN_CT=1
+done
+[ -n "\${PRESSURE_VESSEL_PREFIX:-}" ] && IN_CT=1
+[ -n "\$HOSTPFX" ] && IN_CT=1
+{
+  echo "=== \$(date -Is) ==="
+  echo "argv: \$*"
+  echo "in_container=\$IN_CT"
+  echo "markers: pv=\$([ -d /usr/lib/pressure-vessel ] && echo yes || echo no) run_pv=\$([ -d /run/pressure-vessel ] && echo yes || echo no) run_host=\$([ -d /run/host ] && echo yes || echo no)"
+  echo "root: \$(ls / 2>/dev/null | tr '\\n' ' ')"
+  echo "run:  \$(ls /run 2>/dev/null | tr '\\n' ' ')"
+  echo "XDG_RUNTIME_DIR=\$XDG_RUNTIME_DIR contents: \$(ls \"\$XDG_RUNTIME_DIR\" 2>/dev/null | tr '\\n' ' ')"
+  echo "dbus-send: \$(command -v dbus-send || echo none)"
+  echo "icd.d: \$(ls /usr/share/vulkan/icd.d/ 2>/dev/null | tr '\\n' ' ')"
+  echo "i386-vk: \$(ls /usr/lib/i386-linux-gnu/libvulkan_* 2>/dev/null | tr '\\n' ' ')"
+} >> "\$LOG" 2>&1
+
+if [ "\$IN_CT" = 1 ]; then
+  # 委托所需的两样东西缺一不可；缺了就报错退出，绝不在容器内直接跑游戏
+  # （容器内 32 位栈不完整，跑起来必然挂起成"无响应"）
+  if [ -z "\$HOSTPFX" ] || [ ! -e "\$HOSTPFX/usr/bin/systemd-run" ]; then
+    echo "[l4d2-venus] !! 容器内但缺少委托条件（宿主前缀=\${HOSTPFX:-无}），拒绝在容器内启动游戏" >&2
+    echo "FAIL: missing delegation tools" >> "\$LOG"
+    exit 1
+  fi
+  echo "hostpfx=\$HOSTPFX" >> "\$LOG"
+  # 动态链接器：宿主可能是 /lib64 或 /lib/x86_64-linux-gnu
+  LDSO=""
+  for l in "\$HOSTPFX/lib64/ld-linux-x86-64.so.2" "\$HOSTPFX/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"; do
+    [ -e "\$l" ] && LDSO="\$l" && break
+  done
+  [ -n "\$LDSO" ] || { echo "FAIL: no host ld.so under \$HOSTPFX" >> "\$LOG"; exit 1; }
+  LIBPATH="\$HOSTPFX/usr/lib/x86_64-linux-gnu:\$HOSTPFX/lib/x86_64-linux-gnu:\$HOSTPFX/usr/lib/x86_64-linux-gnu/systemd"
+  SR() { \$LDSO --library-path "\$LIBPATH" \$HOSTPFX/usr/bin/systemd-run --user "\$@"; }
+  SS() { \$LDSO --library-path "\$LIBPATH" \$HOSTPFX/usr/bin/systemctl --user "\$@"; }
 
   # 宿主侧 X 认证文件（Xwayland 会话每次登录随机后缀）
-  XAUTH=\$(ls /run/host/run/user/\$UID_NUM/.mutter-Xwaylandauth.* /run/host/run/user/\$UID_NUM/.Xauthority 2>/dev/null | head -1)
-  XAUTH=\${XAUTH#/run/host}
+  XAUTH=\$(ls \$HOSTPFX/run/user/\$UID_NUM/.mutter-Xwaylandauth.* \$HOSTPFX/run/user/\$UID_NUM/.Xauthority 2>/dev/null | head -1)
+  XAUTH=\${XAUTH#\$HOSTPFX}
   [ -n "\$XAUTH" ] || XAUTH=\$(SS show-environment 2>/dev/null | sed -n 's/^XAUTHORITY=//p')
 
   if SS is-active "\$UNIT" >/dev/null 2>&1; then
@@ -231,6 +271,7 @@ if [ -d /usr/lib/pressure-vessel ]; then
 fi
 
 # 不在容器内（宿主）则直接跑
+echo "branch: host-direct" >> "\$LOG"
 exec "\$HOST_RUN" "\${args[@]}"
 EOF
   chmod +x "$LAUNCH"
