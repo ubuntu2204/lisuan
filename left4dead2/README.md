@@ -1,18 +1,37 @@
 # 《求生之路 2》（Left 4 Dead 2, AppID 550）7G100 硬件渲染修复
 
-> 状态：**已部署并实测**（2026-10-06）——原生 Linux 32 位 + Vulkan 直连，GPU 硬件渲染
+> 状态：**链路已打通，渲染受 gf 驱动能力限制**（2026-10-06）
 > 修复脚本：`./fix-l4d2.sh`（幂等，支持 `--status` / `--uninstall`）
 >
 > **不使用** `left4dead2.exe`、**不使用 Proton/DXVK**、**不使用软件渲染**。
+>
+> ⚠️ 当前已知阻塞（详见「至砺算」1~3 条）：游戏能启动、能识别
+> `LISUAN 7G100`，但因 gf 驱动无法创建 D16 深度附件而卡死，表现为"无响应"。
 
 ## 至砺算：官方实现什么可以让本方案退役
 
 > 本节写给砺算官方驱动 / 图形栈研发。按投入产出比排序；**任意一项落地，本目录 workaround 即可退役**。
 
-1. **发布 32 位（i386）用户态驱动**：32 位 `gf_dri.so` + 32 位 Vulkan ICD。
-   一旦提供，L4D2 原生 32 位版可以直接加载厂商 ICD，本目录的**整套 Venus 转发链路
-   （私有服务端、systemd 单元、启动包装）全部退役**，少一层 IPC，性能与兼容性都更好；
-   同时解锁所有 32 位原生 Linux 游戏。
+1. **补齐 Vulkan 深度格式能力（最关键）**：`vkGetPhysicalDeviceFormatProperties` 报告
+   `D16_UNORM` / `D24_UNORM_S8_UINT` / `D32_SFLOAT` **全部没有
+   `VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT`**。Vulkan 规范强制要求
+   `D16_UNORM` 支持该能力。后果：DXVK 为 L4D2 创建 400x400 手电筒阴影贴图失败
+   （`err: D3D9: Cannot create texture / Format: D3D9Format::D16`），游戏随后卡死、
+   表现为"无响应"。已实测排除游戏侧原因（`r_flashlightdepthtexture` /
+   `r_flashlightdrawdepth` / `r_flashlightupdatedepth` / `r_flashlightculldepth`
+   全部置 0 均无效），失败发生在 `vkCreateImage` 本身。
+   附注：同一查询对 `R8G8B8A8_UNORM` 也报 `COLOR_ATTACHMENT=False`（规范同样强制要求），
+   说明 formatProperties 实现整体不可信。
+2. **修 `vkGetPhysicalDeviceFormatProperties` 的返回值**：见上一条，报告与规范不符，
+   会让上层（DXVK / Zink / DXVK）按"不支持"处理而放弃可行路径。
+3. **加快着色器编译**：走 Zink（`-gl`）路线时，32 位客户端经 Venus 把命令发给服务端，
+   gf 驱动编译 GLSL→SPIR-V 过慢，触发 Mesa Venus 客户端硬编码的 8 秒 fence 超时：
+   ```
+   MESA-VIRTIO: debug: stuck in fence wait with iter at 1024
+   MESA-VIRTIO: debug: aborting on expired ring alive status at iter 1024
+   ```
+   （`MESA_VIRTIO` 无可调超时的环境变量）。编译速度提上来后 Zink 路线才可用。
+4. **发布 32 位（i386）用户态驱动**：一旦提供，可跳过 Venus 整层 IPC。
 2. 若短期无法出 32 位驱动：按随从大师文档「至砺算」清单加固 64 位栈
    （ICD 规范化、`VK_KHR_load_store_op_none` / `VK_KHR_maintenance5`、去掉 os-release
    白名单、libSC 自解析）—— 本方案的服务端会直接受益（它用的就是 64 位
