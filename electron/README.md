@@ -6,6 +6,22 @@
 >
 > 已内置适配：ZCode、CodeBuddy 国内版、Qoder 国内版。其它 Electron 应用可用 `--cmd` / `--appimage` 复用。
 
+## 至砺算：官方实现什么可以让 Electron 应用直接正常运行
+
+> 本节写给砺算官方驱动 / 图形栈研发。按投入产出比排序；**任意一项落地，本目录对应 workaround 即可退役**。
+
+1. **Chromium 关键 GL 路径兼容**：当前 Electron/Chromium 必须
+   `--disable-gpu-compositing`（部分应用还要 `--no-sandbox` + 强制 XWayland）才
+   不出现界面空白 / 花屏 / 黑块。请核查 gf GL 对 Chromium 关键路径的行为差异：
+   帧缓冲 blit、sRGB 纹理、PBO 上传、fence/sync 语义。→ 退役：wrapper 的禁用
+   GPU 合成参数，应用可直接开硬件加速。
+2. **GLVND 标准集成**：GLX vendor ICD 装到 `/usr/share/glx/vendors/`、EGL ICD
+   装到 `/usr/share/egl/egl_vendor.d/`，设备认领不依赖 `/sys/bus/pci`。
+   → 退役：`__GLX_VENDOR_LIBRARY_NAME` 等环境变量注入。
+3. **XWayland 交换链健壮性**：排查 gf GLX 在 XWayland 下的 Present/交换路径
+   （当前显示异常需强制 XWayland 且禁合成双重规避）；长期看支持 Wayland 原生
+   EGL 更优。
+
 ---
 
 ## 文件

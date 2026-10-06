@@ -92,12 +92,15 @@ right headers.
 
 ## 仓库结构
 
-按**主题**分为 6 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）：
+按**主题**分为 7 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）。
+每个游戏/应用文档开头都有 **「至砺算：」** 一节——写给砺算官方研发，说明"官方实现什么，
+本目录的 workaround 即可退役"；这是本项目的主要读者视角。
 
 | 目录 | 主题 | 内容 |
 |---|---|---|
 | `steam/` | Steam 平台 | 容器 CEF 崩溃修复、开机自愈、容器架构说明 |
 | `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3。其中 `gf-compat/` 是 Vulkan 兼容层（源码与运行时产物同处该目录，两个厂商专有 `.so` 不入库、获取方式见其 README），`assets-mm-gf-vulkan/` 是 C# 补丁工程（MMPatch 唯一权威源码所在；原开发工作目录 `mm-patch/` 已于 2026-08-31 删除，git 历史可查） |
+| `left4dead2/` | 求生之路 2 | 7G100 硬件渲染（Proton new WoW64 + DXVK v2.3 -> 64 位 gf Vulkan）。`fix-l4d2.sh` 自持运行时部署目录 `gf-compat/`（hook/垫片 ICD 编译产物），源码复用 `minion-masters/assets-mm-gf-vulkan/` |
 | `underlords/` | 刀塔霸业 | 容器委托宿主直跑、libpng12 补齐、崩溃智能重试 |
 | `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder 三个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
 | `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |

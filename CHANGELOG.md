@@ -3,6 +3,58 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.10.06 — 全部游戏/应用文档新增「至砺算：」章节
+
+本项目主要写给砺算官方开发人员。6 份游戏/应用文档（steam / underlords /
+minion-masters / electron / kingdom-rush / left4dead2）开头统一新增
+**「至砺算：官方实现什么可以让本游戏（应用）原生运行」**：
+
+- 按投入产出比排序，每项 = 官方要实现什么 + 已实测的根因证据 + 落地后
+  退役的 workaround；
+- 共性诉求高频出现：ICD 规范化（协商接口 / 实例扩展）、基于渲染节点的
+  容器内设备枚举（不依赖 /sys/bus/pci）、libSC 自解析、去除 os-release
+  白名单与 MAP_32BIT 约束、补齐 DXVK v3.x 所需扩展、GLVND 标准集成、
+  gf_gbm 与 libgbm 25.x ABI 兼容；
+- 32 位用户态驱动（i386）作为 left4dead2 的最彻底解法单独列出。
+
+同批：`left4dead2/README.md` 从已废弃的软渲染方案重写为 Proton WoW64
+GPU 方案（2026.10.06 条目），并同步至砺算诉求。
+
+---
+
+## 2026.10.06 — 求生之路 2（L4D2）改走 7G100 硬件渲染：废弃原生 32 位软渲染方案
+
+### 决策
+
+用户定下硬性原则：**任何游戏禁用软件渲染，必须 GPU 硬件加速**（已沉淀为长期记忆）。
+原生 Linux 版 L4D2 是 32 位 ToGL/OpenGL，厂商无 32 位 gf_dri.so，原生路线永远只能
+软件渲染（llvmpipe，帧率不可用）——整体废弃。
+
+### 新方案
+
+游戏目录自带 Windows 版（left4dead2.exe），走与随从大师同源的 Proton new WoW64
+路线（`PROTON_USE_WOW64=1`，注意不是 ENABLE）：32 位游戏进程经 wine wow64 thunk
+调用 64 位 gf Vulkan ICD，DXVK 把 DX9 翻译成 Vulkan -> 7G100 硬件渲染。
+
+`left4dead2/fix-l4d2.sh` 全部重写：
+
+- 部署自持运行时 `left4dead2/gf-compat/`（osrelease_redirect hook + 协商垫片 ICD +
+  驱动库副本；源码复用 `minion-masters/assets-mm-gf-vulkan/`，gcc 现场编译）；
+- libSC.so 软链进目标 Proton 库目录（vkCreateDevice 依赖）；
+- 目标 Proton 的 DXVK 为 v3.x 时自动降级为 Proton 8.0 的 v2.3（gf 22.0.4 缺
+  VK_KHR_load_store_op_none / VK_KHR_maintenance5；实测 Experimental
+  v3.1.1 -> v2.3，Proton 11.0 当前已是 v2.3）；
+- CompatToolMapping 550 -> proton_experimental + LaunchOptions 写入（保留用户
+  参数如 `-language schinese`）；`--status` / `--uninstall` 齐备；
+- 卸载只回收指向本 DEPLOY 的 libSC 链接，不误伤随从大师的加固。
+
+### 状态
+
+- 实测：安装流程 exit 0、二次运行全走幂等分支、vdf 写入确认；
+- 待重启 Steam 实测游戏内 `mat_info` 显示 LISUAN（而非 llvmpipe）。
+
+---
+
 ## 2026.10.03 — 王国保卫战（Kingdom Rush）启动崩溃修复：容器内 GLXBadFBConfig
 
 ### 现象

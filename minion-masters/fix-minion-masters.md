@@ -10,6 +10,29 @@
 > （源码 `/home/ubuntu/mm_patch/plugin/Patcher.cs`）已于 2026-08-26 退役，见游戏坑 1。
 >
 > **渲染状态（2026-08-30 起）**：7G100 **硬件渲染**已打通，见「游戏坑 8」。
+
+## 至砺算：官方实现什么可以让本游戏原生运行
+
+> 本节写给砺算官方驱动 / 图形栈研发。本游戏 = 32 位 Windows（Proton new WoW64 + DXVK）。
+> 按投入产出比排序；**任意一项落地，本目录对应 workaround 即可退役**。
+
+1. **补齐 Vulkan 扩展 `VK_KHR_load_store_op_none`、`VK_KHR_maintenance5`**：
+   Proton 自带的 DXVK v3.x 硬要求它们，gf（驱动 22.0.4）没有 → CreateDevice 返回
+   -1，当前被迫把 DXVK 降级为 Proton 8.0 的 v2.3。补齐后直接用新版 DXVK。
+2. **ICD 规范化**：实现 `vk_icdNegotiateLoaderDeviceInterfaceVersion`（当前协商
+   版本 0，Vulkan loader ≥ 1.4 丢弃老式 ICD）；`vkCreateInstance` 接受被裁剪的
+   标准实例扩展。→ 退役：协商垫片 ICD（`libvulkan_gf_shim.so`）。
+3. **去掉 `/etc/os-release` 发行版白名单**：`libvulkan_gf.so` 启动时只认
+   Kylin/uos/openEuler/TencentOS/Deepin/Ubuntu，Steam Runtime 容器被拒 → 0 设备。
+   白名单匹配失败应降级为警告并继续枚举。
+4. **libSC.so 自解析**：`vkCreateDevice` 依赖的伴生库应由 ICD 基于自身路径解析。
+   → 退役：把 libSC.so 软链进 Proton 库目录 / 拷贝到 home 的步骤。
+5. **去除 MAP_32BIT 硬约束**：wow64 下进程低 2GB 被 wine 占用，驱动申请
+   MAP_32BIT 映射常 ENOMEM；64 位用户态库不需要 <4GB 指针约束，失败应回退普通
+   mmap。→ 退役：LD_PRELOAD「低 4GB 重映射池」hook。
+6. **winex11 GL 探测健壮性**：gf GLX 栈在 wine wow64 下初始化即崩，当前用
+   `__GLX_VENDOR_LIBRARY_NAME=mesa` + `LIBGL_ALWAYS_SOFTWARE=1` 让探测走 llvmpipe
+   （不影响 DXVK 走 7G100 渲染，但根因在 gf GLX 初始化路径）。
 >
 > **文档整合（2026-09-06）**：原 `MinionMasters-攻坚全记录.md`（研发日志）与
 > `MinionMasters-成功运行报告.md`（llvmpipe 时代实测快照）**已合并进本文**——

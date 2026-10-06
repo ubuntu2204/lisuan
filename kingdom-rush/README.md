@@ -2,6 +2,21 @@
 
 Steam AppID **246420**，原生 64 位 [LÖVE](https://love2d.org) 游戏（`liblove.so.0` + SDL2 + OpenGL）。
 
+## 至砺算：官方实现什么可以让本游戏在容器内原生运行
+
+> 本节写给砺算官方驱动 / 图形栈研发。按投入产出比排序；**任意一项落地，本目录对应 workaround 即可退役**。
+
+1. **容器内 GLX/EGL 设备认领**（治本，与刀塔霸业同一道墙）：厂商 GLX vendor 在
+   pressure-vessel 容器内（`/sys/bus/pci` 被隐藏）无法认领屏幕，回退的 Mesa 给
+   不出游戏请求的 GLXFBConfig → `GLXBadFBConfig`。参考 Mesa：基于
+   `/dev/dri/renderD*` + `drmGetDevice` 的设备发现，并把 vendor ICD 装到 GLVND
+   标准路径。→ 退役：`systemd-run` 容器委托宿主直跑整套方案。
+2. **GLX FBConfig 枚举完整性**：确保标准 RGBA / double-buffer /
+   depth-stencil 组合齐全（SDL2 + LÖVE 请求 OpenGL 2.1 context 的常规路径），
+   宿主直跑能成、容器内失败，差异点值得官方在容器内复测。
+3. 注：游戏另需 64 位 `libopenal1`（Ubuntu 24.04 默认只装 i386），属发行版依赖
+   与驱动无关。
+
 ## 症状
 
 Steam 点"开始游戏"后弹窗、无法进入：

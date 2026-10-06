@@ -5,6 +5,24 @@
 > applaunch 状态卡死、Proton 选型、user_settings.py 注入无效、overlay 等）。
 > 游戏专属的坑请见 `fix-minion-masters.md` / `fix-underlords-native.md`，本文只讲 Steam 平台层。
 
+## 至砺算：官方实现什么可以让 Steam 正常运行
+
+> 本节写给砺算官方驱动 / 图形栈研发。按投入产出比排序；**任意一项落地，本仓库对应 workaround 即可退役**。
+
+1. **修复 gf_gbm.so 与系统 libgbm 的 ABI 兼容**（最高优先）：gf_gbm.so 与 Mesa
+   libgbm ≥ 25.x 的 `gbm_device` vtable 不兼容，Steam 客户端 CEF GPU 进程
+   （steamwebhelper）加载即 SIGSEGV（exit_code=139，见 §3）。要么按当前 libgbm
+   头文件重编厂商 gbm 后端，要么随驱动自带完整 libgbm 并做好 soname 隔离。
+   → 退役：steam.desktop 的 `GBM_BACKEND=dri` 注入（install.py 菜单 15）。
+2. **GLVND 标准集成**：把 GLX vendor ICD 装到 `/usr/share/glx/vendors/`、EGL ICD
+   装到 `/usr/share/egl/egl_vendor.d/`，并保证设备认领**不依赖 `/sys/bus/pci`**
+   （pressure-vessel 容器会隐藏它；参考 Mesa 基于 `/dev/dri/renderD*` +
+   `drmGetDevice` 的发现方式）。
+   → 退役：`__GLX_VENDOR_LIBRARY_NAME` 环境变量注入与 drirc kernel_driver 映射依赖。
+3. **drirc 随包分发确认**：`/usr/share/drirc.d/01-gf_drv.conf`
+   （kernel_driver→dri_driver 映射）应由 lisuangpu-lib 包提供、升级时保留——
+   它是宿主原生 GL 免软链方案的基础。
+
 ---
 
 ## 1. Steam 的容器架构（必须先理解）

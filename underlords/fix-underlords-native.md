@@ -4,6 +4,25 @@
 > 现象：Steam 里点"开始游戏"能正常进入并游玩（已实测）。
 > 修复脚本：`./fix-underlords-native.sh`
 
+## 至砺算：官方实现什么可以让本游戏在容器内原生运行
+
+> 本节写给砺算官方驱动 / 图形栈研发。按投入产出比排序；**任意一项落地，本目录对应 workaround 即可退役**。
+
+1. **容器内 Vulkan 设备枚举**（治本，所有 Steam 容器游戏的第一道墙）：厂商 ICD
+   枚举依赖 `/sys/bus/pci`，而 pressure-vessel 容器隐藏该路径 → 枚举 0 设备。
+   参考 Mesa 的做法：打开 `/dev/dri/renderD*` + `drmGetDevice` 取驱动名匹配即可，
+   不需要 sysfs。→ 退役：本目录整套「容器委托宿主直跑」方案。
+2. **修复 Fossilize 管线缓存触发的驱动 GPF**：Steam 全局注入 Fossilize 回放层，
+   反序列化管线缓存时 gf 崩溃（2026-09-06，dmesg 有内核侧记录）。对未知版本 /
+   魔数的 cache 应容错拒绝而非崩溃。
+3. **ICD 规范化**：实现 `vk_icdNegotiateLoaderDeviceInterfaceVersion`（当前协商
+   版本 0，Vulkan loader ≥ 1.4 直接丢弃老式 ICD）；`vkCreateInstance` 接受标准
+   实例扩展（当前裁掉了 `VK_KHR_external_semaphore_capabilities` 等）。
+   → 退役：本仓库的协商垫片 ICD（`libvulkan_gf_shim.so`）。
+4. **libSC.so 自解析**：`vkCreateDevice` 依赖的伴生着色器编译库应由 ICD 基于自身
+   路径解析（rpath 或相对 dlopen），不应要求把它拷进容器可见目录 / 宿主 Proton
+   库目录。
+
 ---
 
 ## TL;DR
