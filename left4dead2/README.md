@@ -48,8 +48,13 @@ ICD，DXVK 把 DX9 翻译成 Vulkan → 7G100 硬件渲染。
 | 4 | libSC.so 软链进 Proton 库目录 | `vkCreateDevice` 依赖伴生库 |
 | 5 | 目标 Proton 的 DXVK 为 v3.x 时降级 v2.3 | gf 缺 `load_store_op_none`/`maintenance5` |
 
-写入：`CompatToolMapping 550 → proton_experimental` + LaunchOptions
-（保留用户参数如 `-language schinese`）。
+写入：`CompatToolMapping 550 → proton_11`（推荐稳定版，与随从大师同款；脚本默认
+跟随 Steam 中 550 的选择）+ LaunchOptions（保留用户参数如 `-language schinese`）。
+
+> ⚠️ **vdf 改动必须在 Steam 完全退出后进行**：Steam 退出时会用内存中的配置覆盖
+> `config.vdf` / `localconfig.vdf`——在 Steam 运行中跑本脚本，改动会在下次退出时
+> 被抹掉，游戏随之回退到原生 32 位路径（pressure-vessel 容器内挂起 =「无响应」，
+> 2026-10-06 实测踩坑）。`steam -shutdown` 可优雅退出。
 
 ## 三、历史方案（已废弃，仅存档）
 

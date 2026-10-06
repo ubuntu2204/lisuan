@@ -135,6 +135,8 @@ deploy_hook() {
   say "垫片 ICD 已部署: $DEPLOY/lib/libvulkan_gf_shim.so (+ $DEPLOY/gf_icd.json)"
 
   # 1c. 驱动库副本（容器内以 home 路径可见）
+  # 注意：厂商源库为 444 只读，cp 会保留权限位导致二次覆盖 EACCES —— 先删再拷
+  rm -f "$DEPLOY/lib/libvulkan_gf.so" "$DEPLOY/lib/libSC.so"
   cp /usr/lib/x86_64-linux-gnu/libvulkan_gf.so "$DEPLOY/lib/libvulkan_gf.so"
   cp /usr/lib/x86_64-linux-gnu/libSC.so "$DEPLOY/lib/libSC.so"
   say "驱动库副本已更新: $DEPLOY/lib/{libvulkan_gf.so,libSC.so}"
