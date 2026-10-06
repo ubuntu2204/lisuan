@@ -52,7 +52,9 @@ RENDER_NODE="${L4D2_RENDER_NODE:-/dev/dri/renderD128}"
 
 UNIT_DIR="$HOME/.config/systemd/user"
 UNIT="$UNIT_DIR/l4d2-venus.service"
-LAUNCH="$BRIDGE_HOME/l4d2-venus-launch.sh"
+LAUNCH="$BRIDGE_HOME/l4d2-venus-launch.sh"   # Steam 启动链入口（容器内执行）
+HOST_RUN="$BRIDGE_HOME/l4d2-host-run.sh"     # 宿主侧启动器（委托目标）
+GAME_UNIT="l4d2-host-game.service"           # 委托后在宿主上承载游戏的单元
 
 CONFIG_VDF="$HOME/.local/share/Steam/config/config.vdf"
 LOCALCONFIG_VDF=$(ls ~/.local/share/Steam/userdata/*/config/localconfig.vdf 2>/dev/null | head -1)
@@ -133,28 +135,95 @@ EOF
   return 1
 }
 
-# ---------- 3) 启动包装：确保服务端就绪 + 注入变量 ----------
-write_launcher() {
-  cat > "$LAUNCH" <<EOF
-#!/usr/bin/env bash
-# l4d2-venus-launch.sh — Steam 启动包装（由 left4dead2/fix-l4d2.sh 生成，勿手改）
-# 作用：确保 64 位 Venus 服务端就绪 -> 注入 32 位客户端所需变量 -> exec 原生 L4D2
+# ---------- 3a) 宿主侧启动器：真正跑游戏的地方 ----------
+write_host_runner() {
+  cat > "$HOST_RUN" <<EOF
+#!/bin/bash
+# l4d2-host-run.sh — 宿主侧启动器（由 left4dead2/fix-l4d2.sh 生成，勿手改）
+# 在宿主上跑原生 32 位 L4D2：用系统 i386 Mesa 的 Venus ICD 连到 64 位 gf 服务端。
 set -u
 SOCKET="$SOCKET"
+GAME="$GAME"
 
 if [ ! -S "\$SOCKET" ]; then
   systemctl --user start l4d2-venus.service 2>/dev/null || true
   for _ in \$(seq 1 60); do [ -S "\$SOCKET" ] && break; sleep 0.1; done
 fi
-[ -S "\$SOCKET" ] || { echo "[l4d2-venus] !! 服务端 socket 未就绪: \$SOCKET" >&2; exit 1; }
+[ -S "\$SOCKET" ] || { echo "[l4d2-venus] !! Venus 服务端 socket 未就绪: \$SOCKET" >&2; exit 1; }
 
-# 32 位进程 -> Mesa Venus ICD -> socket -> 64 位服务端 -> gf
+# 32 位进程 -> Mesa Venus ICD -> socket -> 64 位服务端 -> libvulkan_gf.so
 export VK_ICD_FILENAMES="$VIRTIO_ICD"
 export VTEST_SOCKET_NAME="\$SOCKET"
+# 关键：Mesa Venus ICD 默认走 virtio-gpu 内核路径（本机没有该设备），
+# 必须显式指定 vtest 才会经 socket 连到我们的 64 位服务端。
+# 缺它时 vkEnumeratePhysicalDevices 直接 ERROR_INITIALIZATION_FAILED。
+export VN_DEBUG=vtest
 # Steam overlay 的 Vulkan 层会绕过 Venus ICD 直连，禁用
-export VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_32,VK_LAYER_VALVE_steam_overlay_64
+export VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_32,VK_LAYER_VALVE_STEAM_OVERLAY_64
+export STEAM_RUNTIME=0
 
-exec "\$@"
+cd "\$GAME"
+exec ./hl2.sh "\$@"
+EOF
+  chmod +x "$HOST_RUN"
+  say "宿主启动器已部署: $HOST_RUN"
+}
+
+# ---------- 3b) Steam 启动链入口：容器内则委托宿主 ----------
+write_launcher() {
+  cat > "$LAUNCH" <<EOF
+#!/usr/bin/env bash
+# l4d2-venus-launch.sh — Steam 启动链入口（由 left4dead2/fix-l4d2.sh 生成，勿手改）
+#
+# Steam 会把 Linux 原生游戏也包进 pressure-vessel 容器（SteamLinuxRuntime_soldier
+# + scout-on-soldier），STEAM_RUNTIME=0 拦不住。容器内是 steamrt 的 i386 栈：没有
+# libvulkan_virtio.so，且 glibc 太旧无法加载宿主编译的 i386 ICD。
+# 因此：检测到容器就委托宿主跑游戏（与 underlords/ 同一机制，经共享会话总线调
+# 宿主的 systemd-run --user），并阻塞等待游戏退出，让 Steam 的时长/退出检测有效。
+set -u
+UNIT="$GAME_UNIT"
+HOST_RUN="$HOST_RUN"
+UID_NUM=\$(id -u)
+
+# 取出命令行里 hl2.sh 之后的游戏参数（-game/-steam/-vulkan/用户参数…）
+args=(); found=0
+for a in "\$@"; do
+  if [ "\$found" = 1 ]; then args+=("\$a"); fi
+  case "\$a" in *hl2.sh*) found=1 ;; esac
+done
+if [ "\${#args[@]}" = 0 ]; then args=(-game left4dead2 -steam -vulkan); fi
+
+if [ -d /usr/lib/pressure-vessel ]; then
+  LDSO=/lib64/ld-linux-x86-64.so.2
+  LIBPATH=/run/host/usr/lib/x86_64-linux-gnu:/run/host/lib/x86_64-linux-gnu:/run/host/usr/lib/x86_64-linux-gnu/systemd
+  SR() { \$LDSO --library-path "\$LIBPATH" /run/host/usr/bin/systemd-run --user "\$@"; }
+  SS() { \$LDSO --library-path "\$LIBPATH" /run/host/usr/bin/systemctl --user "\$@"; }
+
+  # 宿主侧 X 认证文件（Xwayland 会话每次登录随机后缀）
+  XAUTH=\$(ls /run/host/run/user/\$UID_NUM/.mutter-Xwaylandauth.* /run/host/run/user/\$UID_NUM/.Xauthority 2>/dev/null | head -1)
+  XAUTH=\${XAUTH#/run/host}
+  [ -n "\$XAUTH" ] || XAUTH=\$(SS show-environment 2>/dev/null | sed -n 's/^XAUTHORITY=//p')
+
+  if SS is-active "\$UNIT" >/dev/null 2>&1; then
+    echo "[l4d2-venus] 宿主游戏已在运行，等待其退出" >&2
+  else
+    SR --unit="\$UNIT" --collect \\
+      --setenv=HOME="\$HOME" \\
+      --setenv=DISPLAY="\${DISPLAY:-:0}" \\
+      --setenv=XAUTHORITY="\$XAUTH" \\
+      /bin/bash "\$HOST_RUN" "\${args[@]}" \\
+      || echo "[l4d2-venus] !! systemd-run 失败 rc=\$?" >&2
+  fi
+
+  sleep 5
+  while SS is-active "\$UNIT" 2>/dev/null | grep -q '^active\$'; do sleep 3; done
+  SS reset-failed "\$UNIT" 2>/dev/null
+  echo "[l4d2-venus] 宿主游戏已退出" >&2
+  exit 0
+fi
+
+# 不在容器内（宿主）则直接跑
+exec "\$HOST_RUN" "\${args[@]}"
 EOF
   chmod +x "$LAUNCH"
   say "启动包装已部署: $LAUNCH"
@@ -186,7 +255,8 @@ else:
 PY
 }
 
-# 4b. LaunchOptions: STEAM_RUNTIME=0 <包装器> %command% -vulkan <用户参数>
+# 4b. LaunchOptions: <包装器> %command% -vulkan <用户参数>
+#     （不再需要 STEAM_RUNTIME=0：它拦不住 pressure-vessel，容器由包装器委托绕过）
 config_launch_options() {
   [ -n "$LOCALCONFIG_VDF" ] && [ -f "$LOCALCONFIG_VDF" ] || { err "无 localconfig.vdf（先在 Steam 里启动一次游戏）"; return 1; }
   python3 - "$LOCALCONFIG_VDF" "$LAUNCH" <<'PY'
@@ -215,7 +285,7 @@ user_args = re.sub(r'VK_LOADER_LAYERS_DISABLE=\S+', ' ', user_args)
 user_args = re.sub(r'\S*l4d2-venus-launch\.sh', ' ', user_args)
 user_args = ' '.join(user_args.split())
 
-new = 'STEAM_RUNTIME=0 %s %%command%% -vulkan' % launch
+new = '%s %%command%% -vulkan' % launch
 if user_args:
     new += ' ' + user_args
 esc = new.replace('\\', '\\\\').replace('"', '\\"')
@@ -246,7 +316,8 @@ status() {
   systemctl --user is-enabled l4d2-venus.service 2>/dev/null | sed 's/^/  enabled: /'
   [ -S "$SOCKET" ] && echo "  socket: $SOCKET ✅" || echo "  socket: $SOCKET 未就绪"
   echo "== 渲染节点 =="; echo "  $RENDER_NODE $([ -c "$RENDER_NODE" ] && echo ✅ || echo 缺失)"
-  echo "== 启动包装 =="; [ -x "$LAUNCH" ] && echo "  $LAUNCH ✅" || echo "  缺失"
+  echo "== 启动包装（Steam 链入口）=="; [ -x "$LAUNCH" ] && echo "  $LAUNCH ✅" || echo "  缺失"
+  echo "== 宿主启动器 =="; [ -x "$HOST_RUN" ] && echo "  $HOST_RUN ✅" || echo "  缺失"
   echo "== CompatTool（应为空 = 原生）=="
   python3 -c "
 import re, sys
@@ -287,9 +358,10 @@ uninstall() {
     say "警告: Steam 正在运行，vdf 改动可能在退出时被覆盖。建议先退出 Steam。"
   fi
   systemctl --user stop l4d2-venus.service 2>/dev/null && say "服务端已停止"
+  systemctl --user stop "$GAME_UNIT" 2>/dev/null && say "宿主游戏单元已停止"
   systemctl --user disable l4d2-venus.service 2>/dev/null && say "单元已禁用"
   rm -f "$UNIT"; systemctl --user daemon-reload 2>/dev/null
-  rm -f "$LAUNCH" "$SOCKET"
+  rm -f "$LAUNCH" "$HOST_RUN" "$SOCKET"
 
   # LaunchOptions 还原为用户自有参数
   if [ -n "$LOCALCONFIG_VDF" ] && [ -f "$LOCALCONFIG_VDF" ]; then
@@ -346,6 +418,7 @@ say "== L4D2 硬件渲染修复（原生 32 位 -vulkan -> Venus -> gf Vulkan）
 detect_render_node || exit 1
 build_server || exit 1
 install_unit || exit 1
+write_host_runner
 write_launcher
 clear_compat_tool
 config_launch_options

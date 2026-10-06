@@ -65,20 +65,35 @@ hl2_linux -vulkan
 |---|---|---|---|
 | 1 | 64 位 Venus 服务端 | `~/.local/share/l4d2-venus/build/` | 加载 gf ICD 真正渲染；由 `vtest-forward/build-venus-bridge.sh` 私有构建，不动系统 |
 | 2 | systemd --user 单元 | `~/.config/systemd/user/l4d2-venus.service` | 随登录常驻服务端（`WantedBy=default.target`） |
-| 3 | 启动包装 | `~/.local/share/l4d2-venus/l4d2-venus-launch.sh` | 确认 socket 就绪 → 注入环境变量 → `exec` 游戏 |
-| 4 | Steam 启动选项 | localconfig.vdf | `STEAM_RUNTIME=0 <包装器> %command% -vulkan` |
+| 3 | 宿主启动器 | `~/.local/share/l4d2-venus/l4d2-host-run.sh` | 真正跑游戏：确认 socket 就绪 → 注入环境变量 → `exec hl2.sh` |
+| 4 | Steam 启动包装 | `~/.local/share/l4d2-venus/l4d2-venus-launch.sh` | Steam 链入口；检测到容器则委托宿主，否则直接跑宿主启动器 |
+| 5 | Steam 启动选项 | localconfig.vdf | `<包装器> %command% -vulkan` |
 
-两个关键环境变量（由包装器注入，只影响游戏进程）：
+三个关键环境变量（由宿主启动器注入，只影响游戏进程）：
 
 - `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/virtio_icd.json`
   → 该 JSON 的 `library_path` 是裸文件名，loader 按进程位数解析，32 位进程自动取 i386 版本。
 - `VTEST_SOCKET_NAME=$XDG_RUNTIME_DIR/l4d2-venus.sock`
+- **`VN_DEBUG=vtest`**（最关键，漏了就起不来）
+  → Mesa 的 Venus ICD 默认走 virtio-gpu 内核路径（本机没有该设备），只有显式指定
+  `vtest` 才会经 socket 连到我们的 64 位服务端。缺失时
+  `vkEnumeratePhysicalDevices` 直接返回 `ERROR_INITIALIZATION_FAILED`，
+  游戏表现为 `terminate called after throwing an instance of 'dxvk::DxvkError'`。
 - `VK_LOADER_LAYERS_DISABLE=...steam_overlay_32,_64`：overlay 的 Vulkan 层会绕过 Venus ICD 直连，禁用。
 
-### 2.3 为什么要 `STEAM_RUNTIME=0`
+### 2.3 为什么必须绕开 pressure-vessel 容器
 
-pressure-vessel 容器内是 steamrt 自带的 i386 栈，**没有 `libvulkan_virtio.so`**。
-必须在宿主直跑，才能用上系统 i386 Mesa 的 Venus ICD。
+Steam 会**把 Linux 原生游戏也包进容器**（实测启动命令含
+`SteamLinuxRuntime_soldier/_v2-entry-point` + `scout-on-soldier-entry-point-v2`），
+而 **`STEAM_RUNTIME=0` 拦不住**。容器内是 steamrt 自带的 i386 栈：
+
+- 没有 `libvulkan_virtio.so`；
+- 且其 glibc 太旧，无法加载宿主编译的 i386 ICD。
+
+所以启动包装 `l4d2-venus-launch.sh` 检测到容器（`/usr/lib/pressure-vessel` 存在）
+就**委托宿主**运行游戏：经共享会话总线调宿主的 `systemd-run --user` 启动
+`l4d2-host-run.sh`，并轮询服务状态阻塞到游戏退出，让 Steam 的时长/退出检测依然有效。
+机制与 `../underlords/ul-host-run.sh` 完全相同。
 
 > ⚠️ **vdf 改动必须在 Steam 完全退出后进行**：Steam 退出时会用内存中的配置覆盖
 > `config.vdf` / `localconfig.vdf`。`steam -shutdown` 可优雅退出。
@@ -103,7 +118,10 @@ bash fix-l4d2.sh --status
 
 | 症状 | 检查 |
 |---|---|
+| `terminate called ... 'dxvk::DxvkError'` | 几乎总是缺 `VN_DEBUG=vtest`（见 §2.2）；确认宿主启动器里有没有导出 |
+| `Failed to detect any valid GPUs` | 同上没有走 vtest socket，或服务端没起（32 位 `vulkaninfo --summary` 一测便知） |
 | 游戏起不来 / 无画面 | `systemctl --user status l4d2-venus`；socket 是否存在 |
+| 委托后游戏没起来 | `journalctl --user -u l4d2-host-game`；确认 `XAUTHORITY` 解析成功 |
 | 服务端崩 | `journalctl --user -u l4d2-venus` |
 | `mat_info` 显示 llvmpipe | LaunchOptions 未生效（Steam 覆盖）或走了 `-gl` |
 | 手动直跑调试 | `bash vtest-forward/run-l4d2-venus.sh --game` |
