@@ -57,7 +57,13 @@ HOST_RUN="$BRIDGE_HOME/l4d2-host-run.sh"     # 宿主侧启动器（委托目标
 GAME_UNIT="l4d2-host-game.service"           # 委托后在宿主上承载游戏的单元
 
 CONFIG_VDF="$HOME/.local/share/Steam/config/config.vdf"
+# userdata 下可能有 anonymous 等空配置，优先取真正含 550 段的那个
 LOCALCONFIG_VDF=$(ls ~/.local/share/Steam/userdata/*/config/localconfig.vdf 2>/dev/null | head -1)
+for f in ~/.local/share/Steam/userdata/*/config/localconfig.vdf; do
+  if [ -f "$f" ] && grep -q '"550"' "$f" 2>/dev/null; then LOCALCONFIG_VDF="$f"; break; fi
+done
+# 游戏语言（Steam 侧 Language + 启动参数 -language）。schinese = 简体中文
+GAME_LANG="${L4D2_LANG:-schinese}"
 
 say() { echo "[l4d2-venus] $*"; }
 err() { echo "[l4d2-venus] !! $*" >&2; }
@@ -259,9 +265,9 @@ PY
 #     （不再需要 STEAM_RUNTIME=0：它拦不住 pressure-vessel，容器由包装器委托绕过）
 config_launch_options() {
   [ -n "$LOCALCONFIG_VDF" ] && [ -f "$LOCALCONFIG_VDF" ] || { err "无 localconfig.vdf（先在 Steam 里启动一次游戏）"; return 1; }
-  python3 - "$LOCALCONFIG_VDF" "$LAUNCH" <<'PY'
+  python3 - "$LOCALCONFIG_VDF" "$LAUNCH" "$GAME_LANG" <<'PY'
 import re, sys
-p, launch = sys.argv[1], sys.argv[2]
+p, launch, lang = sys.argv[1], sys.argv[2], sys.argv[3]
 data = open(p).read()
 i = data.find('"apps"'); j = data.find('"550"', i)
 if j < 0: sys.exit("[l4d2-venus] localconfig 无 550 段（先在 Steam 里启动一次游戏）")
@@ -283,9 +289,10 @@ user_args = re.sub(r'LD_PRELOAD=\S+', ' ', user_args)
 user_args = re.sub(r'VK_ICD_FILENAMES=\S+', ' ', user_args)
 user_args = re.sub(r'VK_LOADER_LAYERS_DISABLE=\S+', ' ', user_args)
 user_args = re.sub(r'\S*l4d2-venus-launch\.sh', ' ', user_args)
+user_args = re.sub(r'-language\s+\S+', ' ', user_args)   # 语言由本函数统一设置
 user_args = ' '.join(user_args.split())
 
-new = '%s %%command%% -vulkan' % launch
+new = '%s %%command%% -vulkan -language %s' % (launch, lang)
 if user_args:
     new += ' ' + user_args
 esc = new.replace('\\', '\\\\').replace('"', '\\"')
@@ -294,9 +301,17 @@ if m:
                   '\n\t\t\t\t\t\t"LaunchOptions"\t\t"%s"' % esc, seg)
 else:
     seg2 = seg[:1] + '\n\t\t\t\t\t\t"LaunchOptions"\t\t"%s"' % esc + seg[1:]
+
+# Steam 侧游戏语言：决定 Steam 下载/使用哪种语言包（与 -language 保持一致）
+if re.search(r'\n\s*"Language"\s*"[^"]*"', seg2):
+    seg2 = re.sub(r'\n\s*"Language"\s*"[^"]*"',
+                  '\n\t\t\t\t\t\t"Language"\t\t"%s"' % lang, seg2)
+else:
+    seg2 = seg2[:1] + '\n\t\t\t\t\t\t"Language"\t\t"%s"' % lang + seg2[1:]
+
 open(p, 'w').write(data[:brace] + seg2 + data[k:])
-print("[l4d2-venus] LaunchOptions 已写入%s" %
-      ("（保留用户参数: %s）" % user_args if user_args else ""))
+print("[l4d2-venus] LaunchOptions 已写入（语言 %s%s）" %
+      (lang, ("，保留用户参数: %s" % user_args) if user_args else ""))
 PY
 }
 
@@ -347,6 +362,8 @@ while depth > 0:
     k += 1
 m = re.search(r'\"LaunchOptions\"\s*\"([^\"]*)\"', data[brace:k])
 print('  ' + (m.group(1) if m else '未设置'))
+ml = re.search(r'\"Language\"\s*\"([^\"]*)\"', data[brace:k])
+print('  游戏语言 Language = ' + (ml.group(1) if ml else '未设置'))
 "
   echo "== 进程 =="; pgrep -f "hl2_linux" >/dev/null && echo "  游戏运行中" || echo "  未运行"
 }

@@ -98,6 +98,22 @@ Steam 会**把 Linux 原生游戏也包进容器**（实测启动命令含
 > ⚠️ **vdf 改动必须在 Steam 完全退出后进行**：Steam 退出时会用内存中的配置覆盖
 > `config.vdf` / `localconfig.vdf`。`steam -shutdown` 可优雅退出。
 
+### 2.4 游戏语言（默认简体中文）
+
+脚本会同时写两处，二者需保持一致：
+
+- LaunchOptions 里的 `-language schinese`（游戏进程参数）
+- localconfig.vdf 中 550 段的 `Language` = `schinese`（Steam 侧，决定使用/下载哪套语言包）
+
+改语言用 `L4D2_LANG=english bash fix-l4d2.sh`（默认 `schinese`）。
+
+中文字幕资源游戏已自带（`left4dead2/resource/closecaption_schinese.dat`、
+`subtitles_schinese.dat`），字体用游戏自带的 `platform/vgui/fonts/xarialuni.ttf`
+（含 CJK 字形），无需额外装字体。
+
+> 若 Steam 属性里的语言与之不一致，Steam 可能在下次启动时重新下载语言包——
+> 保持两边都是「简体中文」即可。
+
 > ⚠️ **服务端必须常驻**：单元里的 `virgl_test_server` **不能**加 `--no-loop-or-fork`
 > —— 该选项服务完第一个客户端就退出，会导致第二次启动游戏连不上 socket。
 > 单元已用 `ExecStartPre=/bin/rm -f <socket>` 清理残留 socket 再 bind。
