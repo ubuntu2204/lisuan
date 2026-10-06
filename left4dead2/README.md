@@ -147,6 +147,36 @@ bash fix-l4d2.sh --status
 
 ---
 
+### 3.1 已知告警清单（哪些有害、哪些不用管）
+
+| 告警 | 性质 |
+|---|---|
+| `Couldn't find custom font file 'resource/linux_fonts/*.ttf'` | **已修**：Valve 的 Linux 版没随包带字体，`fix-l4d2.sh` 会软链系统 DejaVu/Liberation 补齐（也影响中文 VGUI 文本） |
+| `err: D3D9: Cannot create texture / Format: D3D9Format::D16 / 400x400` | **真问题**：Venus 链路下创建 D16 深度纹理失败（L4D2 的手电筒阴影贴图）。当前不影响进游戏，但可能是后续渲染崩溃的诱因 |
+| `CMaterialReference::Init got error material for particle\*.vmt` | 粒子材质在已下载资源里查不到（不在 `pak01_dir.vpk` 索引中），游戏退回 error material。表现为部分粒子特效缺失，**不致命** |
+| `failed to get driver name for fd 7 / No driver found` | SDL 启动时探测 OpenGL DRI（`4c54:5006` 在 Mesa 无驱动）失败。走 `-vulkan` 不需要 GL，**无害噪音** |
+| `setlocale('en_US.UTF-8') failed` | 系统未生成 `en_US.UTF-8`（本机只有 `zh_CN.utf8`/`C.utf8`）。要消除可 `sudo locale-gen en_US.UTF-8` |
+| `warn: D3D9Cursor::ShowCursor: Not supported` | DXVK 在 Linux 原生的已知限制，无害 |
+| `File ...pak01_0xx.vpk was never closed` | Source 引擎退出时未关闭 VPK 句柄，正常噪音 |
+| `ld.so: gameoverlayrenderer.so ... ELFCLASS64: ignored` | 64 位 overlay 注入 32 位进程被 ld.so 拒绝，无害 |
+
+### 3.2 闪退排查
+
+游戏自带 breakpad，且 `ulimit -c` 常为 0，段错误往往拿不到现场。
+宿主启动器已加 `ulimit -c unlimited`，下次闪退后：
+
+```bash
+ls -lt /var/crash/ | head          # apport 落盘（core_pattern 指向 apport）
+dmesg | tail -20                   # 内核记录
+journalctl --user -u l4d2-host-game   # 委托实例的游戏输出
+journalctl --user -u l4d2-venus        # Venus 服务端
+```
+
+已知现象：32 位 `vulkaninfo` 在这条链路上会段错误（枚举设备能力时，仅输出 104 行），
+说明 Venus + gf 在**设备能力查询**上不稳定；游戏本体在 gdb 下可稳定运行数分钟。
+
+---
+
 ## 四、未采用的备选方案
 
 ### 4.1 Zink（OpenGL-on-Vulkan）—— 可用但非首选

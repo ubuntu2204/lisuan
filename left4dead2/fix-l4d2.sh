@@ -169,6 +169,8 @@ export VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_32,VK_LAYER_VALVE_S
 export STEAM_RUNTIME=0
 
 cd "\$GAME"
+# 允许生成 core：默认 ulimit -c 常为 0，段错误拿不到现场
+ulimit -c unlimited 2>/dev/null || true
 exec ./hl2.sh "\$@"
 EOF
   chmod +x "$HOST_RUN"
@@ -233,6 +235,31 @@ exec "\$HOST_RUN" "\${args[@]}"
 EOF
   chmod +x "$LAUNCH"
   say "启动包装已部署: $LAUNCH"
+}
+
+# ---------- 3c) 补齐 Source 引擎的 Linux 字体 ----------
+# 游戏日志会刷 "Couldn't find custom font file 'resource/linux_fonts/*.ttf'"：
+# Valve 的 Linux 版没随包带这些字体，缺了会影响界面/VGUI 文本（含中文）渲染。
+# 直接软链系统的 DejaVu / Liberation 字体补齐（不改游戏原文件，Steam 校验无感）。
+ensure_fonts() {
+  local dir="$GAME/platform/resource/linux_fonts"
+  local src=/usr/share/fonts/truetype
+  mkdir -p "$dir"
+  local n=0 name sys
+  while IFS='|' read -r name sys; do
+    [ -z "$name" ] && continue
+    [ -e "$dir/$name" ] && continue
+    [ -f "$sys" ] || continue
+    ln -s "$sys" "$dir/$name" 2>/dev/null && n=$((n + 1))
+  done <<EOF2
+DejaVuSans.ttf|$src/dejavu/DejaVuSans.ttf
+DejaVuSans-Bold.ttf|$src/dejavu/DejaVuSans-Bold.ttf
+DejaVuSans-Oblique.ttf|$src/dejavu/DejaVuSans.ttf
+LiberationSans-Regular.ttf|$src/liberation/LiberationSans-Regular.ttf
+LiberationSans-Bold.ttf|$src/liberation/LiberationSans-Bold.ttf
+LiberationMono-Regular.ttf|$src/liberation/LiberationMono-Regular.ttf
+EOF2
+  say "Source Linux 字体已就绪（本次新增 $n 个）: $dir"
 }
 
 # ---------- 4) Steam 配置：清除 Proton 绑定 + 写入启动选项 ----------
@@ -333,6 +360,7 @@ status() {
   echo "== 渲染节点 =="; echo "  $RENDER_NODE $([ -c "$RENDER_NODE" ] && echo ✅ || echo 缺失)"
   echo "== 启动包装（Steam 链入口）=="; [ -x "$LAUNCH" ] && echo "  $LAUNCH ✅" || echo "  缺失"
   echo "== 宿主启动器 =="; [ -x "$HOST_RUN" ] && echo "  $HOST_RUN ✅" || echo "  缺失"
+  echo "== Source Linux 字体 =="; ls "$GAME/platform/resource/linux_fonts/" 2>/dev/null | sed 's/^/  /' || echo "  缺失"
   echo "== CompatTool（应为空 = 原生）=="
   python3 -c "
 import re, sys
@@ -437,6 +465,7 @@ build_server || exit 1
 install_unit || exit 1
 write_host_runner
 write_launcher
+ensure_fonts
 clear_compat_tool
 config_launch_options
 say "完成。重启 Steam 后启动《Left 4 Dead 2》即走 7G100 硬件渲染。"
