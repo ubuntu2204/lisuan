@@ -79,6 +79,12 @@ D16_PROBE="${L4D2_D16_PROBE:-0}"
 # 属于全局基础设施改动，2026-10-07 实测导致 SDL 取不到 Vulkan 函数
 # （"Failed to create SDL window!"）而无法创建窗口。要启用需显式 L4D2_VKCI_ENABLE=1。
 VKCI_ENABLE="${L4D2_VKCI_ENABLE:-0}"
+# setlocale shim 同样默认【不】注入：2026-10-07 统计全部运行记录，
+# 唯一两次「仅注入 setlocale shim」的运行都以 SIGSEGV 收场，而完全不注入的运行正常。
+# 它有两处真实缺陷：日志缓冲是全局静态变量、多线程并发 setlocale 时无锁（数据竞争）；
+# 归一化会强制重置 locale，可能与引擎故意设 LC_CTYPE=C 的路径冲突。
+# 权衡：不注入 = 保留一个可点 OK 的 locale 警告框，但游戏能玩；注入 = 可能闪退。
+SETLOCALE_ENABLE="${L4D2_SETLOCALE_ENABLE:-0}"
 
 say() { echo "[l4d2-venus] $*"; }
 err() { echo "[l4d2-venus] !! $*" >&2; }
@@ -202,6 +208,8 @@ export L4D2_D16_PROBE="$D16_PROBE"
 # 而本 shim 用 RTLD_NEXT 找真的转发目标；SDL 以 RTLD_LOCAL dlopen libvulkan，
 # 不在全局搜索顺序里，RTLD_NEXT 找不到 -> SDL 拿到 NULL -> 窗口创建失败。
 export L4D2_VKCI_ENABLE="$VKCI_ENABLE"
+# setlocale shim 注解决策：默认 0=不注入（稳定，代价是可能弹一次可忽略的警告框）
+export L4D2_SETLOCALE_ENABLE="$SETLOCALE_ENABLE"
 
 # 32 位 setlocale 拦截器：engine.so 里 setlocale(LC_ALL,"en_US.UTF-8") 返回 NULL 时
 # 会用 GTK 弹 “Please install 'en_US.UTF-8' locale.” 模态框。已实测系统 locale 与
@@ -209,7 +217,7 @@ export L4D2_VKCI_ENABLE="$VKCI_ENABLE"
 # 64 位进程（本脚本、hl2.sh 的 bash）会忽略这个 32 位 so，仅 ld.so 报一次
 # wrong ELF class，无害；真正生效的是 exec 后的 32 位 hl2_linux。
 # 关闭：L4D2_NO_SETLOCALE_SHIM=1
-if [ "\${L4D2_NO_SETLOCALE_SHIM:-0}" != "1" ] && [ -f "$SHIM_SO" ]; then
+if [ "\${L4D2_NO_SETLOCALE_SHIM:-0}" != "1" ] && [ "\${L4D2_SETLOCALE_ENABLE:-0}" = "1" ] && [ -f "$SHIM_SO" ]; then
   export LD_PRELOAD="$SHIM_SO\${LD_PRELOAD:+:\$LD_PRELOAD}"
   export L4D2_SETLOCALE_LOG="\${L4D2_SETLOCALE_LOG:-/tmp/l4d2-setlocale.log}"
 fi
