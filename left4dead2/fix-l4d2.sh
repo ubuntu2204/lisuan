@@ -209,7 +209,18 @@ case " \$* " in
   *r_flashlightdepthtexture*) ;;
   *)
     if [ "\${L4D2_NO_D16_WORKAROUND:-0}" != "1" ]; then
-      EXTRA=(+r_flashlightdepthtexture 0)
+      EXTRA+=(+r_flashlightdepthtexture 0)
+    fi
+    ;;
+esac
+# -novid：跳过开场动画。用户实测：开场动画播放时按 ESC 跳过会触发 Source 引擎的
+# setlocale “Warning” 框（引擎内部行为，与 locale 环境无关）。直接不放开场动画就
+# 没有这个触发。想看开场动画可设 L4D2_KEEPVID=1。
+case " \$* " in
+  *-novid*) ;;
+  *)
+    if [ "\${L4D2_KEEPVID:-0}" != "1" ]; then
+      EXTRA+=(-novid)
     fi
     ;;
 esac
