@@ -172,6 +172,19 @@ export STEAM_RUNTIME=0
 # 仅影响 C 库本地化，游戏界面语言由 -language schinese 决定。
 export LC_ALL=en_US.UTF-8
 
+# 防呆护栏：本启动器只应在【宿主】上运行。若因 Steam 覆盖了启动项、或有人绕过
+# 包装器直接在 pressure-vessel 容器里跑它，容器自带的 locale 归档不完整
+# （缺 LC_CTYPE/LC_COLLATE/LC_TIME/LC_MONETARY 数据），Source 引擎
+# setlocale('en_US.UTF-8') 会返回 NULL 并弹 "Warning" 框随后挂起。这里用一组
+# 「容器独有、宿主必无」的标志主动拦截，把静默挂起变成可操作报错。
+if [ -n "\${PRESSURE_VESSEL_RUNTIME:-}" ] || [ -n "\${PRESSURE_VESSEL_PREFIX:-}" ] \\
+   || [ "\${container:-}" = pressure-vessel ] || [ -d /run/pressure-vessel ]; then
+  echo "[l4d2-venus] !! 检测到 pressure-vessel 容器环境，但本启动器需在宿主运行。" >&2
+  echo "[l4d2-venus] !! 已拒绝在容器内启动游戏（否则必弹 setlocale 警告并挂起）。" >&2
+  echo "[l4d2-venus] !! 多为 Steam 覆盖了启动项所致：完全退出 Steam 后重跑 fix-l4d2.sh。" >&2
+  exit 42
+fi
+
 cd "\$GAME"
 # 允许生成 core：默认 ulimit -c 常为 0，段错误拿不到现场
 ulimit -c unlimited 2>/dev/null || true
@@ -230,7 +243,10 @@ IN_CT=0
 for m in /usr/lib/pressure-vessel /run/pressure-vessel /run/host /host; do
   [ -d "\$m" ] && IN_CT=1
 done
+# pressure-vessel 在容器内注入的独有环境变量（宿主必无），比文件系统标志更可靠
 [ -n "\${PRESSURE_VESSEL_PREFIX:-}" ] && IN_CT=1
+[ -n "\${PRESSURE_VESSEL_RUNTIME:-}" ] && IN_CT=1
+[ "\${container:-}" = pressure-vessel ] && IN_CT=1
 [ -n "\$HOSTPFX" ] && IN_CT=1
 {
   echo "=== \$(date -Is) ==="
