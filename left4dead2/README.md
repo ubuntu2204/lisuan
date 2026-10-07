@@ -99,12 +99,13 @@ hl2_linux -vulkan
   `vkEnumeratePhysicalDevices` 直接返回 `ERROR_INITIALIZATION_FAILED`，
   游戏表现为 `terminate called after throwing an instance of 'dxvk::DxvkError'`。
 - `VK_LOADER_LAYERS_DISABLE=...steam_overlay_32,_64`：overlay 的 Vulkan 层会绕过 Venus ICD 直连，禁用。
-- `LC_ALL=en_US.UTF-8`（**不设 `LOCPATH`**）：Source 引擎启动时硬调
-  `setlocale(LC_ALL,"en_US.UTF-8")`，失败则弹「Warning」框。委托到宿主后，游戏用
-  系统归档 `/usr/lib/locale/locale-archive`（`locale-gen` 生成、**跨 32/64 位兼容**）解析。
-  ⚠️ **切勿用 `LOCPATH` 指向 `localedef` 自编的目录**：`hl2_linux` 是 32 位程序，而 64 位
-  `localedef` 编出的 locale 文件在复杂类别（`LC_CTYPE`/`LC_COLLATE`/`LC_TIME`/`LC_MONETARY`）
-  会被 32 位 glibc 拒读，导致 `setlocale` 部分失败、反而弹框（本目录曾踩此坑，见 §3.1）。
+- **整套 locale 显式统一为 `en_US.UTF-8`**（`LC_ALL`+`LANG`+`LC_CTYPE`/`LC_COLLATE`/`LC_TIME`/`LC_MONETARY`/`LC_NUMERIC`/`LC_MESSAGES`，**不设 `LOCPATH`**）：
+  Source 引擎启动时硬调 `setlocale(LC_ALL,"en_US.UTF-8")`，失败则弹「Warning」框。委托到
+  宿主时，游戏会从 systemd 用户管理器继承 `LANG=zh_CN.UTF-8`，与 `LC_ALL=en_US.UTF-8` 不一致；
+  实测游戏会直接 `getenv` 读个别 `LC_*`/`LANG` 来判断（弹窗串里 `LC_CTYPE=C` 等混搭就是证据），
+  歧义环境会触发误报。把整套显式设为 `en_US.UTF-8` 可消除歧义。glibc 层本身能正常读
+  系统归档（实测 32 位探针可完整解析所有类别，strace 也见 `locale-archive` 打开成功）。
+  ⚠️ 该弹窗**具间歇性**（同配置多次启动可能弹也可能不弹），需真实 Steam 启动多次验证。
 
 ### 2.3 为什么必须绕开 pressure-vessel 容器
 
@@ -193,7 +194,7 @@ bash fix-l4d2.sh --status
 | `err: D3D9: Cannot create texture / Format: D3D9Format::D16 / 400x400` | **真问题**：Venus 链路下创建 D16 深度纹理失败（L4D2 的手电筒阴影贴图）。会让游戏以**退出码 0 静默退出**（启动约 26 秒后）。默认已规避：启动器自动加 `+r_flashlightdepthtexture 0`；要保留原画质用 `L4D2_NO_D16_WORKAROUND=1`（代价是随时可能退出） |
 | `CMaterialReference::Init got error material for particle\*.vmt` | 粒子材质在已下载资源里查不到（不在 `pak01_dir.vpk` 索引中），游戏退回 error material。表现为部分粒子特效缺失，**不致命** |
 | `failed to get driver name for fd 7 / No driver found` | SDL 启动时探测 OpenGL DRI（`4c54:5006` 在 Mesa 无驱动）失败。走 `-vulkan` 不需要 GL，**无害噪音** |
-| `SetLocale('en_US.UTF-8') failed. Using 'LC_CTYPE=C;…'. You may have limited glyph support. Please install 'en_US.UTF-8' locale.`（弹「Warning」框 + stdout 一行 `WARNING: setlocale('en_US.UTF-8') failed, using locale:'C'.`） | **仅当游戏被「容器内直跑」时出现**：soldier 容器自带的 locale 归档不完整（约 3MB，缺 `LC_CTYPE/LC_COLLATE/LC_TIME/LC_MONETARY` 数据），Source 引擎 `setlocale('en_US.UTF-8')` 返回 NULL → 回落部分类别到 C 并弹框、随后挂起；宿主归档（约 6MB）完整，委托到宿主则不弹。**复发根因（2026-10-07 实测）**：Steam 运行中会用内存配置回写 `localconfig.vdf`，把 `LaunchOptions`/`Language` 刷掉（`--status` 里 `Language=未设置` 即信号），一旦启动项被清空，Steam 会绕过包装器直接跑 `hl2.sh` → 落回容器 → 弹框。**正确修法**：完全退出 Steam（`steam -shutdown`）后重跑 `fix-l4d2.sh`，让 `LaunchOptions`+`Language` 持久写回。**纵深护栏**：`l4d2-host-run.sh` 现用「容器独有、宿主必无」的标志（`PRESSURE_VESSEL_RUNTIME`/`PRESSURE_VESSEL_PREFIX`/`container=pressure-vessel`/`/run/pressure-vessel`）自检，若被误在容器内执行则 `exit 42` 报错而非静默弹框挂起（注意：`/host` 在部分沙箱视图里也存在，不作判据）。宿主 `locale-gen` 与 Steam 客户端自身启动时的同名告警是两回事，后者要重启 Steam 才消失。**最终堆叠修复（2026-10-07、已实测消除弹窗）**：①用 `xdotool`/`xprop` 抓到那个 `Warning` 窗口（`WM_TRANSIENT_FOR` 指向游戏窗口）确认就是委托到宿主的游戏进程弹的，而它 env 里 `LC_ALL=en_US.UTF-8` + `LOCPATH=自编目录` 俱在却仍弹；②逐类别探针定位到真因：**64 位 `localedef` 编的 `LOCPATH` 目录被 32 位 `hl2_linux` 拒读复杂类别**（CTYPE/COLLATE/TIME/MONETARY）→ `setlocale` 部分失败→弹框。之前“釜底抽薪设 LOCPATH”反而制造了此弹。③**正解：HOST_RUN 只 `export LC_ALL=en_US.UTF-8`、不设 `LOCPATH`**，让游行走宿主完整且 32 位兼容的归档；实测重开游戏后 `Warning` 弹窗消失。容器内归档残缺的情况由护栏 `exit 42` 拦截不让游在容器跑。（另：为防 Steam 32 位客户端同类弹窗，`steam.desktop` 只注 `LC_ALL=en_US.UTF-8`，同样不注 LOCPATH） |
+| `SetLocale('en_US.UTF-8') failed. Using 'LC_CTYPE=C;…'. You may have limited glyph support. Please install 'en_US.UTF-8' locale.`（弹「Warning」框 + stdout 一行 `WARNING: setlocale('en_US.UTF-8') failed, using locale:'C'.`） | **仅当游戏被「容器内直跑」时出现**：soldier 容器自带的 locale 归档不完整（约 3MB，缺 `LC_CTYPE/LC_COLLATE/LC_TIME/LC_MONETARY` 数据），Source 引擎 `setlocale('en_US.UTF-8')` 返回 NULL → 回落部分类别到 C 并弹框、随后挂起；宿主归档（约 6MB）完整，委托到宿主则不弹。**复发根因（2026-10-07 实测）**：Steam 运行中会用内存配置回写 `localconfig.vdf`，把 `LaunchOptions`/`Language` 刷掉（`--status` 里 `Language=未设置` 即信号），一旦启动项被清空，Steam 会绕过包装器直接跑 `hl2.sh` → 落回容器 → 弹框。**正确修法**：完全退出 Steam（`steam -shutdown`）后重跑 `fix-l4d2.sh`，让 `LaunchOptions`+`Language` 持久写回。**纵深护栏**：`l4d2-host-run.sh` 现用「容器独有、宿主必无」的标志（`PRESSURE_VESSEL_RUNTIME`/`PRESSURE_VESSEL_PREFIX`/`container=pressure-vessel`/`/run/pressure-vessel`）自检，若被误在容器内执行则 `exit 42` 报错而非静默弹框挂起（注意：`/host` 在部分沙箱视图里也存在，不作判据）。宿主 `locale-gen` 与 Steam 客户端自身启动时的同名告警是两回事，后者要重启 Steam 才消失。**最终定位（2026-10-07、多次迭代后的准确结论）**：①用 `xdotool`/`xprop` 抓到 `Warning` 窗口（`WM_TRANSIENT_FOR` 指向游戏窗口），确认是**委托到宿主的游戏进程**弹的，而它 env 里 `LC_ALL=en_US.UTF-8` 俱在却仍弹。②用**免 root 解包 `libc6-dev-i386`+`lib32gcc-13-dev` 编出真·32 位探针**实测：32 位 glibc **能完整读**系统归档和 64 位 `localedef` 编的 `LOCPATH` 目录的所有类别——所以“32 位读不了 64 位 locale”是错的（曾一度误判为元凶），设不设 LOCPATH 都不是根因；strace 也见游戏 `openat locale-archive` 成功。③真诱因（高置信、但弹窗**具间歇性**）：委托环境从 systemd 用户管理器继承 `LANG=zh_CN.UTF-8`，与 `LC_ALL=en_US.UTF-8` 不一致，游戏直接 `getenv` 读个别 `LC_*`/`LANG` 判断时产生命搭歧义→误报。**正解：HOST_RUN 把整套 locale 显式统一为 `en_US.UTF-8`**（`LC_ALL`+`LANG`+各 `LC_*`）、不设 `LOCPATH`；实测委托启动两次均无弹窗。`steam.desktop` 也只注 `LC_ALL=en_US.UTF-8`。（因弹窗非确定性，单次不弹不能 100% 定论，需真实 Steam 启动多次验证） |
 | `warn: D3D9Cursor::ShowCursor: Not supported` | DXVK 在 Linux 原生的已知限制，无害 |
 | `File ...pak01_0xx.vpk was never closed` | Source 引擎退出时未关闭 VPK 句柄，正常噪音 |
 | `ld.so: gameoverlayrenderer.so ... ELFCLASS64: ignored` | 64 位 overlay 注入 32 位进程被 ld.so 拒绝，无害 |
