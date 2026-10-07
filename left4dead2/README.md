@@ -99,7 +99,7 @@ hl2_linux -vulkan
 | 2 | systemd --user 单元 | `~/.config/systemd/user/l4d2-venus.service` | 随登录常驻服务端（`WantedBy=default.target`） |
 | 3 | 宿主启动器 | `~/.local/share/l4d2-venus/l4d2-host-run.sh` | 真正跑游戏：确认 socket 就绪 → 注入环境变量 → `exec hl2.sh` |
 | 4 | 32 位 setlocale shim | `~/.local/share/l4d2-venus/setlocale-shim.so`（源码 `setlocale-shim.c`） | 消除引擎的 `SetLocale failed` 误报弹框（见 §3.1）；`LD_PRELOAD` 注入，可关 |
-| 5 | 32 位 vkCreateImage shim | `~/.local/share/l4d2-venus/vkcreateimage-shim.so`（源码 `vkcreateimage-shim.c`） | 挂住 `vkCreateImage` 记录 D16 的 format/tiling/usage/返回码；**存在时会自动解除 `+r_flashlightdepthtexture 0` 规避**，好让游戏真的去请求 D16 |
+| 5 | 32 位 vkCreateImage shim | `~/.local/share/l4d2-venus/vkcreateimage-shim.so`（源码 `vkcreateimage-shim.c`） | 挂住 `vkCreateImage` 记录 D16 的 format/tiling/usage/返回码。**注意：2026-10-07 实测解除 D16 规避会让游戏 SIGSEGV，故 shim 不再自动解除规避**；要取证需显式 `L4D2_D16_PROBE=1`（自行承担崩溃风险） |
 | 6 | Steam 启动包装 | `~/.local/share/l4d2-venus/l4d2-venus-launch.sh` | Steam 链入口；检测到容器则委托宿主，否则直接跑宿主启动器 |
 | 7 | Steam 启动选项 | localconfig.vdf | `<包装器> %command% -vulkan` |
 

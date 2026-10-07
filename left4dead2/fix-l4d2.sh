@@ -234,9 +234,11 @@ EXTRA=()
 case " \$* " in
   *r_flashlightdepthtexture*) ;;
   *)
-    # 装了 vkCreateImage 取证 shim 时【不】加这个规避：否则游戏根本不会去请求 D16，
-    # 日志会是空的，取证就失去意义。实测 D16 创建失败并不致命（整局 12 次失败仍继续）。
-    if [ "\${L4D2_NO_D16_WORKAROUND:-0}" != "1" ] && [ ! -f "$VKCI_SO" ]; then
+    # 默认【总是】关掉手电筒阴影：2026-10-07 实测，解除该规避后游戏第一次
+    # D16 深度纹理创建失败就 SIGSEGV（core dumped，status=139），此前带规避时
+    # 同一错误出现 12 次也不崩。要做 D16 取证必须显式 L4D2_D16_PROBE=1，
+    # 并自行承担崩溃风险。
+    if [ "\${L4D2_NO_D16_WORKAROUND:-0}" != "1" ] && [ "\${L4D2_D16_PROBE:-0}" != "1" ]; then
       EXTRA+=(+r_flashlightdepthtexture 0)
     fi
     ;;
