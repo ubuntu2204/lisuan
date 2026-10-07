@@ -224,7 +224,30 @@ static int want_log(i32 fmt)
 }
 /* 关键：shim 自己定义了 dlsym，这里【必须】用已解析的真 dlsym（real_dlsym），
  * 否则 shim 内部对 dlsym 的调用会解析到自己 → 无限递归 → 爆栈。
- * 同理 real_dlsym 的首次解析用 dlvsym（它不会走我们自己的 dlsym）。 */
+ * 同理 real_dlsym 的首次解析用 dlvsym（它不会走我们自己的 dlsym）。
+ *
+ * 2026-10-07 修正：转发目标【不能只靠 RTLD_NEXT】。
+ * SDL 用 dlopen(..., RTLD_LOCAL) 加载 libvulkan，RTLD_LOCAL 的库不在全局搜索顺序里，
+ * RTLD_NEXT 找不到它 -> 我们的 vkGetInstanceProcAddr 转发返回 NULL ->
+ * SDL 拿不到任何 Vulkan 函数 -> "Failed to create SDL window!" 窗口创建失败。
+ * 修法：RTLD_NEXT 失败时，主动 dlopen libvulkan.so.1 拿到句柄再 dlsym(handle,...)，
+ * 这样无论对方是 RTLD_GLOBAL 还是 RTLD_LOCAL 加载的都能找到。 */
+extern void *dlopen(const char *path, int flags);
+
+static void *resolve_real(void *cur, const char *name)
+{
+	void *p = cur, *h;
+	if (p)
+		return p;
+	p = real_dlsym(RTLD_NEXT, name);
+	if (p)
+		return p;
+	h = dlopen("libvulkan.so.1", 1 /*RTLD_LAZY*/);
+	if (h)
+		p = real_dlsym(h, name);
+	return p;
+}
+
 static void load_real(void)
 {
 	if (!real_dlsym) {
@@ -235,11 +258,11 @@ static void load_real(void)
 	if (!real_dlsym)
 		return;
 	if (!real_create)
-		real_create = real_dlsym(RTLD_NEXT, "vkCreateImage");
+		real_create = resolve_real(0, "vkCreateImage");
 	if (!real_gipa)
-		real_gipa = real_dlsym(RTLD_NEXT, "vkGetInstanceProcAddr");
+		real_gipa = resolve_real(0, "vkGetInstanceProcAddr");
 	if (!real_gdpa)
-		real_gdpa = real_dlsym(RTLD_NEXT, "vkGetDeviceProcAddr");
+		real_gdpa = resolve_real(0, "vkGetDeviceProcAddr");
 }
 
 /* ---- D16 降级链 ----

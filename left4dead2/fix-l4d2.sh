@@ -75,6 +75,10 @@ done
 GAME_LANG="${L4D2_LANG:-schinese}"
 # D16 取证模式：1=解除 r_flashlightdepthtexture 0 规避并让 shim 降级 D16（会崩，见 README）
 D16_PROBE="${L4D2_D16_PROBE:-0}"
+# vkCreateImage/dlsym shim 默认【不】注入：它会改写 dlsym 与 vkGet*ProcAddr，
+# 属于全局基础设施改动，2026-10-07 实测导致 SDL 取不到 Vulkan 函数
+# （"Failed to create SDL window!"）而无法创建窗口。要启用需显式 L4D2_VKCI_ENABLE=1。
+VKCI_ENABLE="${L4D2_VKCI_ENABLE:-0}"
 
 say() { echo "[l4d2-venus] $*"; }
 err() { echo "[l4d2-venus] !! $*" >&2; }
@@ -193,6 +197,11 @@ export LC_NUMERIC=en_US.UTF-8 LC_MESSAGES=en_US.UTF-8
 
 # D16 取证/降级模式（由 fix-l4d2.sh 运行时固化，L4D2_D16_PROBE=1 bash fix-l4d2.sh 开启）
 export L4D2_D16_PROBE="$D16_PROBE"
+# vkCreateImage shim 的注解决策：默认 0=不注入（安全）。
+# 2026-10-07：注入后会改写 dlsym / vkGetInstanceProcAddr / vkGetDeviceProcAddr，
+# 而本 shim 用 RTLD_NEXT 找真的转发目标；SDL 以 RTLD_LOCAL dlopen libvulkan，
+# 不在全局搜索顺序里，RTLD_NEXT 找不到 -> SDL 拿到 NULL -> 窗口创建失败。
+export L4D2_VKCI_ENABLE="$VKCI_ENABLE"
 
 # 32 位 setlocale 拦截器：engine.so 里 setlocale(LC_ALL,"en_US.UTF-8") 返回 NULL 时
 # 会用 GTK 弹 “Please install 'en_US.UTF-8' locale.” 模态框。已实测系统 locale 与
@@ -210,7 +219,7 @@ fi
 #   L4D2_VKCI_USAGE_MASK=hex  usage 按位与掩码（剥离可疑 usage 位）
 #   L4D2_VKCI_ALL=1           记录所有格式（不只深度类）
 # 关闭：L4D2_NO_VKCI_SHIM=1
-if [ "\${L4D2_NO_VKCI_SHIM:-0}" != "1" ] && [ -f "$VKCI_SO" ]; then
+if [ "\${L4D2_NO_VKCI_SHIM:-0}" != "1" ] && [ "\${L4D2_VKCI_ENABLE:-0}" = "1" ] && [ -f "$VKCI_SO" ]; then
   export LD_PRELOAD="$VKCI_SO\${LD_PRELOAD:+:\$LD_PRELOAD}"
   export L4D2_VKCI_LOG="\${L4D2_VKCI_LOG:-/tmp/l4d2-vkCreateImage.log}"
 fi

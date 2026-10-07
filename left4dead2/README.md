@@ -99,7 +99,7 @@ hl2_linux -vulkan
 | 2 | systemd --user 单元 | `~/.config/systemd/user/l4d2-venus.service` | 随登录常驻服务端（`WantedBy=default.target`） |
 | 3 | 宿主启动器 | `~/.local/share/l4d2-venus/l4d2-host-run.sh` | 真正跑游戏：确认 socket 就绪 → 注入环境变量 → `exec hl2.sh` |
 | 4 | 32 位 setlocale shim | `~/.local/share/l4d2-venus/setlocale-shim.so`（源码 `setlocale-shim.c`） | 消除引擎的 `SetLocale failed` 误报弹框（见 §3.1）；`LD_PRELOAD` 注入，可关 |
-| 5 | 32 位 vkCreateImage shim | `~/.local/share/l4d2-venus/vkcreateimage-shim.so`（源码 `vkcreateimage-shim.c`） | 挂住 `vkCreateImage` 记录 D16 的 format/tiling/usage/返回码。**注意：2026-10-07 实测解除 D16 规避会让游戏 SIGSEGV，故 shim 不再自动解除规避**；要取证需显式 `L4D2_D16_PROBE=1`（自行承担崩溃风险） |
+| 5 | 32 位 vkCreateImage shim | `~/.local/share/l4d2-venus/vkcreateimage-shim.so`（源码 `vkcreateimage-shim.c`） | 拦 `vkCreateImage` 对 D16 做降级链（D16→D24S8→D32→D16@1x1→RGBA8@1x1）并记录参数/返回码。**默认不注入**，需 `L4D2_VKCI_ENABLE=1` 才会加载（原因见下方「dlsym hook 的坑」） |
 | 6 | Steam 启动包装 | `~/.local/share/l4d2-venus/l4d2-venus-launch.sh` | Steam 链入口；检测到容器则委托宿主，否则直接跑宿主启动器 |
 | 7 | Steam 启动选项 | localconfig.vdf | `<包装器> %command% -vulkan` |
 
@@ -195,6 +195,7 @@ bash fix-l4d2.sh --status
 | 服务端崩 | `journalctl --user -u l4d2-venus` |
 | `mat_info` 显示 llvmpipe | LaunchOptions 未生效（Steam 覆盖）或走了 `-gl` |
 | 仍弹 `SetLocale failed` 框 | shim 没生效：查 `fix-l4d2.sh --status` 里 shim 是否 ✅；游戏进程 `tr '\0' '\n' < /proc/<pid>/environ | grep LD_PRELOAD` 应含 `setlocale-shim.so`；真实失败记录在 `/tmp/l4d2-setlocale.log` |
+| `Failed to create SDL window!` / `SDL video target is 'x11'` 后退出 1 | **dlsym hook 的坑（2026-10-07）**：`vkcreateimage-shim.so` 会改写 `dlsym` 与 `vkGet{Instance,Device}ProcAddr`。SDL 用 `dlopen(..., RTLD_LOCAL)` 加载 libvulkan，**RTLD_LOCAL 的库不在全局搜索顺序里**，shim 用 `RTLD_NEXT` 找不到真转发目标 → SDL 拿到 NULL 函数指针 → 窗口创建失败。修法已落地（转发改为 `RTLD_NEXT` 失败则 `dlopen` 拿句柄再 `dlsym(handle,...)`），但**默认不注入**，要试必须显式 `L4D2_VKCI_ENABLE=1 bash fix-l4d2.sh` |
 | 想知道游戏怎么请求 D16 | 看 `/tmp/l4d2-vkCreateImage.log`（`vkcreateimage-shim.so` 记录，默认只记深度格式；`L4D2_VKCI_ALL=1` 记全部）。改写试探：`L4D2_VKCI_TILING=0\|1`、`L4D2_VKCI_USAGE_MASK=<hex>`；关掉 shim 用 `L4D2_NO_VKCI_SHIM=1` |
 | 手动直跑调试 | `bash vtest-forward/run-l4d2-venus.sh --game` |
 
