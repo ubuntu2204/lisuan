@@ -5,25 +5,37 @@
 >
 > **不使用** `left4dead2.exe`、**不使用 Proton/DXVK**、**不使用软件渲染**。
 >
-> ⚠️ 当前已知阻塞（详见「至砺算」1~3 条）：游戏能启动、能识别
-> `LISUAN 7G100`，但因 gf 驱动无法创建 D16 深度附件而卡死，表现为"无响应"。
+> ⚠️ 已知阻塞（详见「至砺算」1~2 条）：游戏能启动、能识别 `LISUAN 7G100`，
+> 但 L4D2 手电筒阴影贴图（`D16` 深度附件）在 Venus 客户端侧崩溃，只能关闭该特性。
 
 ## 至砺算：官方实现什么可以让本方案退役
 
 > 本节写给砺算官方驱动 / 图形栈研发。按投入产出比排序；**任意一项落地，本目录 workaround 即可退役**。
 
-1. **补齐 Vulkan 深度格式能力（最关键）**：`vkGetPhysicalDeviceFormatProperties` 报告
-   `D16_UNORM` / `D24_UNORM_S8_UINT` / `D32_SFLOAT` **全部没有
-   `VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT`**。Vulkan 规范强制要求
-   `D16_UNORM` 支持该能力。后果：DXVK 为 L4D2 创建 400x400 手电筒阴影贴图失败
-   （`err: D3D9: Cannot create texture / Format: D3D9Format::D16`），游戏随后卡死、
-   表现为"无响应"。已实测排除游戏侧原因（`r_flashlightdepthtexture` /
-   `r_flashlightdrawdepth` / `r_flashlightupdatedepth` / `r_flashlightculldepth`
-   全部置 0 均无效），失败发生在 `vkCreateImage` 本身。
-   附注：同一查询对 `R8G8B8A8_UNORM` 也报 `COLOR_ATTACHMENT=False`（规范同样强制要求），
-   说明 formatProperties 实现整体不可信。
-2. **修 `vkGetPhysicalDeviceFormatProperties` 的返回值**：见上一条，报告与规范不符，
-   会让上层（DXVK / Zink / DXVK）按"不支持"处理而放弃可行路径。
+1. ~~**补齐 Vulkan 深度格式能力**~~ —— **该条已作废（2026-10-07 实测推翻）**：
+   原先判断「gf 报 D16 无 `DEPTH_STENCIL_ATTACHMENT`」是**我们自己的探测脚本
+   `vk-format-probe.py` 位标志错位**造成的误判（漏了 `VERTEX_BUFFER=0x40`，导致
+   `COLOR_ATTACHMENT=0x80`/`DEPTH_STENCIL_ATTACHMENT=0x200` 及其后所有 mask 整体偏移
+   一位，把真的 `DEPTH_STENCIL_ATTACHMENT=0x200` 误读成 `BLIT_SRC`）。修正 mask 后实测：
+   - `vkGetPhysicalDeviceFormatProperties(D16_UNORM)` → `optimal=0x1de01`，**含
+     `DEPTH_STENCIL_ATTACHMENT`**（规范要求满足）；
+   - 原生 64 位 `vkCreateImage(400x400, D16, DEPTH_STENCIL_ATTACHMENT)` +
+     `vkAllocateMemory` + `vkBindImageMemory` **全部成功**（4MB，`mtype=1`）；
+     `D24_UNORM_S8_UINT`、`R8G8B8A8_UNORM` 同样成功。
+   **即 gf 驱动并无缺失，该条不是砺算的问题。**
+2. **（当前唯一真实阻塞）在 Mesa 的 32 位 Venus 客户端 ICD 里修 D16 深度图崩溃**：
+   用 `left4dead2/vk32-depth-test.c`（32 位客户端经 Venus socket 实测）定位到：
+   - 32 位客户端查询能力**正确**（`optimal=0x1de01`，`DEPTH_STENCIL=1`，Venus 服务端转述无误）；
+   - 但真正 `vkCreateImage` 创建深度图时，客户端崩在
+     **`/usr/lib/i386-linux-gnu/libvulkan_virtio.so`**（Mesa 25.2.8 的 Venus 客户端 ICD）
+     偏移 `0x9f41c`，指令 `mov %eax,0x10(%ebx)`，`ebx` 为野指针 → `SIGSEGV`。
+   这是 **Mesa 客户端侧 bug，与 gf 驱动、virglrenderer 服务端都无关**。
+   三条修法（任一即可）：
+   - 升级 Mesa 到修复该 bug 的版本；
+   - 用 `LD_PRELOAD` 在 32 位客户端侧拦 `vkCreateImage`，调整 depth image 的
+     `tiling`/`usage` 以避开崩溃分支（先取证游戏实际请求的参数）；
+   - 自行编译 32 位 Venus ICD 替换 `/usr/lib/i386-linux-gnu/libvulkan_virtio.so`。
+   在此之前用 `+r_flashlightdepthtexture 0` 关闭手电筒阴影规避（其余特性全部 GPU 加速）。
 3. **加快着色器编译**：走 Zink（`-gl`）路线时，32 位客户端经 Venus 把命令发给服务端，
    gf 驱动编译 GLSL→SPIR-V 过慢，触发 Mesa Venus 客户端硬编码的 8 秒 fence 超时：
    ```
@@ -31,12 +43,13 @@
    MESA-VIRTIO: debug: aborting on expired ring alive status at iter 1024
    ```
    （`MESA_VIRTIO` 无可调超时的环境变量）。编译速度提上来后 Zink 路线才可用。
-4. **发布 32 位（i386）用户态驱动**：一旦提供，可跳过 Venus 整层 IPC。
-2. 若短期无法出 32 位驱动：按随从大师文档「至砺算」清单加固 64 位栈
-   （ICD 规范化、`VK_KHR_load_store_op_none` / `VK_KHR_maintenance5`、去掉 os-release
-   白名单、libSC 自解析）—— 本方案的服务端会直接受益（它用的就是 64 位
-   `libvulkan_gf.so`）。
-3. 注：原生路线曾缺的 32 位 `libopenal.so.1` / `libpng12.so.0` 属发行版依赖，与驱动无关。
+4. **发布 32 位（i386）用户态驱动**：一旦提供，可跳过 Venus 整层 IPC，
+   也顺带绕开上面第 2 条的 Mesa Venus 客户端崩溃（客户端与驱动都是 32 位直连）。
+5. 注：原生路线曾缺的 32 位 `libopenal.so.1` / `libpng12.so.0` 属发行版依赖，与驱动无关。
+6. 仍建议厂商核对 `vkGetPhysicalDeviceFormatProperties` 的 `linearTilingFeatures`：
+   `D16_UNORM` 的 linear 只有 `SAMPLED_IMAGE|BLIT_SRC|FILTER_LINEAR`（缺
+   `DEPTH_STENCIL_ATTACHMENT` 与 `BLIT_DST`），规范同样要求 linear 支持深度附件。
+   目前未影响本链路（游戏走 optimal tiling），但值得顺手修正。
 
 ---
 
@@ -193,7 +206,7 @@ bash fix-l4d2.sh --status
 | 告警 | 性质 |
 |---|---|
 | `Couldn't find custom font file 'resource/linux_fonts/*.ttf'` | **已修**：Valve 的 Linux 版没随包带字体，`fix-l4d2.sh` 会软链系统 DejaVu/Liberation 补齐（也影响中文 VGUI 文本） |
-| `err: D3D9: Cannot create texture / Format: D3D9Format::D16 / 400x400` | **真问题**：Venus 链路下创建 D16 深度纹理失败（L4D2 的手电筒阴影贴图）。会让游戏以**退出码 0 静默退出**（启动约 26 秒后）。默认已规避：启动器自动加 `+r_flashlightdepthtexture 0`；要保留原画质用 `L4D2_NO_D16_WORKAROUND=1`（代价是随时可能退出） |
+| `err: D3D9: Cannot create texture / Format: D3D9Format::D16 / 400x400` | **真问题，但责任方是 Mesa 不是砺算**（2026-10-07 重新定位）：gf 原生与 Venus 能力上报都正确、深度图也能真创建；实际是 **32 位 Venus 客户端 ICD 崩了**（`libvulkan_virtio.so+0x9f41c`），详见「至砺算」2。当前默认已规避：启动器自动加 `+r_flashlightdepthtexture 0`（代价仅手电筒动态阴影，**其余特性全部 GPU 加速**）；`L4D2_NO_D16_WORKAROUND=1` 可保留原画质去复现崩溃 |
 | `CMaterialReference::Init got error material for particle\*.vmt` | 粒子材质在已下载资源里查不到（不在 `pak01_dir.vpk` 索引中），游戏退回 error material。表现为部分粒子特效缺失，**不致命** |
 | `failed to get driver name for fd 7 / No driver found` | SDL 启动时探测 OpenGL DRI（`4c54:5006` 在 Mesa 无驱动）失败。走 `-vulkan` 不需要 GL，**无害噪音** |
 | `SetLocale('en_US.UTF-8') failed. Using 'LC_CTYPE=C;…'. You may have limited glyph support. Please install 'en_US.UTF-8' locale.`（弹「Warning」框 + stdout 一行 `WARNING: setlocale('en_US.UTF-8') failed, using locale:'C'.`） | **仅当游戏被「容器内直跑」时出现**：soldier 容器自带的 locale 归档不完整（约 3MB，缺 `LC_CTYPE/LC_COLLATE/LC_TIME/LC_MONETARY` 数据），Source 引擎 `setlocale('en_US.UTF-8')` 返回 NULL → 回落部分类别到 C 并弹框、随后挂起；宿主归档（约 6MB）完整，委托到宿主则不弹。**复发根因（2026-10-07 实测）**：Steam 运行中会用内存配置回写 `localconfig.vdf`，把 `LaunchOptions`/`Language` 刷掉（`--status` 里 `Language=未设置` 即信号），一旦启动项被清空，Steam 会绕过包装器直接跑 `hl2.sh` → 落回容器 → 弹框。**正确修法**：完全退出 Steam（`steam -shutdown`）后重跑 `fix-l4d2.sh`，让 `LaunchOptions`+`Language` 持久写回。**纵深护栏**：`l4d2-host-run.sh` 现用「容器独有、宿主必无」的标志（`PRESSURE_VESSEL_RUNTIME`/`PRESSURE_VESSEL_PREFIX`/`container=pressure-vessel`/`/run/pressure-vessel`）自检，若被误在容器内执行则 `exit 42` 报错而非静默弹框挂起（注意：`/host` 在部分沙箱视图里也存在，不作判据）。宿主 `locale-gen` 与 Steam 客户端自身启动时的同名告警是两回事，后者要重启 Steam 才消失。**最终定位（2026-10-07、多次迭代后的准确结论）**：①用 `xdotool`/`xprop` 抓到 `Warning` 窗口（`WM_TRANSIENT_FOR` 指向游戏窗口），确认是**委托到宿主的游戏进程**弹的，而它 env 里 `LC_ALL=en_US.UTF-8` 俱在却仍弹。②用**免 root 解包 `libc6-dev-i386`+`lib32gcc-13-dev` 编出真·32 位探针**实测：32 位 glibc **能完整读**系统归档和 64 位 `localedef` 编的 `LOCPATH` 目录的所有类别——所以“32 位读不了 64 位 locale”是错的（曾一度误判为元凶），设不设 LOCPATH 都不是根因；strace 也见游戏 `openat locale-archive` 成功。③真诱因（高置信、但弹窗**具间歇性**）：委托环境从 systemd 用户管理器继承 `LANG=zh_CN.UTF-8`，与 `LC_ALL=en_US.UTF-8` 不一致，游戏直接 `getenv` 读个别 `LC_*`/`LANG` 判断时产生命搭歧义→误报。**正解：HOST_RUN 把整套 locale 显式统一为 `en_US.UTF-8`**（`LC_ALL`+`LANG`+各 `LC_*`）、不设 `LOCPATH`；实测委托启动两次均无弹窗。`steam.desktop` 也只注 `LC_ALL=en_US.UTF-8`。（因弹窗非确定性，单次不弹不能 100% 定论，需真实 Steam 启动多次验证）**最终定性与处置（2026-10-07）**：把整套 locale 显式统一为 `en_US.UTF-8` 后游戏**仍会弹**，且弹窗串里 `LC_CTYPE=C` 与 env 的 `LC_CTYPE=en_US.UTF-8` 直接矛盾、strace 又确认 `locale-archive` 加载成功 → **这不是 locale 环境问题，而是 Valve Source 引擎自身的已知 bug**（见 `ValveSoftware/halflife#3006`）：跳过开场 movie 时引擎会报这个 `SetLocale failed` 警告。我们改不了游戏二进制。**确定性触发（用户提供）**：开场动画播放时按 ESC 跳过。**根因级缓解**：`l4d2-host-run.sh` 默认加 **`-novid`** 不放开场动画→消除触发源（且玩家本就会手动跳过）；想看动画设 `L4D2_KEEPVID=1`。曾加过一个 `l4d2-dismiss-warning.sh` 自动点0守护，但**已删除**——那是掩盖症状而非解决问题。彻底修复需等 Valve 修引擎。 |

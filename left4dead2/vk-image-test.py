@@ -2,14 +2,20 @@
 """直接测试原生 64 位 gf ICD 能否创建深度附件，区分 D16 失败的责任方。
 
 - 若 D16/D24S8/D32 全部创建失败 -> 驱动缺 DEPTH_STENCIL_ATTACHMENT 能力，Venus 无辜
-- 若原生能建而游戏经 Venus 失败  -> Venus 层丢了能力，可改 virglrenderer
+- 若原生能建而游戏经 venus 失败  -> Venus 层丢了能力，可改 virglrenderer
 
 用法：VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/gf_icd.x86_64.json python3 vk-image-test.py
+
+注：2026-10-07 修复——旧版没调用 vkCreateDevice 就用 physical device 调 vkCreateImage，
+必然 VK_ERROR_INVALID_DEVICE 随后 core dump；并补上 vkAllocateMemory/
+vkBindImageMemory 实测（有些驱动 image 能建但显存分配失败）。
 """
 import ctypes as C
 
 F_DEPTH_STENCIL_ATTACHMENT = 0x100
 F_COLOR_ATTACHMENT = 0x40
+
+MEM_PROPERTY_DEVICE_LOCAL = 0x1
 
 # 格式名 -> (VkFormat, 是否深度类)
 FORMATS = [
@@ -59,6 +65,37 @@ class VkInstanceCreateInfo(C.Structure):
                 ("enabledExtensionCount", C.c_uint32), ("ppEnabledExtensionNames", C.c_void_p)]
 
 
+class VkQueueFamilyProperties(C.Structure):
+    _fields_ = [("queueFlags", C.c_uint32), ("queueCount", C.c_uint32),
+                ("timestampValidBits", C.c_uint32),
+                ("minImageTransferGranularity", VkExtent3D)]
+
+
+class VkDeviceQueueCreateInfo(C.Structure):
+    _fields_ = [("sType", C.c_int), ("pNext", C.c_void_p), ("flags", C.c_uint32),
+                ("queueFamilyIndex", C.c_uint32), ("queueCount", C.c_uint32),
+                ("pQueuePriorities", C.POINTER(C.c_float))]
+
+
+class VkDeviceCreateInfo(C.Structure):
+    _fields_ = [("sType", C.c_int), ("pNext", C.c_void_p), ("flags", C.c_uint32),
+                ("queueCreateInfoCount", C.c_uint32),
+                ("pQueueCreateInfos", C.POINTER(VkDeviceQueueCreateInfo)),
+                ("enabledLayerCount", C.c_uint32), ("ppEnabledLayerNames", C.c_void_p),
+                ("enabledExtensionCount", C.c_uint32), ("ppEnabledExtensionNames", C.c_void_p),
+                ("pEnabledFeatures", C.c_void_p)]
+
+
+class VkMemoryRequirements(C.Structure):
+    _fields_ = [("size", C.c_uint64), ("alignment", C.c_uint64),
+                ("memoryTypeBits", C.c_uint32)]
+
+
+class VkMemoryAllocateInfo(C.Structure):
+    _fields_ = [("sType", C.c_int), ("pNext", C.c_void_p),
+                ("allocationSize", C.c_uint64), ("memoryTypeIndex", C.c_uint32)]
+
+
 class VkMemoryType(C.Structure):
     _fields_ = [("propertyFlags", C.c_uint32), ("heapIndex", C.c_uint32)]
 
@@ -69,8 +106,9 @@ class VkMemoryProperties(C.Structure):
 
 
 RC = {0: "VK_SUCCESS", -1: "VK_ERROR_OUT_OF_HOST_MEMORY", -2: "VK_ERROR_OUT_OF_DEVICE_MEMORY",
-      -9: "VK_ERROR_INCOMPATIBLE_DRIVER", -11: "VK_ERROR_FORMAT_NOT_SUPPORTED",
-      -14: "VK_ERROR_FEATURE_NOT_PRESENT", -1002: "VK_ERROR_EXTENSION_NOT_PRESENT",
+      -4: "VK_ERROR_INITIALIZATION_FAILED", -9: "VK_ERROR_INCOMPATIBLE_DRIVER",
+      -11: "VK_ERROR_FORMAT_NOT_SUPPORTED", -14: "VK_ERROR_FEATURE_NOT_PRESENT",
+      -1002: "VK_ERROR_EXTENSION_NOT_PRESENT", -2: "VK_ERROR_OUT_OF_DEVICE_MEMORY",
       -1000000004: "VK_ERROR_UNKNOWN"}
 
 
@@ -92,13 +130,38 @@ def main():
     dev = C.c_void_p(devs[0])
     print(f"物理设备数 {n.value}")
 
+    # --- 关键：必须先建 logical device 才能创建 image/分配内存 ---
+    nq = C.c_uint32(0)
+    vk.vkGetPhysicalDeviceQueueFamilyProperties(dev, C.byref(nq), None)
+    qf = (VkQueueFamilyProperties * max(nq.value, 1))()
+    vk.vkGetPhysicalDeviceQueueFamilyProperties(dev, C.byref(nq), qf)
+    qidx = None
+    for i in range(nq.value):
+        if qf[i].queueFlags & 0x1:  # VK_QUEUE_GRAPHICS_BIT
+            qidx = i
+            break
+    if qidx is None:
+        raise SystemExit("无 graphics 队列族")
+    prio = (C.c_float * 1)(1.0)
+    qci = VkDeviceQueueCreateInfo(2, None, 0, qidx, 1, prio)
+    dci = VkDeviceCreateInfo(3, None, 0, 1, C.pointer(qci), 0, None, 0, None, None)
+    devl = C.c_void_p()
+    r = vk.vkCreateDevice(dev, C.byref(dci), None, C.byref(devl))
+    if r != 0:
+        raise SystemExit(f"vkCreateDevice rc={r} —— 没有 logical device 无法测")
+    print(f"logical device 已建（graphics 队列族 #{qidx}）")
+
     mp = VkMemoryProperties()
     vk.vkGetPhysicalDeviceMemoryProperties(dev, C.byref(mp))
-    mtype = 0
-    for i in range(mp.memoryTypeCount):
-        if (mp.memoryTypes[i].propertyFlags & 0x1) and (mp.memoryTypes[i].heapIndex == 0):
-            mtype = i
-            break
+
+    def pick_mtype(bits):
+        for i in range(mp.memoryTypeCount):
+            if (bits & (1 << i)) and (mp.memoryTypes[i].propertyFlags & MEM_PROPERTY_DEVICE_LOCAL):
+                return i
+        for i in range(mp.memoryTypeCount):
+            if bits & (1 << i):
+                return i
+        return None
 
     for fname, fmt, is_depth in FORMATS:
         fp = VkFormatProperties()
@@ -113,11 +176,34 @@ def main():
             ici = VkImageCreateInfo(9, None, 0, 2, fmt,
                                     VkExtent3D(400, 400, 1), 1, usage, 0, 0, None, 0)
             img = C.c_void_p()
-            rc = vk.vkCreateImage(dev, C.byref(ici), None, C.byref(img))
-            tag = "成功" if rc == 0 else "失败 " + RC.get(rc, str(rc))
-            print(f"   createImage 400x400 usage={uname:38s} -> {tag}")
-            if rc == 0:
-                vk.vkDestroyImage(dev, img, None)
+            rc = vk.vkCreateImage(devl, C.byref(ici), None, C.byref(img))
+            if rc != 0:
+                print(f"   createImage 400x400 usage={uname:38s} -> 失败 {RC.get(rc, rc)}")
+                continue
+            req = VkMemoryRequirements()
+            vk.vkGetImageMemoryRequirements(devl, img, C.byref(req))
+            mi = pick_mtype(req.memoryTypeBits)
+            note = ""
+            if mi is None:
+                note = " / 无匹配 memoryType"
+                print(f"   createImage 400x400 usage={uname:38s} -> 成功{note}")
+            else:
+                mai = VkMemoryAllocateInfo(5, None, req.size, mi)
+                mem = C.c_void_p()
+                rc2 = vk.vkAllocateMemory(devl, C.byref(mai), None, C.byref(mem))
+                if rc2 != 0:
+                    note = f" / allocateMemory 失败 {RC.get(rc2, rc2)}"
+                    print(f"   createImage 400x400 usage={uname:38s} -> 成功{note}")
+                else:
+                    rc3 = vk.vkBindImageMemory(devl, img, mem, 0)
+                    ok = "完整可用" if rc3 == 0 else "bind 失败 " + str(RC.get(rc3, rc3))
+                    print(f"   createImage+alloc+bind {uname:24s} -> {ok} "
+                          f"(size={req.size} mtype={mi})")
+                    vk.vkFreeMemory(devl, mem, None)
+            vk.vkDestroyImage(devl, img, None)
+
+    vk.vkDestroyDevice(devl, None)
+    vk.vkDestroyInstance(inst, None)
 
 
 if __name__ == "__main__":
