@@ -57,6 +57,7 @@ UNIT_DIR="$HOME/.config/systemd/user"
 UNIT="$UNIT_DIR/l4d2-venus.service"
 LAUNCH="$BRIDGE_HOME/l4d2-venus-launch.sh"   # Steam 启动链入口（容器内执行）
 HOST_RUN="$BRIDGE_HOME/l4d2-host-run.sh"     # 宿主侧启动器（委托目标）
+DISMISS="$BRIDGE_HOME/l4d2-dismiss-warning.sh"  # 自动关闭偶发 setlocale “Warning” 模态框的守护
 GAME_UNIT="l4d2-host-game.service"           # 委托后在宿主上承载游戏的单元
 
 CONFIG_VDF="$HOME/.local/share/Steam/config/config.vdf"
@@ -212,10 +213,61 @@ case " \$* " in
     fi
     ;;
 esac
+# 自动关闭偶发的 Source “Warning”(setlocale) 模态框：实测即使把整套 locale
+# 显式设为 en_US.UTF-8，游戏内部仍会把部分类别设成 C 并报这个无害警告（不阻塞
+# 渲染，但每次要点 OK）。起一个随游戏存活的后台守护自动按 Return 关掉它。
+# 不需要可设 L4D2_NO_AUTO_DISMISS=1。
+if [ "\${L4D2_NO_AUTO_DISMISS:-0}" != "1" ] && [ -x "$DISMISS" ]; then
+  setsid "$DISMISS" >/dev/null 2>&1 < /dev/null &
+fi
 exec ./hl2.sh "\$@" "\${EXTRA[@]}"
 EOF
   chmod +x "$HOST_RUN"
   say "宿主启动器已部署: $HOST_RUN"
+}
+
+# ---------- 3b) 自动关闭 setlocale “Warning” 模态框的守护脚本 ----------
+# 背景：Source 引擎(hl2_linux)启动时会弹一个“SetLocale('en_US.UTF-8') failed”的
+# 模态“Warning”框。实测与系统/容器 locale 环境无关（把整套 LC_*/LANG 显式统
+# 一为 en_US.UTF-8、strace 确认归档加载成功，仍会弹），是引擎内部自己把部分
+# 类别设为 C 后报的无害警告。既然环境改不动，就用 xdotool 在弹窗出现时自动按
+# Return 关掉（只针对 transient 到 hl2_linux 窗口的 “Warning”，不碰其它窗口）。
+write_dismiss_helper() {
+  cat > "$DISMISS" <<'EOS'
+#!/bin/bash
+# l4d2-dismiss-warning.sh — 随游戏存活, 自动关掉 Source 引擎的 setlocale “Warning” 模态框
+# 由 left4dead2/fix-l4d2.sh 生成, 勿手改。需 DISPLAY/XAUTHORITY 已在环境中。
+set -u
+command -v xdotool >/dev/null 2>&1 || exit 0
+# 最多监控 ~5 分钟(游启动弹窗集中在前几十秒); 游戏退出即自止
+for _ in $(seq 1 300); do
+  pgrep -x hl2_linux >/dev/null 2>&1 || exit 0
+  for w in $(xdotool search --name '^Warning$' 2>/dev/null); do
+    tf=$(xprop -id "$w" WM_TRANSIENT_FOR 2>/dev/null | awk '{print $NF}')
+    [ -n "$tf" ] && [ "$tf" != "0x0" ] || continue
+    case "$(xprop -id "$tf" WM_CLASS 2>/dev/null)" in
+      *hl2_linux*)
+        # 先激活并试默认按钮(Return / Space); 若仍在, 再点窗口底部中部(OK 常见位置)
+        xdotool windowactivate --sync "$w" key --clearmodifiers Return 2>/dev/null
+        sleep 0.3
+        if xdotool getwindowname "$w" >/dev/null 2>&1; then
+          xdotool windowactivate --sync "$w" key --clearmodifiers space 2>/dev/null
+          sleep 0.3
+        fi
+        if eval "xdotool getwindowname $w >/dev/null 2>&1"; then
+          geo=$(xdotool getwindowgeometry --shell "$w" 2>/dev/null)
+          eval "$geo" 2>/dev/null
+          [ -n "${WIDTH:-}" ] && [ -n "${HEIGHT:-}" ] && \
+            xdotool mousemove --window "$w" $((WIDTH/2)) $((HEIGHT-24)) click 1 2>/dev/null
+        fi
+        ;;
+    esac
+  done
+  sleep 1
+done
+EOS
+  chmod +x "$DISMISS"
+  say "弹窗自动关闭守护已部署: $DISMISS"
 }
 
 # ---------- 3b) Steam 启动链入口：容器内则委托宿主 ----------
@@ -543,7 +595,7 @@ uninstall() {
   systemctl --user stop "$GAME_UNIT" 2>/dev/null && say "宿主游戏单元已停止"
   systemctl --user disable l4d2-venus.service 2>/dev/null && say "单元已禁用"
   rm -f "$UNIT"; systemctl --user daemon-reload 2>/dev/null
-  rm -f "$LAUNCH" "$HOST_RUN" "$SOCKET"
+  rm -f "$LAUNCH" "$HOST_RUN" "$SOCKET" "$DISMISS"
   # 还原 Steam 客户端 locale 注入（若曾备份）
   local sdesk="$HOME/.local/share/applications/steam.desktop"
   if [ -e "$sdesk.l4d2-bak" ]; then
@@ -606,6 +658,7 @@ detect_render_node || exit 1
 build_server || exit 1
 install_unit || exit 1
 ensure_locale_bundle
+write_dismiss_helper
 write_host_runner
 write_launcher
 ensure_fonts
