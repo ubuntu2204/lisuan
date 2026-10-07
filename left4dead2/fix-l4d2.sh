@@ -171,15 +171,17 @@ export VN_DEBUG=vtest
 export VK_LOADER_LAYERS_DISABLE=VK_LAYER_VALVE_steam_overlay_32,VK_LAYER_VALVE_STEAM_OVERLAY_64
 export STEAM_RUNTIME=0
 # Source 引擎硬编码要求进程 locale 为 en_US.UTF-8（glyph 支持），
-# 否则每次启动弹 "setlocale(en_US.UTF-8) failed" 警告框。
+# 否则启动会弹 "setlocale(en_US.UTF-8) failed" 警告框。
+# 委托环境会从 systemd 用户管理器继承 LANG=zh_CN.UTF-8，与 LC_ALL 不一致；
+# 实测游戏会直接 getenv 读个别 LC_* 来判断（弹窗串里 CTYPE/COLLATE/TIME/MONETARY=C
+# 就是这种歧义），故把整套 locale 显式统一为 en_US.UTF-8，消除歧义。
 # 仅影响 C 库本地化，游戏界面语言由 -language schinese 决定。
-export LC_ALL=en_US.UTF-8
-# 【重要】故意不设 LOCPATH：hl2_linux 是 32 位程序，而 LOCPATH 目录若由
-# 64 位 localedef 编译，其复杂类别（LC_CTYPE/LC_COLLATE/LC_TIME/LC_MONETARY）
-# 会被 32 位 glibc 拒读→ setlocale 部分失败→反而弹框。不设 LOCPATH 时 glibc
-# 走系统归档 /usr/lib/locale/locale-archive（locale-gen 生成、跨 32/64 位兼容），
-# 委托到宿主（归档完整）即可正常解析。容器内归档残缺的情况由下方护栏拦截，
-# 不让游戏在容器里跑。
+export LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+export LC_CTYPE=en_US.UTF-8 LC_COLLATE=en_US.UTF-8 LC_TIME=en_US.UTF-8 LC_MONETARY=en_US.UTF-8
+export LC_NUMERIC=en_US.UTF-8 LC_MESSAGES=en_US.UTF-8
+# 【重要】不设 LOCPATH：让 32 位 glibc 走系统归档 /usr/lib/locale/locale-archive
+# （locale-gen 生成，实测 32 位探针能完整读所有类别）。容器内归档残缺的情况
+# 由下方护栏拦截，不让游戏在容器里跑。
 
 # 防呆护栏：本启动器只应在【宿主】上运行。若因 Steam 覆盖了启动项、或有人绕过
 # 包装器直接在 pressure-vessel 容器里跑它，容器自带的 locale 归档不完整
