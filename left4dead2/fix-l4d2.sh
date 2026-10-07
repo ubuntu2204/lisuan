@@ -52,6 +52,9 @@ RENDER_NODE="${L4D2_RENDER_NODE:-/dev/dri/renderD128}"
 # 自编的完整 en_US.UTF-8 locale 目录：游戏通过 LOCPATH 读它，无论宿主/容器
 # 归档是否完整，Source 引擎 setlocale(LC_ALL,"en_US.UTF-8") 都能成功→不再弹框
 LOC_BUNDLE="$BRIDGE_HOME/locale"
+# 32 位 setlocale 拦截器：见 setlocale-shim.c 头部注释（消除引擎误报弹框）
+SHIM_SRC="$(cd "$(dirname "$0")" && pwd)/setlocale-shim.c"
+SHIM_SO="$BRIDGE_HOME/setlocale-shim.so"
 
 UNIT_DIR="$HOME/.config/systemd/user"
 UNIT="$UNIT_DIR/l4d2-venus.service"
@@ -182,6 +185,17 @@ export LC_NUMERIC=en_US.UTF-8 LC_MESSAGES=en_US.UTF-8
 # 【重要】不设 LOCPATH：让 32 位 glibc 走系统归档 /usr/lib/locale/locale-archive
 # （locale-gen 生成，实测 32 位探针能完整读所有类别）。容器内归档残缺的情况
 # 由下方护栏拦截，不让游戏在容器里跑。
+
+# 32 位 setlocale 拦截器：engine.so 里 setlocale(LC_ALL,"en_US.UTF-8") 返回 NULL 时
+# 会用 GTK 弹 “Please install 'en_US.UTF-8' locale.” 模态框。已实测系统 locale 与
+# 环境变量都正常，属引擎侧异常，这里在 libc 层兜住（详见 setlocale-shim.c）。
+# 64 位进程（本脚本、hl2.sh 的 bash）会忽略这个 32 位 so，仅 ld.so 报一次
+# wrong ELF class，无害；真正生效的是 exec 后的 32 位 hl2_linux。
+# 关闭：L4D2_NO_SETLOCALE_SHIM=1
+if [ "\${L4D2_NO_SETLOCALE_SHIM:-0}" != "1" ] && [ -f "$SHIM_SO" ]; then
+  export LD_PRELOAD="$SHIM_SO\${LD_PRELOAD:+:\$LD_PRELOAD}"
+  export L4D2_SETLOCALE_LOG="\${L4D2_SETLOCALE_LOG:-/tmp/l4d2-setlocale.log}"
+fi
 
 # 防呆护栏：本启动器只应在【宿主】上运行。若因 Steam 覆盖了启动项、或有人绕过
 # 包装器直接在 pressure-vessel 容器里跑它，容器自带的 locale 归档不完整
@@ -361,6 +375,28 @@ ensure_locale_bundle() {
   fi
 }
 
+# ---------- 3c2) 32 位 setlocale 拦截器（消除引擎误报弹框） ----------
+# engine.so 会调 libc setlocale(LC_ALL,"en_US.UTF-8")，失败就用 GTK 弹
+# “Please install 'en_US.UTF-8' locale.” 模态框。已实测：系统 locale 归档完整、
+# 32 位 libc 单独调用成功、进程 env 全为 en_US.UTF-8、低 4GB 仅用 31%——
+# 即引擎侧异常，本 shim 在 libc 层兜住（详见 setlocale-shim.c 注释）。
+# 不用 libc6-dev-i386：源文件不 include 头文件，gcc -m32 -c + ld -shared 即可。
+build_setlocale_shim() {
+  [ -f "$SHIM_SRC" ] || { say "无 $SHIM_SRC（跳过 setlocale shim）"; return 0; }
+  command -v gcc >/dev/null 2>&1 || { err "无 gcc，跳过 setlocale shim（可能仍弹框）"; return 0; }
+  mkdir -p "$BRIDGE_HOME"
+  local obj="$BRIDGE_HOME/setlocale-shim.o"
+  if gcc -m32 -fPIC -O2 -fno-stack-protector -c "$SHIM_SRC" -o "$obj" 2>/dev/null \
+     && ld -m elf_i386 -shared -o "$SHIM_SO" "$obj" 2>/dev/null; then
+    rm -f "$obj"
+    say "setlocale shim 已构建: $SHIM_SO"
+  else
+    rm -f "$obj"
+    err "setlocale shim 构建失败（需要 gcc 支持 -m32；游戏可能仍弹 locale 框）"
+    return 1
+  fi
+}
+
 # ---------- 3d) 给 Steam 客户端启动项补 locale（消除 Steam 自身同类弹窗） ----------
 # Steam 32 位客户端也是 Source/VGUI 程序，启动时硬调 setlocale(LC_ALL,"en_US.UTF-8")，
 # 环境解析不到时同样弹 “SetLocale('en_US.UTF-8') failed” 框（console-linux.txt 可见）。
@@ -508,6 +544,13 @@ status() {
   echo "== 渲染节点 =="; echo "  $RENDER_NODE $([ -c "$RENDER_NODE" ] && echo ✅ || echo 缺失)"
   echo "== 启动包装（Steam 链入口）=="; [ -x "$LAUNCH" ] && echo "  $LAUNCH ✅" || echo "  缺失"
   echo "== 宿主启动器 =="; [ -x "$HOST_RUN" ] && echo "  $HOST_RUN ✅" || echo "  缺失"
+  echo "== setlocale shim（消除 locale 误报弹框）=="
+  if [ -f "$SHIM_SO" ]; then
+    echo "  $SHIM_SO ✅ $(file -b "$SHIM_SO" | cut -d, -f1)"
+    [ -f /tmp/l4d2-setlocale.log ] && echo "  最近一次 libc 失败记录: $(tail -1 /tmp/l4d2-setlocale.log)"
+  else
+    echo "  未构建（重跑 fix-l4d2.sh）"
+  fi
   echo "== Source Linux 字体 =="; ls "$GAME/platform/resource/linux_fonts/" 2>/dev/null | sed 's/^/  /' || echo "  缺失"
   echo "== CompatTool（应为空 = 原生）=="
   python3 -c "
@@ -617,6 +660,7 @@ detect_render_node || exit 1
 build_server || exit 1
 install_unit || exit 1
 ensure_locale_bundle
+build_setlocale_shim
 write_host_runner
 write_launcher
 ensure_fonts
