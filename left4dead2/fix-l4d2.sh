@@ -174,9 +174,12 @@ export STEAM_RUNTIME=0
 # 否则每次启动弹 "setlocale(en_US.UTF-8) failed" 警告框。
 # 仅影响 C 库本地化，游戏界面语言由 -language schinese 决定。
 export LC_ALL=en_US.UTF-8
-# 釜底抽薪：把自编的完整 locale 目录加入 LOCPATH，setlocale 优先从这里解析
-# en_US.UTF-8，不依赖宿主/容器归档是否完整。
-export LOCPATH="$LOC_BUNDLE\${LOCPATH:+:\$LOCPATH}"
+# 【重要】故意不设 LOCPATH：hl2_linux 是 32 位程序，而 LOCPATH 目录若由
+# 64 位 localedef 编译，其复杂类别（LC_CTYPE/LC_COLLATE/LC_TIME/LC_MONETARY）
+# 会被 32 位 glibc 拒读→ setlocale 部分失败→反而弹框。不设 LOCPATH 时 glibc
+# 走系统归档 /usr/lib/locale/locale-archive（locale-gen 生成、跨 32/64 位兼容），
+# 委托到宿主（归档完整）即可正常解析。容器内归档残缺的情况由下方护栏拦截，
+# 不让游戏在容器里跑。
 
 # 防呆护栏：本启动器只应在【宿主】上运行。若因 Steam 覆盖了启动项、或有人绕过
 # 包装器直接在 pressure-vessel 容器里跑它，容器自带的 locale 归档不完整
@@ -347,23 +350,26 @@ ensure_locale_bundle() {
 
 # ---------- 3d) 给 Steam 客户端启动项补 locale（消除 Steam 自身同类弹窗） ----------
 # Steam 32 位客户端也是 Source/VGUI 程序，启动时硬调 setlocale(LC_ALL,"en_US.UTF-8")，
-# 其运行时归档不完整时同样弹 “SetLocale('en_US.UTF-8') failed” 框（console-linux.txt
-# 可见）。往其 .desktop 的 Exec 注入 LC_ALL+LOCPATH（指向本方案自编的完整 locale；
-# 因 pressure-vessel 共享 $HOME，容器内游戏也能读到 LOCPATH）。首次修改前备份一次；
-# --uninstall 还原。幂等。
+# 环境解析不到时同样弹 “SetLocale('en_US.UTF-8') failed” 框（console-linux.txt 可见）。
+# 只注入 LC_ALL=en_US.UTF-8（走宿主完整归档，32/64 位兼容）；**不注 LOCPATH**（同 HOST_RUN
+# 理由：64 位 localedef 编的目录会被 32 位 glibc 拒读）。首次修改前备份；--uninstall 还原。幂等。
 ensure_steam_locale() {
   local d="$HOME/.local/share/applications/steam.desktop"
   [ -f "$d" ] || { say "无 $d（跳过 Steam 客户端 locale 注入）"; return 0; }
+  grep -qE '^Exec=env .*[/]usr[/]bin[/]steam' "$d" || { say "steam.desktop 非预期 Exec（跳过注入）"; return 0; }
+  # 幂等：先清除旧版可能注入的 LOCPATH=<bundle>（会坑 32 位），再确保有 LC_ALL
+  sed -i -E "s# LOCPATH=$LOC_BUNDLE##" "$d"
   if grep -q 'LC_ALL=en_US.UTF-8' "$d"; then
-    say "Steam 客户端 locale 已注入: $d"
+    say "Steam 客户端 locale 已就绪(LC_ALL): $d"
+    command -v update-desktop-database >/dev/null 2>&1 \
+      && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null
     return 0
   fi
-  grep -qE '^Exec=env .*[/]usr[/]bin[/]steam' "$d" || { say "steam.desktop 非预期 Exec（跳过注入）"; return 0; }
   [ -e "$d.l4d2-bak" ] || cp -a "$d" "$d.l4d2-bak"
-  sed -i -E "s#^(Exec=env )#\1LC_ALL=en_US.UTF-8 LOCPATH=$LOC_BUNDLE #" "$d"
+  sed -i -E "s#^(Exec=env )#\1LC_ALL=en_US.UTF-8 #" "$d"
   command -v update-desktop-database >/dev/null 2>&1 \
     && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null
-  say "已给 Steam 客户端注入 LC_ALL/LOCPATH（备份: $d.l4d2-bak）；下次启动 Steam 生效"
+  say "已给 Steam 客户端注入 LC_ALL（备份: $d.l4d2-bak）；下次启动 Steam 生效"
 }
 
 # ---------- 3e) 补齐 Source 引擎的 Linux 字体 ----------
