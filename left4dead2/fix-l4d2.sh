@@ -55,6 +55,9 @@ LOC_BUNDLE="$BRIDGE_HOME/locale"
 # 32 位 setlocale 拦截器：见 setlocale-shim.c 头部注释（消除引擎误报弹框）
 SHIM_SRC="$(cd "$(dirname "$0")" && pwd)/setlocale-shim.c"
 SHIM_SO="$BRIDGE_HOME/setlocale-shim.so"
+# 32 位 vkCreateImage 取证/改写 shim：见 vkcreateimage-shim.c
+VKCI_SRC="$(cd "$(dirname "$0")" && pwd)/vkcreateimage-shim.c"
+VKCI_SO="$BRIDGE_HOME/vkcreateimage-shim.so"
 
 UNIT_DIR="$HOME/.config/systemd/user"
 UNIT="$UNIT_DIR/l4d2-venus.service"
@@ -196,6 +199,16 @@ if [ "\${L4D2_NO_SETLOCALE_SHIM:-0}" != "1" ] && [ -f "$SHIM_SO" ]; then
   export LD_PRELOAD="$SHIM_SO\${LD_PRELOAD:+:\$LD_PRELOAD}"
   export L4D2_SETLOCALE_LOG="\${L4D2_SETLOCALE_LOG:-/tmp/l4d2-setlocale.log}"
 fi
+# vkCreateImage 取证 shim：记录游戏实际请求的 D16 参数与返回码（默认只记深度格式）。
+# 可选改写（试探可行组合用，取到日志后再设）：
+#   L4D2_VKCI_TILING=0|1      强制改 tiling（0=LINEAR 1=OPTIMAL）
+#   L4D2_VKCI_USAGE_MASK=hex  usage 按位与掩码（剥离可疑 usage 位）
+#   L4D2_VKCI_ALL=1           记录所有格式（不只深度类）
+# 关闭：L4D2_NO_VKCI_SHIM=1
+if [ "\${L4D2_NO_VKCI_SHIM:-0}" != "1" ] && [ -f "$VKCI_SO" ]; then
+  export LD_PRELOAD="$VKCI_SO\${LD_PRELOAD:+:\$LD_PRELOAD}"
+  export L4D2_VKCI_LOG="\${L4D2_VKCI_LOG:-/tmp/l4d2-vkCreateImage.log}"
+fi
 
 # 防呆护栏：本启动器只应在【宿主】上运行。若因 Steam 覆盖了启动项、或有人绕过
 # 包装器直接在 pressure-vessel 容器里跑它，容器自带的 locale 归档不完整
@@ -221,7 +234,9 @@ EXTRA=()
 case " \$* " in
   *r_flashlightdepthtexture*) ;;
   *)
-    if [ "\${L4D2_NO_D16_WORKAROUND:-0}" != "1" ]; then
+    # 装了 vkCreateImage 取证 shim 时【不】加这个规避：否则游戏根本不会去请求 D16，
+    # 日志会是空的，取证就失去意义。实测 D16 创建失败并不致命（整局 12 次失败仍继续）。
+    if [ "\${L4D2_NO_D16_WORKAROUND:-0}" != "1" ] && [ ! -f "$VKCI_SO" ]; then
       EXTRA+=(+r_flashlightdepthtexture 0)
     fi
     ;;
@@ -397,6 +412,27 @@ build_setlocale_shim() {
   fi
 }
 
+# ---------- 3c3) 32 位 vkCreateImage 取证/改写 shim ----------
+# 游戏里 D16（手电筒阴影贴图）创建失败，能力却是对的（gf 与 Venus 都正确上报
+# DEPTH_STENCIL_ATTACHMENT）。这个 shim 挂住 vkCreateImage，把 format/tiling/usage/
+# 返回码/调用者地址记进日志；也能按环境变量改写 tiling/usage 试探可行组合。
+# 详见 vkcreateimage-shim.c 头部注释。
+build_vkci_shim() {
+  [ -f "$VKCI_SRC" ] || { say "无 $VKCI_SRC（跳过 vkCreateImage shim）"; return 0; }
+  command -v gcc >/dev/null 2>&1 || { err "无 gcc，跳过 vkCreateImage shim"; return 0; }
+  local obj="$BRIDGE_HOME/vkci.o"
+  if gcc -m32 -fPIC -O2 -fno-stack-protector -c "$VKCI_SRC" -o "$obj" 2>/dev/null \
+     && ld -m elf_i386 -shared -o "$VKCI_SO.new" "$obj" 2>/dev/null; then
+    rm -f "$obj"
+    mv -f "$VKCI_SO.new" "$VKCI_SO"   # 换 inode，避免影响正在运行的进程
+    say "vkCreateImage shim 已构建: $VKCI_SO"
+  else
+    rm -f "$obj" "$VKCI_SO.new"
+    err "vkCreateImage shim 构建失败（需要 gcc 支持 -m32）"
+    return 1
+  fi
+}
+
 # ---------- 3d) 给 Steam 客户端启动项补 locale（消除 Steam 自身同类弹窗） ----------
 # Steam 32 位客户端也是 Source/VGUI 程序，启动时硬调 setlocale(LC_ALL,"en_US.UTF-8")，
 # 环境解析不到时同样弹 “SetLocale('en_US.UTF-8') failed” 框（console-linux.txt 可见）。
@@ -551,6 +587,18 @@ status() {
   else
     echo "  未构建（重跑 fix-l4d2.sh）"
   fi
+  echo "== vkCreateImage shim（D16 取证）=="
+  if [ -f "$VKCI_SO" ]; then
+    echo "  $VKCI_SO ✅"
+    if [ -f /tmp/l4d2-vkCreateImage.log ]; then
+      echo "  日志 $(wc -l < /tmp/l4d2-vkCreateImage.log) 行，末尾 3 条:"
+      tail -3 /tmp/l4d2-vkCreateImage.log | sed 's/^/    /'
+    else
+      echo "  尚无日志（启动一次游戏后查看）"
+    fi
+  else
+    echo "  未构建（重跑 fix-l4d2.sh）"
+  fi
   echo "== Source Linux 字体 =="; ls "$GAME/platform/resource/linux_fonts/" 2>/dev/null | sed 's/^/  /' || echo "  缺失"
   echo "== CompatTool（应为空 = 原生）=="
   python3 -c "
@@ -597,7 +645,7 @@ uninstall() {
   systemctl --user stop "$GAME_UNIT" 2>/dev/null && say "宿主游戏单元已停止"
   systemctl --user disable l4d2-venus.service 2>/dev/null && say "单元已禁用"
   rm -f "$UNIT"; systemctl --user daemon-reload 2>/dev/null
-  rm -f "$LAUNCH" "$HOST_RUN" "$SOCKET"
+  rm -f "$LAUNCH" "$HOST_RUN" "$SOCKET" "$SHIM_SO" "$VKCI_SO"
   # 还原 Steam 客户端 locale 注入（若曾备份）
   local sdesk="$HOME/.local/share/applications/steam.desktop"
   if [ -e "$sdesk.l4d2-bak" ]; then
@@ -661,6 +709,7 @@ build_server || exit 1
 install_unit || exit 1
 ensure_locale_bundle
 build_setlocale_shim
+build_vkci_shim
 write_host_runner
 write_launcher
 ensure_fonts

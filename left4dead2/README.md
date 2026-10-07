@@ -99,8 +99,9 @@ hl2_linux -vulkan
 | 2 | systemd --user 单元 | `~/.config/systemd/user/l4d2-venus.service` | 随登录常驻服务端（`WantedBy=default.target`） |
 | 3 | 宿主启动器 | `~/.local/share/l4d2-venus/l4d2-host-run.sh` | 真正跑游戏：确认 socket 就绪 → 注入环境变量 → `exec hl2.sh` |
 | 4 | 32 位 setlocale shim | `~/.local/share/l4d2-venus/setlocale-shim.so`（源码 `setlocale-shim.c`） | 消除引擎的 `SetLocale failed` 误报弹框（见 §3.1）；`LD_PRELOAD` 注入，可关 |
-| 5 | Steam 启动包装 | `~/.local/share/l4d2-venus/l4d2-venus-launch.sh` | Steam 链入口；检测到容器则委托宿主，否则直接跑宿主启动器 |
-| 6 | Steam 启动选项 | localconfig.vdf | `<包装器> %command% -vulkan` |
+| 5 | 32 位 vkCreateImage shim | `~/.local/share/l4d2-venus/vkcreateimage-shim.so`（源码 `vkcreateimage-shim.c`） | 挂住 `vkCreateImage` 记录 D16 的 format/tiling/usage/返回码；**存在时会自动解除 `+r_flashlightdepthtexture 0` 规避**，好让游戏真的去请求 D16 |
+| 6 | Steam 启动包装 | `~/.local/share/l4d2-venus/l4d2-venus-launch.sh` | Steam 链入口；检测到容器则委托宿主，否则直接跑宿主启动器 |
+| 7 | Steam 启动选项 | localconfig.vdf | `<包装器> %command% -vulkan` |
 
 三个关键环境变量（由宿主启动器注入，只影响游戏进程）：
 
@@ -194,6 +195,7 @@ bash fix-l4d2.sh --status
 | 服务端崩 | `journalctl --user -u l4d2-venus` |
 | `mat_info` 显示 llvmpipe | LaunchOptions 未生效（Steam 覆盖）或走了 `-gl` |
 | 仍弹 `SetLocale failed` 框 | shim 没生效：查 `fix-l4d2.sh --status` 里 shim 是否 ✅；游戏进程 `tr '\0' '\n' < /proc/<pid>/environ | grep LD_PRELOAD` 应含 `setlocale-shim.so`；真实失败记录在 `/tmp/l4d2-setlocale.log` |
+| 想知道游戏怎么请求 D16 | 看 `/tmp/l4d2-vkCreateImage.log`（`vkcreateimage-shim.so` 记录，默认只记深度格式；`L4D2_VKCI_ALL=1` 记全部）。改写试探：`L4D2_VKCI_TILING=0\|1`、`L4D2_VKCI_USAGE_MASK=<hex>`；关掉 shim 用 `L4D2_NO_VKCI_SHIM=1` |
 | 手动直跑调试 | `bash vtest-forward/run-l4d2-venus.sh --game` |
 
 手动直跑脚本会复用已运行的常驻服务端（不会重复拉起，也不会删它的 socket）；
