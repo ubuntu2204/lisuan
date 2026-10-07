@@ -73,6 +73,8 @@ for f in ~/.local/share/Steam/userdata/*/config/localconfig.vdf; do
 done
 # 游戏语言（Steam 侧 Language + 启动参数 -language）。schinese = 简体中文
 GAME_LANG="${L4D2_LANG:-schinese}"
+# D16 取证模式：1=解除 r_flashlightdepthtexture 0 规避并让 shim 降级 D16（会崩，见 README）
+D16_PROBE="${L4D2_D16_PROBE:-0}"
 
 say() { echo "[l4d2-venus] $*"; }
 err() { echo "[l4d2-venus] !! $*" >&2; }
@@ -188,6 +190,9 @@ export LC_NUMERIC=en_US.UTF-8 LC_MESSAGES=en_US.UTF-8
 # 【重要】不设 LOCPATH：让 32 位 glibc 走系统归档 /usr/lib/locale/locale-archive
 # （locale-gen 生成，实测 32 位探针能完整读所有类别）。容器内归档残缺的情况
 # 由下方护栏拦截，不让游戏在容器里跑。
+
+# D16 取证/降级模式（由 fix-l4d2.sh 运行时固化，L4D2_D16_PROBE=1 bash fix-l4d2.sh 开启）
+export L4D2_D16_PROBE="$D16_PROBE"
 
 # 32 位 setlocale 拦截器：engine.so 里 setlocale(LC_ALL,"en_US.UTF-8") 返回 NULL 时
 # 会用 GTK 弹 “Please install 'en_US.UTF-8' locale.” 模态框。已实测系统 locale 与
@@ -582,6 +587,7 @@ status() {
   echo "== 渲染节点 =="; echo "  $RENDER_NODE $([ -c "$RENDER_NODE" ] && echo ✅ || echo 缺失)"
   echo "== 启动包装（Steam 链入口）=="; [ -x "$LAUNCH" ] && echo "  $LAUNCH ✅" || echo "  缺失"
   echo "== 宿主启动器 =="; [ -x "$HOST_RUN" ] && echo "  $HOST_RUN ✅" || echo "  缺失"
+  echo "  D16_PROBE = $(sed -n 's/^export L4D2_D16_PROBE="\([01]\)"/\1/p' "$HOST_RUN" 2>/dev/null | head -1)  (0=关手电筒阴影[稳定] / 1=解除规避+shim降级[仅取证,会崩])"
   echo "== setlocale shim（消除 locale 误报弹框）=="
   if [ -f "$SHIM_SO" ]; then
     echo "  $SHIM_SO ✅ $(file -b "$SHIM_SO" | cut -d, -f1)"
