@@ -49,6 +49,9 @@ SOCKET="${L4D2_VENUS_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/l4d2-venus.sock}"
 GF_ICD="${L4D2_GF_ICD:-/usr/share/vulkan/icd.d/gf_icd.x86_64.json}"
 VIRTIO_ICD="${L4D2_VIRTIO_ICD:-/usr/share/vulkan/icd.d/virtio_icd.json}"
 RENDER_NODE="${L4D2_RENDER_NODE:-/dev/dri/renderD128}"
+# 自编的完整 en_US.UTF-8 locale 目录：游戏通过 LOCPATH 读它，无论宿主/容器
+# 归档是否完整，Source 引擎 setlocale(LC_ALL,"en_US.UTF-8") 都能成功→不再弹框
+LOC_BUNDLE="$BRIDGE_HOME/locale"
 
 UNIT_DIR="$HOME/.config/systemd/user"
 UNIT="$UNIT_DIR/l4d2-venus.service"
@@ -171,6 +174,9 @@ export STEAM_RUNTIME=0
 # 否则每次启动弹 "setlocale(en_US.UTF-8) failed" 警告框。
 # 仅影响 C 库本地化，游戏界面语言由 -language schinese 决定。
 export LC_ALL=en_US.UTF-8
+# 釜底抽薪：把自编的完整 locale 目录加入 LOCPATH，setlocale 优先从这里解析
+# en_US.UTF-8，不依赖宿主/容器归档是否完整。
+export LOCPATH="$LOC_BUNDLE\${LOCPATH:+:\$LOCPATH}"
 
 # 防呆护栏：本启动器只应在【宿主】上运行。若因 Steam 覆盖了启动项、或有人绕过
 # 包装器直接在 pressure-vessel 容器里跑它，容器自带的 locale 归档不完整
@@ -317,7 +323,50 @@ EOF
   say "启动包装已部署: $LAUNCH"
 }
 
-# ---------- 3c) 补齐 Source 引擎的 Linux 字体 ----------
+# ---------- 3c) 自编完整 en_US.UTF-8 locale 包（供 LOCPATH 使用） ----------
+# Source 引擎启动时硬调 setlocale(LC_ALL,"en_US.UTF-8")。若环境里（尤其是
+# pressure-vessel 容器自带的 3MB 不完整归档）缺部分类别数据，该调用返回 NULL，
+# 引擎就弹 “SetLocale('en_US.UTF-8') failed” 警告框并可能挂起。这里用 localedef
+# 把一份完整的 en_US.UTF-8 编到独立目录，游戏通过 LOCPATH 优先读它，彻底不依赖宿主/容器归档。
+ensure_locale_bundle() {
+  mkdir -p "$LOC_BUNDLE"
+  if [ -f "$LOC_BUNDLE/en_US.UTF-8/LC_CTYPE" ]; then
+    say "locale 包已就绪: $LOC_BUNDLE/en_US.UTF-8"
+    return 0
+  fi
+  if command -v localedef >/dev/null 2>&1; then
+    if localedef -i en_US -f UTF-8 "$LOC_BUNDLE/en_US.UTF-8" 2>/dev/null; then
+      say "已自编完整 locale: $LOC_BUNDLE/en_US.UTF-8"
+    else
+      err "localedef 生成失败（将仅依赖宿主归档，委托到宿主仍不弹框）"
+    fi
+  else
+    err "无 localedef（将仅依赖宿主归档）"
+  fi
+}
+
+# ---------- 3d) 给 Steam 客户端启动项补 locale（消除 Steam 自身同类弹窗） ----------
+# Steam 32 位客户端也是 Source/VGUI 程序，启动时硬调 setlocale(LC_ALL,"en_US.UTF-8")，
+# 其运行时归档不完整时同样弹 “SetLocale('en_US.UTF-8') failed” 框（console-linux.txt
+# 可见）。往其 .desktop 的 Exec 注入 LC_ALL+LOCPATH（指向本方案自编的完整 locale；
+# 因 pressure-vessel 共享 $HOME，容器内游戏也能读到 LOCPATH）。首次修改前备份一次；
+# --uninstall 还原。幂等。
+ensure_steam_locale() {
+  local d="$HOME/.local/share/applications/steam.desktop"
+  [ -f "$d" ] || { say "无 $d（跳过 Steam 客户端 locale 注入）"; return 0; }
+  if grep -q 'LC_ALL=en_US.UTF-8' "$d"; then
+    say "Steam 客户端 locale 已注入: $d"
+    return 0
+  fi
+  grep -qE '^Exec=env .*[/]usr[/]bin[/]steam' "$d" || { say "steam.desktop 非预期 Exec（跳过注入）"; return 0; }
+  [ -e "$d.l4d2-bak" ] || cp -a "$d" "$d.l4d2-bak"
+  sed -i -E "s#^(Exec=env )#\1LC_ALL=en_US.UTF-8 LOCPATH=$LOC_BUNDLE #" "$d"
+  command -v update-desktop-database >/dev/null 2>&1 \
+    && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null
+  say "已给 Steam 客户端注入 LC_ALL/LOCPATH（备份: $d.l4d2-bak）；下次启动 Steam 生效"
+}
+
+# ---------- 3e) 补齐 Source 引擎的 Linux 字体 ----------
 # 游戏日志会刷 "Couldn't find custom font file 'resource/linux_fonts/*.ttf'"：
 # Valve 的 Linux 版没随包带这些字体，缺了会影响界面/VGUI 文本（含中文）渲染。
 # 直接软链系统的 DejaVu / Liberation 字体补齐（不改游戏原文件，Steam 校验无感）。
@@ -487,6 +536,11 @@ uninstall() {
   systemctl --user disable l4d2-venus.service 2>/dev/null && say "单元已禁用"
   rm -f "$UNIT"; systemctl --user daemon-reload 2>/dev/null
   rm -f "$LAUNCH" "$HOST_RUN" "$SOCKET"
+  # 还原 Steam 客户端 locale 注入（若曾备份）
+  local sdesk="$HOME/.local/share/applications/steam.desktop"
+  if [ -e "$sdesk.l4d2-bak" ]; then
+    mv -f "$sdesk.l4d2-bak" "$sdesk" && say "steam.desktop 已还原（移除 LC_ALL/LOCPATH 注入）"
+  fi
 
   # LaunchOptions 还原为用户自有参数
   if [ -n "$LOCALCONFIG_VDF" ] && [ -f "$LOCALCONFIG_VDF" ]; then
@@ -543,9 +597,11 @@ say "== L4D2 硬件渲染修复（原生 32 位 -vulkan -> Venus -> gf Vulkan）
 detect_render_node || exit 1
 build_server || exit 1
 install_unit || exit 1
+ensure_locale_bundle
 write_host_runner
 write_launcher
 ensure_fonts
+ensure_steam_locale
 clear_compat_tool
 config_launch_options
 say "完成。重启 Steam 后启动《Left 4 Dead 2》即走 7G100 硬件渲染。"
