@@ -78,6 +78,7 @@ right headers.
   - [6.1 刀塔霸业（Dota Underlords）修复](#61-刀塔霸业dota-underlords-修复)
   - [6.2 随从大师（Minion Masters）修复](#62-随从大师minion-masters-修复)
 - [Steam 平台适配细节（容器 / CEF / 登录 / Proton）](#steam-平台适配细节容器--cef--登录--proton)
+- [桌面应用修复：Navicat AppImage 启动闪退](#桌面应用修复navicat-appimage-启动闪退)
 - [六、踩坑经验总览与砺算技术要点](#六踩坑经验总览与砺算技术要点)
   - [7.1 砺算 7G100 技术要点（必读）](#71-砺算-7g100-技术要点必读)
   - [7.2 踩坑清单（按层分类）](#72-踩坑清单按层分类)
@@ -92,7 +93,7 @@ right headers.
 
 ## 仓库结构
 
-按**主题**分为 7 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）。
+按**主题**分为 8 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）。
 每个游戏/应用文档开头都有 **「至砺算：」** 一节——写给砺算官方研发，说明"官方实现什么，
 本目录的 workaround 即可退役"；这是本项目的主要读者视角。
 
@@ -102,9 +103,10 @@ right headers.
 | `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3。其中 `gf-compat/` 是 Vulkan 兼容层（源码与运行时产物同处该目录，两个厂商专有 `.so` 不入库、获取方式见其 README），`assets-mm-gf-vulkan/` 是 C# 补丁工程（MMPatch 唯一权威源码所在；原开发工作目录 `mm-patch/` 已于 2026-08-31 删除，git 历史可查） |
 | `left4dead2/` | 求生之路 2 | 7G100 硬件渲染（Proton new WoW64 + DXVK v2.3 -> 64 位 gf Vulkan）。`fix-l4d2.sh` 自持运行时部署目录 `gf-compat/`（hook/垫片 ICD 编译产物），源码复用 `minion-masters/assets-mm-gf-vulkan/` |
 | `underlords/` | 刀塔霸业 | 容器委托宿主直跑、libpng12 补齐、崩溃智能重试 |
-| `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder 三个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
+| `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder / Trae 四个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
 | `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |
 | `mesa/` | Mesa 图形栈 | 驱动名修复（`lisuan` vs `gf`）、系统 Mesa 兼容、切换与体检、源码级分析 |
+| `navicat/` | Navicat（桌面应用） | AppImage 启动闪退修复：内置 fcitx 插件与自带 Qt 6.8.3 的 ABI 冲突，重打包注入 `QT_IM_MODULE=compose`。**与 GPU 无关**，属本机应用层修复 |
 
 其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）。
 
@@ -120,6 +122,7 @@ right headers.
 | `dkms/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `steam/fix-steam-cef-lock.sh` | **Steam 清理工具**（非日常修复入口）：检测并移除 `steamwebhelper_sniper_wrap.sh` 中历史遗留的 gf 注入（`GBM_BACKEND=dri` + `LD_PRELOAD` glapi）与 `chattr +i` 锁定。`--unlock` 只解锁、`--uninstall` 还原原厂。**注意**：注入方案已于 2026-09-01 废弃，现改用 `GBM_BACKEND=dri` 环境变量（详见[三](#三steam-适配)） |
 | `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 24/25） |
+| `navicat/fix-navicat-appimage.sh` | **Navicat 18 Premium Lite（AppImage）启动闪退修复**（幂等，无需 root）：重打包 AppImage、在内部 AppRun 注入 `QT_IM_MODULE=compose`，绕开内置 fcitx 插件与自带 Qt 6.8.3 的 ABI 冲突；自动备份原包 `.bak`，`--status` / `--test` / `--restore` 齐备。**与 GPU 无关**的应用层修复 |
 | `dkms/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
@@ -146,6 +149,7 @@ right headers.
 | `mesa/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
 | `dkms/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
 | `underlords/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
+| `navicat/README.md` | **Navicat 18 Premium Lite（AppImage）启动闪退修复文档**：内置 fcitx 输入法插件按 Qt 6.5 编译却与自带 Qt 6.8.3 混搭 → 加载即 SIGSEGV 的完整证据链（gdb 栈）；重打包注入 `QT_IM_MODULE=compose` 方案与备选方案对比、验证记录、回退方法。**与 GPU 无关** |
 | `minion-masters/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染；**推荐 Proton 11.0 稳定版**，更新频率低于 Experimental）、user_settings.py 注入无效教训、Steam 状态卡死坑 |
 | `dkms/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
 
@@ -796,6 +800,37 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 
 ---
 
+## 桌面应用修复：Navicat AppImage 启动闪退
+
+> **与 GPU 无关**：这是应用层的 AppImage 打包缺陷（内置输入法插件与自带 Qt 版本
+> ABI 不配套），收录进来是因为本仓库同时也是本机全部修复方案的集合地。
+> 完整证据链与备选方案对比见 [`navicat/README.md`](./navicat/README.md)。
+
+**现象**：双击（或终端运行）`navicat18-premium-lite-cs-x86_64.AppImage`，
+「注册」对话框闪现不到一秒即闪退，终端可见核心转储。
+
+**根因**：AppImage 自带 **Qt 6.8.3**，但内置的 fcitx 输入法插件
+`libfcitxplatforminputcontextplugin-qt6.so` 是按 **Qt 6.5** 编译的
+（动态段要求 `Qt_6.5` 符号版本）。本机会话跑 fcitx5（`QT_IM_MODULE=fcitx`），
+Qt 加载该插件——6.8.3 仍提供 `Qt_6.5` 版本节点，链接器不报错，但插件内部按
+6.5 的 `QObject` 结构构造对象，d 指针错位 → **SIGSEGV**，崩溃点正是对话框
+获得焦点的一瞬（gdb 栈见子目录文档）。
+
+**修复**：`navicat/fix-navicat-appimage.sh`（幂等、无需 root）重打包 AppImage——
+runtime ELF 原样保留，仅向内部 `AppRun` 注入 `export QT_IM_MODULE=compose`
+（该插件是包内唯一输入法插件且已损坏，只能切 Qt 内置 compose 模块），
+再按原压缩器/块大小重打 squashfs。双击、应用菜单、终端三种启动方式全部生效；
+原包自动备份 `.bak`，`--restore` 可回退。
+
+```bash
+./navicat/fix-navicat-appimage.sh            # 修复（幂等，首次自动备份原包）
+./navicat/fix-navicat-appimage.sh --status   # 查看状态
+./navicat/fix-navicat-appimage.sh --test     # 冒烟测试（启动 10 秒看是否存活）
+./navicat/fix-navicat-appimage.sh --restore  # 从 .bak 还原原包
+```
+
+---
+
 ## 六、踩坑经验总览与砺算技术要点
 
 > 本章把前面各章分散的"坑"与"砺算技术背景"汇成一份速查表，便于**排障时直接对照**，
@@ -835,6 +870,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 | 游戏逻辑 | 图片下载 `Curl error 60` → `Texture has not yet finished downloading` 沿 UniTask `TrySetException` 链传播 | patch `InternalGetTexture` 返回 null（`minion-masters/fix-minion-masters.md` 游戏坑 1c） |
 | IL2CPP 插件 | **`il2cpp_class_get_methods` binding 签名错**（iterator 被当数组）→ count 垃圾值 → 0xC0000005 | 只用 `il2cpp_class_get_method_from_name`（`minion-masters/fix-minion-masters.md` 附录 A4） |
 | 游戏逻辑 | `user_settings.py` 注入无效 | 用 Launch Options（`minion-masters/fix-minion-masters.md` 游戏坑 5） |
+| 桌面应用/Qt | AppImage 内置 fcitx 输入法插件（按 Qt 6.5 编译）与自带 Qt 6.8.3 的 `QObject` 内部结构不兼容 → 启动即 SIGSEGV | 重打包注入 `QT_IM_MODULE=compose`（[桌面应用修复](#桌面应用修复navicat-appimage-启动闪退) / `navicat/README.md`） |
 
 ### 7.3 环境 / 网络类坑（索引）
 

@@ -3,6 +3,42 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.10.14 — Navicat 18 Premium Lite（AppImage）启动闪退修复：内置 fcitx 插件与自带 Qt ABI 冲突
+
+**与 GPU 无关**的应用层修复（AppImage 打包缺陷），新增 `navicat/` 目录
+（`fix-navicat-appimage.sh` + `README.md`）。
+
+### 现象
+
+双击/终端运行 `~/development/navicat18-premium-lite-cs-x86_64.AppImage`，
+「注册」对话框闪现不到一秒即闪退（核心转储）。
+
+### 根因
+
+AppImage 自带 **Qt 6.8.3**，但内置输入法插件
+`libfcitxplatforminputcontextplugin-qt6.so` 是按 **Qt 6.5** 编译的
+（动态段要求 `Qt_6.5` 符号版本）。本机会话跑 fcitx5
+（`QT_IM_MODULE=fcitx` + `XMODIFIERS=@im=fcitx`）：Qt 6.8.3 仍提供 `Qt_6.5`
+版本节点，链接器不报错、插件"加载成功"，但插件内部按 6.5 的 `QObjectPrivate`
+布局构造对象 → d 指针错位 → SIGSEGV，崩溃点正是对话框获焦的一瞬。
+gdb 栈：`QObject::thread ← QObject 构造 ← fcitx 插件 ← QGuiApplication 焦点事件`。
+
+### 修复
+
+`navicat/fix-navicat-appimage.sh`（幂等、无需 root）**重打包** AppImage：
+runtime ELF 原样保留，仅向 squashfs 内的 `AppRun` 注入
+`export QT_IM_MODULE=compose`，按原压缩器/块大小 mksquashfs 重打包。
+双击/菜单/终端三种启动方式全部生效；原包备份 `.bak`（仅首次），
+`--status` / `--test` / `--restore` / `--keep-work` 齐备。
+
+### 验证
+
+模拟双击环境（`QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx`）下修复版正常弹出
+「注册」窗口并稳定运行；原包同环境必现崩溃（`--test` 报 SIGABRT/SIGSEGV）；
+脚本幂等、`--restore` 还原后 md5 与原包一致；`tests/` 套件通过。
+
+---
+
 ## 2026.10.06 — 全部游戏/应用文档新增「至砺算：」章节
 
 本项目主要写给砺算官方开发人员。6 份游戏/应用文档（steam / underlords /
