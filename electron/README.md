@@ -32,8 +32,18 @@
 | `use-zcode.sh` | ZCode（Electron AppImage）入口 |
 | `use-codebuddy.sh` | CodeBuddy 国内版入口 |
 | `use-qoder.sh` | Qoder 国内版入口 |
+| `use-trae.sh` | Trae（字节 AI IDE）入口，默认软件渲染稳定模式，`--hw` 切 gf 加速 |
 
-三个应用 wrapper 均通过 `exec "$DIR/use-electron-gf.sh" --app <name>` 转调基座，同目录引用。
+四个应用 wrapper 均通过 `exec "$DIR/use-electron-gf.sh" --app <name>` 转调基座，同目录引用。
+
+## 各应用下载地址
+
+| 应用 | 官方下载 | 备注 |
+|---|---|---|
+| ZCode（智谱 AI IDE） | <https://zcode.z.ai/cn> | Linux 为 Beta：`.deb` / `.rpm` / `.AppImage`（本仓库 wrapper 用 AppImage） |
+| CodeBuddy 国内版（CodeBuddy CN / `buddycn`） | <https://copilot.tencent.com/> | 原 `codebuddy.net` 跳转至此；国际版 <https://www.codebuddy.ai/> |
+| Qoder 国内版（Qoder CN） | <https://www.aliyun.com/product/qoder> | 阿里云产品页含下载入口；国际版 <https://qoder.com/> |
+| Trae 国内版 | <https://www.trae.cn/> | 字节跳动 AI IDE；国际版 <https://www.trae.ai/> |
 
 ## 快速开始
 

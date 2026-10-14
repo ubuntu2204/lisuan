@@ -2,6 +2,8 @@
 
 Steam AppID **246420**，原生 64 位 [LÖVE](https://love2d.org) 游戏（`liblove.so.0` + SDL2 + OpenGL）。
 
+> 下载：Steam 商店《Kingdom Rush》（**付费**，AppID 246420）—— <https://store.steampowered.com/app/246420/>
+
 ## 至砺算：官方实现什么可以让本游戏在容器内原生运行
 
 > 本节写给砺算官方驱动 / 图形栈研发。按投入产出比排序；**任意一项落地，本目录对应 workaround 即可退役**。

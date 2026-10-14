@@ -10,6 +10,8 @@
 > （源码 `/home/ubuntu/mm_patch/plugin/Patcher.cs`）已于 2026-08-26 退役，见游戏坑 1。
 >
 > **渲染状态（2026-08-30 起）**：7G100 **硬件渲染**已打通，见「游戏坑 8」。
+>
+> 下载：Steam 商店《Minion Masters》（**免费**，AppID 489520）—— <https://store.steampowered.com/app/489520/>
 
 ## 至砺算：官方实现什么可以让本游戏原生运行
 

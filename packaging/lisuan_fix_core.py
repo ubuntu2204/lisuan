@@ -16,6 +16,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypedDict
@@ -44,8 +45,14 @@ REPO_ROOT = _find_base()
 S = REPO_ROOT
 
 STEAM_DESKTOP = Path.home() / ".local/share/applications/steam.desktop"
-STEAM_DESKTOP_EXEC_FIXED = "Exec=env GBM_BACKEND=dri /usr/bin/steam %U"
 STEAM_WRAP = Path.home() / ".local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh"
+
+# Navicat 18 Premium Lite（AppImage）——与 GPU 无关的应用层修复，见 navicat/
+# NAVICAT_APPIMAGE 环境变量可覆盖默认路径（与 navicat/fix-navicat-appimage.sh 一致）
+NAVICAT_APPIMAGE = Path(os.environ.get("NAVICAT_APPIMAGE")
+                        or (Path.home() / "development/navicat18-premium-lite-cs-x86_64.AppImage"))
+# 功能不变量：AppRun 含此行即视为已修复（与 navicat/fix-navicat-appimage.sh --status 同源）
+NAVICAT_FIXLINE = "export QT_IM_MODULE=compose"
 
 _STEAM_DESKTOP_COMMON = """[Desktop Entry]
 Name=Steam
@@ -67,6 +74,80 @@ STEAM_DESKTOP_BODY_FIXED = _STEAM_DESKTOP_COMMON.format(exec_line=(
 ))
 
 STEAM_DESKTOP_BODY_PLAIN = _STEAM_DESKTOP_COMMON.format(exec_line="Exec=/usr/bin/steam %U")
+
+
+def _steam_exec_value(content: str) -> str:
+    """取桌面文件第一个 Exec= 行的值（无 Exec 行返回 ""）。"""
+    for line in content.splitlines():
+        s = line.strip()
+        if s.startswith("Exec="):
+            return s[len("Exec="):].strip()
+    return ""
+
+
+def _steam_exec_tokens(content: str) -> list[str]:
+    ex = _steam_exec_value(content)
+    if not ex:
+        return []
+    try:
+        return shlex.split(ex)
+    except ValueError:
+        return ex.split()
+
+
+def _steam_exe_index(toks: list[str]) -> int | None:
+    """steam 可执行文件在 token 列表中的下标（找不到返回 None）。"""
+    return next((i for i, t in enumerate(toks)
+                 if t == "steam" or t.endswith("/steam")), None)
+
+
+def steam_desktop_fixed(content: str) -> bool:
+    """桌面启动器是否已把 GBM_BACKEND=dri 注入 steam 启动命令。
+
+    判定"Exec 行里、steam 可执行文件之前是否存在 GBM_BACKEND=dri 环境
+    赋值"，不做整行精确匹配——用户完全可以按自己的需要在 env 段叠加
+    其它变量（如 `LC_ALL=en_US.UTF-8`），那是合法定制，检测必须容忍，
+    否则会把"能正常打开的 Steam"误报成"需修复"。
+    """
+    toks = _steam_exec_tokens(content)
+    exe_idx = _steam_exe_index(toks)
+    if exe_idx is None:
+        return False
+    return "GBM_BACKEND=dri" in toks[:exe_idx]
+
+
+def _build_fixed_exec(content: str) -> tuple[str, bool]:
+    """在原 Exec 行基础上注入 GBM_BACKEND=dri，保留用户其它 env 定制。
+
+    返回 (新 Exec 行值, 是否发生变化)。无 Exec 行时返回 ("", False)。
+    """
+    toks = _steam_exec_tokens(content)
+    if not toks:
+        return "", False
+    if "GBM_BACKEND=dri" in toks:
+        return _steam_exec_value(content), False
+    if toks[0] == "env":
+        new = ["env", "GBM_BACKEND=dri", *toks[1:]]
+    else:
+        new = ["env", "GBM_BACKEND=dri", *toks]
+    return " ".join(new), True
+
+
+def _strip_fixed_exec(content: str) -> str | None:
+    """从 Exec 行摘除 GBM_BACKEND=dri（_build_fixed_exec 的逆操作）。
+
+    无 Exec 行返回 None。摘除后若 env 前缀下已无其它赋值，连 env 一起去掉，
+    避免残留空的 `env`。
+    """
+    toks = _steam_exec_tokens(content)
+    if not toks:
+        return None
+    rest = [t for t in toks if t != "GBM_BACKEND=dri"]
+    exe_idx = _steam_exe_index(rest)
+    if (rest and rest[0] == "env" and exe_idx is not None
+            and not any("=" in t for t in rest[1:exe_idx])):
+        rest.pop(0)
+    return " ".join(rest)
 
 
 # ---------------------------------------------------------------- 基础工具
@@ -201,7 +282,7 @@ def detect() -> Env:
                 dcontent = STEAM_DESKTOP.read_text(errors="replace")
             except OSError:
                 dcontent = ""
-            if STEAM_DESKTOP_EXEC_FIXED in dcontent:
+            if steam_desktop_fixed(dcontent):
                 env.add("Steam", "ok", "桌面启动器已配置 GBM_BACKEND=dri（CEF 崩溃已修复）")
             else:
                 env.add("Steam", "bad",
@@ -262,6 +343,16 @@ def detect() -> Env:
         env.add("游戏", "warn",
                 "Kingdom Rush 修复未安装（Steam 启动会报 GLXBadFBConfig）—— 菜单 [18]", "18")
 
+    # Navicat（与 GPU 无关的应用层修复，AppImage 不在时跳过）
+    if NAVICAT_APPIMAGE.is_file():
+        if _navicat_fixed():
+            env.add("应用", "ok",
+                    "Navicat AppImage 修复已安装（fcitx 会话下启动不再闪退）")
+        else:
+            env.add("应用", "warn",
+                    "Navicat AppImage 未修复（QT_IM_MODULE=fcitx 会话下启动即闪退）"
+                    " —— 菜单 [20]", "20")
+
     return env
 
 
@@ -292,7 +383,7 @@ def _doc(rel: str) -> str:
 # 分组与排列规则（2026-09-05 修订）：
 #   1) 环境检测单独一节，两项"体检"也归入此节（本质就是检测）；
 #   2) 其余按类别（目录）分组，顺序：DKMS -> Mesa -> Electron -> Steam
-#      -> 随从大师 -> 刀塔霸业；
+#      -> 随从大师 -> 刀塔霸业 -> 王国保卫战 -> Navicat（新类别追加在末尾）；
 #   3) 每个类别内严格按"安装/修复 -> 卸载 -> 说明"排列。
 #   4) 历史"建立 lisuan_dri.so 软链"方案整体退出菜单：宿主 Mesa 由 drirc
 #      （01-gf_drv.conf 的 kernel_driver/dri_driver 映射）天然找到 gf 驱动，
@@ -367,10 +458,18 @@ ITEMS: list[Item] = [
      "cmd": lambda a: _sh("kingdom-rush/fix-kingdom-rush.sh"), "doc": ""},
     {"id": 19, "title": "说明：Kingdom Rush 修复文档", "group": "王国保卫战",
      "root": False, "cmd": None, "doc": _doc("kingdom-rush/README.md")},
+
+    # ---- Navicat（与 GPU 无关：AppImage 打包缺陷，见 navicat/README.md）----
+    {"id": 20, "title": "安装/修复：Navicat AppImage 启动闪退（重打包注入 QT_IM_MODULE=compose）",
+     "group": "Navicat", "root": False,
+     "cmd": lambda a: _sh("navicat/fix-navicat-appimage.sh", *a), "doc": ""},
+    {"id": 21, "title": "说明：Navicat AppImage 启动闪退修复文档", "group": "Navicat",
+     "root": False, "cmd": None, "doc": _doc("navicat/README.md")},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
-GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业", "王国保卫战"]
+GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业",
+               "王国保卫战", "Navicat"]
 
 
 class UndoAction(TypedDict):
@@ -403,6 +502,8 @@ UNDO: dict[int, UndoAction] = {
          "root": True, "always": False},
     18: {"cmd": _sh("kingdom-rush/fix-kingdom-rush.sh", "--uninstall"),
          "root": True, "always": False},
+    20: {"cmd": _sh("navicat/fix-navicat-appimage.sh", "--restore"),
+         "root": False, "always": False},
 }
 
 # 显示卸载按钮的状态（"已生效"类的状态），见 collect_statuses 的文本
@@ -432,52 +533,122 @@ def item_label(it: Item) -> str:
 # ---------------------------------------------------------------- Steam 修复
 
 
+def _replace_exec_line(content: str, new_exec: str) -> str:
+    """替换桌面文件第一个 Exec= 行的值，其余内容原样保留。"""
+    lines = content.splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        if ln.strip().startswith("Exec="):
+            eol = "\n" if ln.endswith("\n") else ""
+            lines[i] = f"Exec={new_exec}{eol}"
+            break
+    return "".join(lines)
+
+
 def install_steam_fix() -> int:
-    """把 GBM_BACKEND=dri 写入 Steam 桌面启动器（新方案，不修改 Steam 文件）。"""
+    """把 GBM_BACKEND=dri 写入 Steam 桌面启动器（新方案，不修改 Steam 文件）。
+
+    只改 Exec 行并保留用户其它定制（如 LC_ALL=en_US.UTF-8）；文件不存在时
+    才写完整模板。重复执行幂等。
+    """
     STEAM_DESKTOP.parent.mkdir(parents=True, exist_ok=True)
+    if not STEAM_DESKTOP.is_file():
+        try:
+            STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_FIXED, encoding="utf-8")
+        except OSError as e:
+            print(f"  写入失败：{e}")
+            return 1
+        print(f"  已创建 {STEAM_DESKTOP}")
+        print("  Steam 界面崩溃修复完成（下次从菜单启动 Steam 生效）。")
+        return 0
+
     try:
-        if STEAM_DESKTOP.is_file():
+        content = STEAM_DESKTOP.read_text(errors="replace")
+    except OSError as e:
+        print(f"  读取失败：{e}")
+        return 1
+    if steam_desktop_fixed(content):
+        print(f"  {STEAM_DESKTOP} 已含 GBM_BACKEND=dri，无需改动。")
+        return 0
+
+    new_exec, changed = _build_fixed_exec(content)
+    if not changed:
+        # 无 Exec 行的异常文件：退回完整模板
+        try:
             shutil.copy2(STEAM_DESKTOP, str(STEAM_DESKTOP) + ".bak")
             print(f"  已备份原启动器 -> {STEAM_DESKTOP}.bak")
-        STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_FIXED, encoding="utf-8")
+            STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_FIXED, encoding="utf-8")
+        except OSError as e:
+            print(f"  写入失败：{e}")
+            return 1
+        print(f"  原文件无 Exec 行，已重写为完整模板：{STEAM_DESKTOP}")
+        print("  Steam 界面崩溃修复完成（下次从菜单启动 Steam 生效）。")
+        return 0
+
+    try:
+        shutil.copy2(STEAM_DESKTOP, str(STEAM_DESKTOP) + ".bak")
+        print(f"  已备份原启动器 -> {STEAM_DESKTOP}.bak")
+        STEAM_DESKTOP.write_text(_replace_exec_line(content, new_exec),
+                                 encoding="utf-8")
     except OSError as e:
         print(f"  写入失败：{e}")
         return 1
-    print(f"  已写入 {STEAM_DESKTOP}")
+    print(f"  已更新 {STEAM_DESKTOP} 的 Exec 行（保留你的其它启动参数）：")
+    print(f"    Exec={new_exec}")
     print("  Steam 界面崩溃修复完成（下次从菜单启动 Steam 生效）。")
     return 0
 
 
 def remove_steam_fix() -> int:
-    """移除 Steam 修复：还原桌面启动器，并解锁可能残留的 chattr +i。"""
+    """移除 Steam 修复：从 Exec 行摘除 GBM_BACKEND=dri，解锁残留 chattr +i。
+
+    只动 Exec 行，保留用户其它 env 定制（如 LC_ALL=en_US.UTF-8）；
+    Exec 行缺失/无法解析时才回退到备份还原或纯净模板。
+    """
     if STEAM_WRAP.is_file():
         pre = [] if os.geteuid() == 0 else ["sudo"]
         r = run([*pre, "chattr", "-i", str(STEAM_WRAP)])
         print(f"  解锁：{'完成' if r[0] == 0 else '跳过（未锁定/文件系统不支持）'}")
 
-    if STEAM_DESKTOP.is_file():
+    if not STEAM_DESKTOP.is_file():
+        print("  未找到桌面启动器，无需还原。")
+        return 0
+    try:
+        content = STEAM_DESKTOP.read_text(errors="replace")
+    except OSError as e:
+        print(f"  读取失败：{e}")
+        return 1
+    if not steam_desktop_fixed(content):
+        print("  启动器未含 GBM_BACKEND=dri，无需还原。")
+        return 0
+
+    new_exec = _strip_fixed_exec(content)
+    if new_exec is not None:
         try:
-            content = STEAM_DESKTOP.read_text(errors="replace")
+            STEAM_DESKTOP.write_text(_replace_exec_line(content, new_exec),
+                                     encoding="utf-8")
+        except OSError as e:
+            print(f"  写入失败：{e}")
+            return 1
+        print(f"  已从 Exec 行摘除 GBM_BACKEND=dri：{STEAM_DESKTOP}")
+        print(f"    Exec={new_exec}")
+        return 0
+
+    # 无 Exec 行（异常文件）：回退历史行为——干净备份还原，否则纯净模板
+    bak = Path(str(STEAM_DESKTOP) + ".bak")
+    restored = False
+    if bak.is_file():
+        try:
+            bcontent = bak.read_text(errors="replace")
         except OSError:
-            content = ""
-        if "GBM_BACKEND=dri" in content:
-            bak = Path(str(STEAM_DESKTOP) + ".bak")
-            restored = False
-            if bak.is_file():
-                try:
-                    bcontent = bak.read_text(errors="replace")
-                except OSError:
-                    bcontent = ""
-                # 仅当备份"干净"（不含修复）时才还原，否则重写纯净模板
-                if bcontent and "GBM_BACKEND=dri" not in bcontent:
-                    shutil.copy2(bak, STEAM_DESKTOP)
-                    print(f"  已从干净备份还原启动器：{STEAM_DESKTOP}")
-                    restored = True
-            if not restored:
-                STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_PLAIN, encoding="utf-8")
-                print(f"  已重写为纯净启动器：{STEAM_DESKTOP}")
-        else:
-            print("  启动器未含 GBM_BACKEND=dri，无需还原。")
+            bcontent = ""
+        # 仅当备份"干净"（不含修复）时才还原，否则重写纯净模板
+        if bcontent and "GBM_BACKEND=dri" not in bcontent:
+            shutil.copy2(bak, STEAM_DESKTOP)
+            print(f"  已从干净备份还原启动器：{STEAM_DESKTOP}")
+            restored = True
+    if not restored:
+        STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_PLAIN, encoding="utf-8")
+        print(f"  已重写为纯净启动器：{STEAM_DESKTOP}")
     return 0
 
 
@@ -568,6 +739,41 @@ def report_json(env: Env) -> str:
 # ---------------------------------------------------------------- 修复状态
 
 
+def _navicat_fixed() -> bool:
+    """Navicat AppImage 是否已修复（内部 AppRun 含 export QT_IM_MODULE=compose）。
+
+    与 navicat/fix-navicat-appimage.sh --status 同一判定：AppImage type2 =
+    [runtime ELF][squashfs]，runtime 内部数据里也可能出现 'hsqs' 魔数（假阳性），
+    逐个候选交给 unsquashfs -s 验真，取第一个有效偏移，再提取 AppRun 查功能不变量。
+    """
+    f = NAVICAT_APPIMAGE
+    if not f.is_file():
+        return False
+    if not shutil.which("unsquashfs"):
+        # 没有 unsquashfs 时退回备份启发：.bak 仅在修复时创建、还原时被消费
+        return Path(str(f) + ".bak").is_file()
+
+    off = ""
+    for line in run(["grep", "-abo", "hsqs", str(f)])[1].splitlines():
+        cand = line.split(":", 1)[0]
+        if cand.isdigit() and "Found a valid SQUASHFS" in run(
+                ["unsquashfs", "-s", "-o", cand, str(f)])[1]:
+            off = cand
+            break
+    if not off:
+        return False
+
+    tmp = tempfile.mkdtemp(prefix="navicat-probe.")
+    try:
+        run(["unsquashfs", "-o", off, "-d", tmp, "-f", str(f), "AppRun"])
+        apprun = Path(tmp) / "AppRun"
+        return apprun.is_file() and NAVICAT_FIXLINE in apprun.read_text(errors="replace")
+    except OSError:
+        return False
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _desktop_configured(paths: list[Path], marker: str) -> bool:
     """任一 desktop 文件存在且含 marker（如 wrapper 脚本名）即视为已配置。"""
     for p in paths:
@@ -583,7 +789,7 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
     级别：ok=已就绪，bad=需修复，warn=需注意，dim=不适用/可选/按需。
-    说明与纯操作项（1/5/6/11/13/15/17）不返回状态。
+    说明与纯操作项（1/5/6/11/13/15/17/19/21）不返回状态。
     """
     env = env or detect()
     st: dict[int, tuple[str, str]] = {}
@@ -668,8 +874,8 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     else:
         try:
             fixed = (STEAM_DESKTOP.is_file()
-                     and STEAM_DESKTOP_EXEC_FIXED in
-                     STEAM_DESKTOP.read_text(errors="replace"))
+                     and steam_desktop_fixed(
+                         STEAM_DESKTOP.read_text(errors="replace")))
         except OSError:
             fixed = False
         st[12] = ("✓ 已修复", "ok") if fixed else ("✗ 需修复", "bad")
@@ -727,6 +933,14 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
         except OSError:
             kr_inj = False
         st[18] = ("✓ 已修复", "ok") if kr_inj else ("✗ 需修复", "bad")
+
+    # 20 Navicat：AppImage 存在且内部 AppRun 已注入（判定与脚本 --status 同源）
+    if not NAVICAT_APPIMAGE.is_file():
+        st[20] = ("未找到 AppImage", "dim")
+    elif _navicat_fixed():
+        st[20] = ("✓ 已修复", "ok")
+    else:
+        st[20] = ("✗ 需修复", "bad")
 
     return st
 

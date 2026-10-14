@@ -122,7 +122,7 @@ right headers.
 | `dkms/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `steam/fix-steam-cef-lock.sh` | **Steam 清理工具**（非日常修复入口）：检测并移除 `steamwebhelper_sniper_wrap.sh` 中历史遗留的 gf 注入（`GBM_BACKEND=dri` + `LD_PRELOAD` glapi）与 `chattr +i` 锁定。`--unlock` 只解锁、`--uninstall` 还原原厂。**注意**：注入方案已于 2026-09-01 废弃，现改用 `GBM_BACKEND=dri` 环境变量（详见[三](#三steam-适配)） |
 | `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 24/25） |
-| `navicat/fix-navicat-appimage.sh` | **Navicat 18 Premium Lite（AppImage）启动闪退修复**（幂等，无需 root）：重打包 AppImage、在内部 AppRun 注入 `QT_IM_MODULE=compose`，绕开内置 fcitx 插件与自带 Qt 6.8.3 的 ABI 冲突；自动备份原包 `.bak`，`--status` / `--test` / `--restore` 齐备。**与 GPU 无关**的应用层修复 |
+| `navicat/fix-navicat-appimage.sh` | **Navicat 18 Premium Lite（AppImage）启动闪退修复**（幂等，无需 root）：重打包 AppImage、在内部 AppRun 注入 `QT_IM_MODULE=compose`，绕开内置 fcitx 插件与自带 Qt 6.8.3 的 ABI 冲突；自动备份原包 `.bak`，`--status` / `--test` / `--restore` 齐备。**与 GPU 无关**的应用层修复（install.py 菜单 [20]/[21]） |
 | `dkms/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
@@ -162,7 +162,7 @@ right headers.
 |---|---|
 | `CHANGELOG.md` | 更新日志：每个版本的新增/修复/实测更正，均实机验证 |
 | `install.py` | **交互式修复索引（推荐入口，仓库根）**：入口壳，定位并导入核心模块后转交 `main()`。非交互用法：`--detect` / `--detect --json` / 菜单编号 |
-| `packaging/lisuan_fix_core.py` | 核心逻辑（无 UI）：环境检测 / 菜单定义（7 组 27 项）/ 修复执行 / CLI 分发，仅标准库 |
+| `packaging/lisuan_fix_core.py` | 核心逻辑（无 UI）：环境检测 / 菜单定义（9 组 21 项）/ 修复执行 / CLI 分发，仅标准库 |
 | `packaging/lisuan_fix_gui.py` | Tkinter 桌面界面（需 `python3-tk`）：左检测、右菜单树（每项标题后缀**修复状态**并整行染色）、底部日志；提供 `gui_available()` / `run_gui()` |
 | `packaging/lisuan_fix_md.py` | 轻量 Markdown → Tkinter Text 渲染器：说明弹窗按标题/代码块/表格/列表/引用/粗体/链接样式呈现 |
 | `packaging/build-deb.sh` | deb 打包脚本，产物输出到 `packaging/dist/` |
@@ -170,6 +170,24 @@ right headers.
 | `.workflow/gitee-go-build-deb.yml` | Gitee Go 流水线：push 时先跑测试套件再构建 deb，发布到仓库 **Releases**（Tag `deb-latest`，自动覆盖更新，附件为原样 `lisuan-fix.deb`） |
 | `_work/` | 本地诊断草稿区（构建日志、探针程序、解包的厂商 DKMS 源码树、Mesa 官方源码等）。仅本机排查用，**不是交付物**；其中的厂商文件不得再分发 |
 | `lisuangpu-*.deb` | 厂商驱动包原件（已被 `.gitignore` 排除，不入库），仅本机留存 |
+
+### 各应用/游戏获取地址
+
+各主题目录的说明文档开头也都带对应下载地址；此处汇总一份，便于按图索骥。
+
+| 应用/游戏 | 获取地址 | 费用 |
+|---|---|---|
+| Steam 客户端 | <https://store.steampowered.com/about/> | 免费 |
+| 随从大师 Minion Masters（AppID 489520） | <https://store.steampowered.com/app/489520/> | 免费 |
+| 刀塔霸业 Dota Underlords（AppID 1046930） | <https://store.steampowered.com/app/1046930/> | 免费 |
+| 求生之路 2 Left 4 Dead 2（AppID 550） | <https://store.steampowered.com/app/550/> | 付费 |
+| 王国保卫战 Kingdom Rush（AppID 246420） | <https://store.steampowered.com/app/246420/> | 付费 |
+| ZCode（智谱 AI IDE，Linux Beta） | <https://zcode.z.ai/cn> | 免费 |
+| CodeBuddy 国内版（国际版 <https://www.codebuddy.ai/>） | <https://copilot.tencent.com/> | 免费 |
+| Qoder 国内版（国际版 <https://qoder.com/>） | <https://www.aliyun.com/product/qoder> | 免费 |
+| Trae 国内版（国际版 <https://www.trae.ai/>） | <https://www.trae.cn/> | 免费 |
+| Navicat Premium Lite 18（Linux 仅 AppImage/Flatpak） | <https://www.navicat.com.cn/download/navicat-premium-lite> | 免费 |
+| 砺算 GPU 驱动包（lisuangpu-dkms / lisuangpu-lib） | 厂商/OEM 渠道，见[关于厂商驱动的获取](#关于厂商驱动的获取) | — |
 
 ## 快速开始
 
@@ -190,22 +208,27 @@ sudo dpkg -i packaging/dist/lisuan-fix_*_all.deb        # 安装
 lisuan-fix --detect                                     # PATH 直达，资源在 /usr/share/lisuan-fix
 ```
 
-**菜单结构**（2026-09-05 修订）：环境检测单独一节（两项体检也归入此节），
-其余按**类别**分组，顺序为 **DKMS → Mesa → Electron → Steam → 随从大师 → 刀塔霸业**，
+**菜单结构**（2026-10-14 修订）：环境检测单独一节（两项体检也归入此节），
+其余按**类别**分组，顺序为 **DKMS → Mesa → Electron → Steam → 随从大师 → 刀塔霸业
+→ 王国保卫战 → Navicat**（新类别追加在末尾），
 每个类别内严格按 **安装/修复 → 卸载 → 说明** 排列（说明项打开该目录下的 md 文档）：
 
 ```
- 1-3)   环境检测  重新检测 · GPU 体检 · Mesa 体检
- 4-5)   DKMS      安装/修复 · 说明（卸载走 4 的"卸载"按钮，见操作列）
- 6)     Mesa      说明（软链方案已整体退出菜单，脚本留作手动工具）
- 7-11)  Electron  ZCode / CodeBuddy / Qoder / Trae（各一项：装桌面项）· 说明
-12-13)  Steam     安装/修复 · 说明（卸载走 12 的"卸载"按钮）
-14-15)  随从大师   安装/修复 · 说明
-16-17)  刀塔霸业   安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
+ 1-3)   环境检测    重新检测 · GPU 体检 · Mesa 体检
+ 4-5)   DKMS        安装/修复 · 说明（卸载走 4 的"卸载"按钮，见操作列）
+ 6)     Mesa        说明（软链方案已整体退出菜单，脚本留作手动工具）
+ 7-11)  Electron    ZCode / CodeBuddy / Qoder / Trae（各一项：装桌面项）· 说明
+12-13)  Steam       安装/修复 · 说明（卸载走 12 的"卸载"按钮）
+14-15)  随从大师     安装/修复 · 说明
+16-17)  刀塔霸业     安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
+18-19)  王国保卫战   安装/修复 · 说明
+20-21)  Navicat     安装/修复（AppImage 重打包注入 QT_IM_MODULE=compose，无需 root）· 说明
+                    （还原走 20 的"卸载"按钮 = fix-navicat-appimage.sh --restore）
 ```
 
 > 注意：编号已按新分组**重新编排**。
 > 本文件及项目各处引用的"菜单 [N]"均已同步为新编号。
+> Navicat 项与 GPU 无关（应用层修复），放在末尾自成一组。
 
 **GUI 依赖**（Ubuntu 24.04 默认未装 tkinter 运行时）：
 
@@ -495,6 +518,9 @@ GBM_BACKEND=dri steam
 
 桌面启动器 `~/.local/share/applications/steam.desktop` 已内置该变量
 （`Exec=env GBM_BACKEND=dri /usr/bin/steam %U`），从菜单启动同样生效。
+env 段允许叠加自己的变量（如 `LC_ALL=en_US.UTF-8`），不影响修复判定——
+`install.py` 菜单 [12] 只按"Exec 行 env 段是否含 `GBM_BACKEND=dri`"检测，
+且只改 Exec 行、保留文件其余内容。
 
 **原理**：`GBM_BACKEND=dri` 让 libgbm 直接加载 Mesa 的 `dri_gbm.so`（56KB），
 不再扫描加载厂商 `gf_gbm.so`（106KB，与 libgbm 25.2.8 ABI 不兼容）——从源头消除段错误。

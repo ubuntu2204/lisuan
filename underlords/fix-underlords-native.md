@@ -3,6 +3,7 @@
 > 适用机型：**砺算 7G100 GPU + Ubuntu 24.04 + Steam（pressure-vessel 容器）**。
 > 现象：Steam 里点"开始游戏"能正常进入并游玩（已实测）。
 > 修复脚本：`./fix-underlords-native.sh`
+> 下载：Steam 商店《Dota Underlords》（**免费**，AppID 1046930）—— <https://store.steampowered.com/app/1046930/>
 
 ## 至砺算：官方实现什么可以让本游戏在容器内原生运行
 

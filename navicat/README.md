@@ -11,7 +11,10 @@
 | `fix-navicat-appimage.sh` | 重打包 AppImage 并注入 `QT_IM_MODULE=compose`（幂等；自动备份原包为 `.bak`；`--status` / `--test` / `--restore` 齐备） |
 
 > AppImage 本体（约 360 MB，Navicat 专有软件）**不入库**，留存于
-> `~/development/navicat18-premium-lite-cs-x86_64.AppImage`（从 Navicat 官方渠道获取）。
+> `~/development/navicat18-premium-lite-cs-x86_64.AppImage`。
+> 官方下载（**Navicat Premium Lite 18**，免费，每机构限 5 用户；Linux 仅提供
+> x86_64 / aarch64 的 **AppImage** 与 Flatpak，无 deb/rpm）：
+> <https://www.navicat.com.cn/download/navicat-premium-lite>
 > 本目录只有脚本与文档；换了下载路径用首个参数或 `NAVICAT_APPIMAGE=` 指定即可。
 
 ## 症状
@@ -102,5 +105,8 @@ NAVICAT_APPIMAGE=/path/x.AppImage ./fix-navicat-appimage.sh
   `libselinux.so.1: no version information available` 是**无害噪音**
   （前者自动回退 xcb；后者是包内旧版 libselinux 与系统新版 glibc 的版本声明差异），
   不用处理。
-- 本目录**未接入** `install.py` 交互菜单（应用层修复，与 GPU 无关，按需手动执行脚本）。
+- 已接入 `install.py` 交互菜单（Tkinter 窗口 / CLI 均可用）：
+  **[20] 安装/修复**、**[21] 说明**；还原走 [20] 行「操作」列的**卸载**按钮
+  （即 `--restore`）。CLI 直执行：`python3 install.py 20 [--status|--test]`。
+  deb 安装版同样包含本目录（`/usr/share/lisuan-fix/navicat/`）。
 - 若哪天 Navicat 换了 Qt 版本或修掉这个插件，本脚本可退休：`--restore` 回退即可。

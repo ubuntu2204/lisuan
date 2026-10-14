@@ -3,6 +3,53 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.10.14 — 修复 install.py 菜单 [12] 误报"需修复"（Steam 桌面启动器检测）
+
+### 现象
+
+Steam 已能正常打开（`GBM_BACKEND=dri` 确实生效，进程环境变量可见），
+但 `install.py` 的菜单 [12] 与 `--detect` 报告仍显示 **"✗ 需修复"**。
+
+### 根因
+
+用户的 `~/.local/share/applications/steam.desktop` 在 env 段叠加了自己的
+locale 定制：
+
+```ini
+Exec=env LC_ALL=en_US.UTF-8 GBM_BACKEND=dri /usr/bin/steam %U
+```
+
+而 `lisuan_fix_core.py` 的检测是**整行精确字符串匹配**
+（`Exec=env GBM_BACKEND=dri /usr/bin/steam %U`），任何合法定制都会误判。
+附带隐患：菜单 [12] 的"修复"动作是**整文件覆写模板**，用户一旦信以为真
+去点修复，自己的 `LC_ALL` 定制会被抹掉。
+
+### 修复
+
+`packaging/lisuan_fix_core.py`：
+
+- 新增 `steam_desktop_fixed()` 等 helper：按"**Exec 行 env 段、steam
+  可执行文件之前是否存在 `GBM_BACKEND=dri` 赋值**判定（`shlex` 分词），
+  容忍 env 段其它变量定制；`detect()` 与 GUI 状态（`collect_statuses`）
+  两处判定同源替换。
+- `install_steam_fix()` 改为**只改 Exec 行**：注入 `GBM_BACKEND=dri` 到
+  env 段最前，保留用户其它变量与注释；文件不存在才写完整模板；重复执行
+  幂等（已含则不动作、不重复备份）。
+- `remove_steam_fix()` 改为逆操作：只从 Exec 行摘除 `GBM_BACKEND=dri`
+  （摘除后 env 段无其它赋值时连 `env` 一起去掉），保留用户定制；
+  无 Exec 行的异常文件才回退备份还原/纯净模板。
+
+### 验证
+
+- helper 单元测试：8 组判定用例 + build/strip 往返 + 模板自洽全过；
+- 真实环境 `detect()` / `collect_statuses()`：菜单 [12] 由"✗ 需修复"变为
+  **"✓ 已修复"**（启动器实际就是 `env LC_ALL=en_US.UTF-8 GBM_BACKEND=dri ...`）；
+- 临时文件模拟 6 个场景（缺 GBM 安装 / 重复安装幂等 / 卸载保留 LC_ALL 与
+  注释 / 文件缺失写模板 / 无 Exec 行怪文件安装与卸载）全过；
+- `py_compile` 三文件通过，无 lint 告警。
+
+---
+
 ## 2026.10.14 — Navicat 18 Premium Lite（AppImage）启动闪退修复：内置 fcitx 插件与自带 Qt ABI 冲突
 
 **与 GPU 无关**的应用层修复（AppImage 打包缺陷），新增 `navicat/` 目录
@@ -30,6 +77,18 @@ runtime ELF 原样保留，仅向 squashfs 内的 `AppRun` 注入
 `export QT_IM_MODULE=compose`，按原压缩器/块大小 mksquashfs 重打包。
 双击/菜单/终端三种启动方式全部生效；原包备份 `.bak`（仅首次），
 `--status` / `--test` / `--restore` / `--keep-work` 齐备。
+
+同批接入 `install.py` 交互菜单（Tkinter GUI 与 CLI 均可用）：
+新增 **Navicat** 组（菜单 **[20]** 安装/修复、**[21]** 说明；还原走 [20] 操作列
+「卸载」按钮）；`GROUP_ORDER` 追加在末尾，菜单扩为 **9 组 21 项**；
+`detect()` 左侧面板新增「应用」类检查项（含 `菜单 [20]` 提示）；
+`build-deb.sh` 打包目录加入 `navicat`，`Recommends` 补 `squashfs-tools`
+（重打包依赖），deb 实测含 `navicat/README.md` 与可执行脚本。
+
+同批（文档）：**全部应用/游戏说明文档补齐官方下载地址**（steam /
+minion-masters / left4dead2 / underlords / kingdom-rush / electron / navicat），
+主 README 新增「各应用/游戏获取地址」汇总表；electron README 补登漏登记的
+`use-trae.sh`（Trae）；斧正 Dota Underlords 的 Steam AppID 为 **1046930**。
 
 ### 验证
 

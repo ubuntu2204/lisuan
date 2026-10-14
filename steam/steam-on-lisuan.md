@@ -4,6 +4,7 @@
 > 本文集中收录 Steam 客户端本身的全部坑（容器机制、gf env 污染、CEF 崩溃、无头登录、
 > applaunch 状态卡死、Proton 选型、user_settings.py 注入无效、overlay 等）。
 > 游戏专属的坑请见 `fix-minion-masters.md` / `fix-underlords-native.md`，本文只讲 Steam 平台层。
+> Steam 客户端下载（免费）：<https://store.steampowered.com/about/>
 
 ## 至砺算：官方实现什么可以让 Steam 正常运行
 
@@ -112,6 +113,12 @@ GBM_BACKEND=dri steam          # 命令行
 ```ini
 Exec=env GBM_BACKEND=dri /usr/bin/steam %U
 ```
+
+> **允许叠加自己的环境变量**（2026-10-14）：Exec 行的 env 段可以按需加入其它
+> 变量而不影响修复判定，例如 `Exec=env LC_ALL=en_US.UTF-8 GBM_BACKEND=dri
+> /usr/bin/steam %U`。`install.py` 菜单 [12] 的检测与安装都按"GBM_BACKEND=dri
+> 是否位于 Exec 行 env 段"判定/注入，只改 Exec 行、保留其余内容，不做整行
+> 精确匹配（早期版本整行精确匹配，会把这类合法定制误报为"需修复"）。
 
 **为什么这是正确解法**：
 
