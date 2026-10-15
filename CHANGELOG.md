@@ -3,6 +3,30 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.10.15 — Navicat 修复迁出至 hygon 项目
+
+### Navicat → 独立/合并项目
+`navicat/` 下的 Navicat 18 Premium Lite（AppImage）启动闪退修复
+**与砺算 7G100 GPU 无关**（应用层 AppImage 打包缺陷），已迁出：
+
+```
+/home/ubuntu/project/hygon/navicat/
+```
+
+lisuan 仓库中相关脚本、菜单项、文档章节、deb 打包与测试引用已同步移除：
+
+- `packaging/lisuan_fix_core.py`：删除 Navicat 菜单项 [20]/[21]、`GROUP_ORDER`
+  的 `Navicat` 组、UNDO 表 [20]、`detect()` 的「应用」检查项与
+  `_navicat_fixed()` 判定函数——菜单由 **9 组 21 项**收为 **8 组 19 项**；
+- `packaging/build-deb.sh`：打包目录去掉 `navicat`，`Recommends` 移除仅为
+  Navicat 重打包引入的 `squashfs-tools`；
+- `README.md`：删除桌面应用修复专章、结构表/修复表/文档表/获取地址表中的
+  navicat 行与菜单结构里的 20-21 项。
+
+下方 2026.10.14 的 Navicat 条目为**迁出前记录**，请以上述新位置为准。
+
+---
+
 ## 2026.10.14 — 修复 install.py 菜单 [12] 误报"需修复"（Steam 桌面启动器检测）
 
 ### 现象

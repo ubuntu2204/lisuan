@@ -16,7 +16,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, TypedDict
@@ -46,13 +45,6 @@ S = REPO_ROOT
 
 STEAM_DESKTOP = Path.home() / ".local/share/applications/steam.desktop"
 STEAM_WRAP = Path.home() / ".local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh"
-
-# Navicat 18 Premium Lite（AppImage）——与 GPU 无关的应用层修复，见 navicat/
-# NAVICAT_APPIMAGE 环境变量可覆盖默认路径（与 navicat/fix-navicat-appimage.sh 一致）
-NAVICAT_APPIMAGE = Path(os.environ.get("NAVICAT_APPIMAGE")
-                        or (Path.home() / "development/navicat18-premium-lite-cs-x86_64.AppImage"))
-# 功能不变量：AppRun 含此行即视为已修复（与 navicat/fix-navicat-appimage.sh --status 同源）
-NAVICAT_FIXLINE = "export QT_IM_MODULE=compose"
 
 _STEAM_DESKTOP_COMMON = """[Desktop Entry]
 Name=Steam
@@ -343,16 +335,6 @@ def detect() -> Env:
         env.add("游戏", "warn",
                 "Kingdom Rush 修复未安装（Steam 启动会报 GLXBadFBConfig）—— 菜单 [18]", "18")
 
-    # Navicat（与 GPU 无关的应用层修复，AppImage 不在时跳过）
-    if NAVICAT_APPIMAGE.is_file():
-        if _navicat_fixed():
-            env.add("应用", "ok",
-                    "Navicat AppImage 修复已安装（fcitx 会话下启动不再闪退）")
-        else:
-            env.add("应用", "warn",
-                    "Navicat AppImage 未修复（QT_IM_MODULE=fcitx 会话下启动即闪退）"
-                    " —— 菜单 [20]", "20")
-
     return env
 
 
@@ -383,7 +365,7 @@ def _doc(rel: str) -> str:
 # 分组与排列规则（2026-09-05 修订）：
 #   1) 环境检测单独一节，两项"体检"也归入此节（本质就是检测）；
 #   2) 其余按类别（目录）分组，顺序：DKMS -> Mesa -> Electron -> Steam
-#      -> 随从大师 -> 刀塔霸业 -> 王国保卫战 -> Navicat（新类别追加在末尾）；
+#      -> 随从大师 -> 刀塔霸业 -> 王国保卫战（新类别追加在末尾）；
 #   3) 每个类别内严格按"安装/修复 -> 卸载 -> 说明"排列。
 #   4) 历史"建立 lisuan_dri.so 软链"方案整体退出菜单：宿主 Mesa 由 drirc
 #      （01-gf_drv.conf 的 kernel_driver/dri_driver 映射）天然找到 gf 驱动，
@@ -458,18 +440,11 @@ ITEMS: list[Item] = [
      "cmd": lambda a: _sh("kingdom-rush/fix-kingdom-rush.sh"), "doc": ""},
     {"id": 19, "title": "说明：Kingdom Rush 修复文档", "group": "王国保卫战",
      "root": False, "cmd": None, "doc": _doc("kingdom-rush/README.md")},
-
-    # ---- Navicat（与 GPU 无关：AppImage 打包缺陷，见 navicat/README.md）----
-    {"id": 20, "title": "安装/修复：Navicat AppImage 启动闪退（重打包注入 QT_IM_MODULE=compose）",
-     "group": "Navicat", "root": False,
-     "cmd": lambda a: _sh("navicat/fix-navicat-appimage.sh", *a), "doc": ""},
-    {"id": 21, "title": "说明：Navicat AppImage 启动闪退修复文档", "group": "Navicat",
-     "root": False, "cmd": None, "doc": _doc("navicat/README.md")},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
 GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业",
-               "王国保卫战", "Navicat"]
+               "王国保卫战"]
 
 
 class UndoAction(TypedDict):
@@ -502,8 +477,6 @@ UNDO: dict[int, UndoAction] = {
          "root": True, "always": False},
     18: {"cmd": _sh("kingdom-rush/fix-kingdom-rush.sh", "--uninstall"),
          "root": True, "always": False},
-    20: {"cmd": _sh("navicat/fix-navicat-appimage.sh", "--restore"),
-         "root": False, "always": False},
 }
 
 # 显示卸载按钮的状态（"已生效"类的状态），见 collect_statuses 的文本
@@ -739,41 +712,6 @@ def report_json(env: Env) -> str:
 # ---------------------------------------------------------------- 修复状态
 
 
-def _navicat_fixed() -> bool:
-    """Navicat AppImage 是否已修复（内部 AppRun 含 export QT_IM_MODULE=compose）。
-
-    与 navicat/fix-navicat-appimage.sh --status 同一判定：AppImage type2 =
-    [runtime ELF][squashfs]，runtime 内部数据里也可能出现 'hsqs' 魔数（假阳性），
-    逐个候选交给 unsquashfs -s 验真，取第一个有效偏移，再提取 AppRun 查功能不变量。
-    """
-    f = NAVICAT_APPIMAGE
-    if not f.is_file():
-        return False
-    if not shutil.which("unsquashfs"):
-        # 没有 unsquashfs 时退回备份启发：.bak 仅在修复时创建、还原时被消费
-        return Path(str(f) + ".bak").is_file()
-
-    off = ""
-    for line in run(["grep", "-abo", "hsqs", str(f)])[1].splitlines():
-        cand = line.split(":", 1)[0]
-        if cand.isdigit() and "Found a valid SQUASHFS" in run(
-                ["unsquashfs", "-s", "-o", cand, str(f)])[1]:
-            off = cand
-            break
-    if not off:
-        return False
-
-    tmp = tempfile.mkdtemp(prefix="navicat-probe.")
-    try:
-        run(["unsquashfs", "-o", off, "-d", tmp, "-f", str(f), "AppRun"])
-        apprun = Path(tmp) / "AppRun"
-        return apprun.is_file() and NAVICAT_FIXLINE in apprun.read_text(errors="replace")
-    except OSError:
-        return False
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
 def _desktop_configured(paths: list[Path], marker: str) -> bool:
     """任一 desktop 文件存在且含 marker（如 wrapper 脚本名）即视为已配置。"""
     for p in paths:
@@ -789,7 +727,7 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
     级别：ok=已就绪，bad=需修复，warn=需注意，dim=不适用/可选/按需。
-    说明与纯操作项（1/5/6/11/13/15/17/19/21）不返回状态。
+    说明与纯操作项（1/5/6/11/13/15/17/19）不返回状态。
     """
     env = env or detect()
     st: dict[int, tuple[str, str]] = {}
@@ -933,14 +871,6 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
         except OSError:
             kr_inj = False
         st[18] = ("✓ 已修复", "ok") if kr_inj else ("✗ 需修复", "bad")
-
-    # 20 Navicat：AppImage 存在且内部 AppRun 已注入（判定与脚本 --status 同源）
-    if not NAVICAT_APPIMAGE.is_file():
-        st[20] = ("未找到 AppImage", "dim")
-    elif _navicat_fixed():
-        st[20] = ("✓ 已修复", "ok")
-    else:
-        st[20] = ("✗ 需修复", "bad")
 
     return st
 
