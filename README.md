@@ -83,6 +83,7 @@ right headers.
   - [7.2 踩坑清单（按层分类）](#72-踩坑清单按层分类)
   - [7.3 环境/网络类坑](#73-环境网络类坑)
   - [7.4 排查方法论](#74-排查方法论)
+- [七、HDMI/DP 音频（7G100 伴生 HDA）](#七hdmidp-音频7g100-伴生-hda)
 - [关于厂商驱动的获取](#关于厂商驱动的获取)
 - [自动化测试](#自动化测试)
 - [常见问题 FAQ](#常见问题-faq)
@@ -92,7 +93,7 @@ right headers.
 
 ## 仓库结构
 
-按**主题**分为 8 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）。
+按**主题**分为 9 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）。
 每个游戏/应用文档开头都有 **「至砺算：」** 一节——写给砺算官方研发，说明"官方实现什么，
 本目录的 workaround 即可退役"；这是本项目的主要读者视角。
 
@@ -105,6 +106,7 @@ right headers.
 | `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder / Trae 四个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
 | `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |
 | `mesa/` | Mesa 图形栈 | 驱动名修复（`lisuan` vs `gf`）、系统 Mesa 兼容、切换与体检、源码级分析 |
+| `audio/` | 显卡音频 | 7G100 伴生 HDA（`4c54:5010`）绑 `snd_hda_intel` 的 INTx 修复、开机自绑、BAR0 诊断探针；根因与证据见 [`audio/README.md`](./audio/README.md) |
 
 其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）。
 
@@ -118,6 +120,7 @@ right headers.
 |---|---|
 | `dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
 | `dkms/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
+| `audio/fix-lisuan-hdmi-audio.sh` | **显卡 HDMI/DP 音频修复**：把 7G100 伴生 HDA 功能（`4c54:5010`）绑到 `snd_hda_intel`（`driver_override` + 强制 INTx），开机自绑；`--status` 查状态、`--uninstall` 撤销（幂等） |
 | `steam/fix-steam-cef-lock.sh` | **Steam 清理工具**（非日常修复入口）：检测并移除 `steamwebhelper_sniper_wrap.sh` 中历史遗留的 gf 注入（`GBM_BACKEND=dri` + `LD_PRELOAD` glapi）与 `chattr +i` 锁定。`--unlock` 只解锁、`--uninstall` 还原原厂。**注意**：注入方案已于 2026-09-01 废弃，现改用 `GBM_BACKEND=dri` 环境变量（详见[三](#三steam-适配)） |
 | `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 24/25） |
 | `dkms/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
@@ -158,7 +161,7 @@ right headers.
 |---|---|
 | `CHANGELOG.md` | 更新日志：每个版本的新增/修复/实测更正，均实机验证 |
 | `install.py` | **交互式修复索引（推荐入口，仓库根）**：入口壳，定位并导入核心模块后转交 `main()`。非交互用法：`--detect` / `--detect --json` / 菜单编号 |
-| `packaging/lisuan_fix_core.py` | 核心逻辑（无 UI）：环境检测 / 菜单定义（8 组 19 项）/ 修复执行 / CLI 分发，仅标准库 |
+| `packaging/lisuan_fix_core.py` | 核心逻辑（无 UI）：环境检测 / 菜单定义（9 组 21 项）/ 修复执行 / CLI 分发，仅标准库 |
 | `packaging/lisuan_fix_gui.py` | Tkinter 桌面界面（需 `python3-tk`）：左检测、右菜单树（每项标题后缀**修复状态**并整行染色）、底部日志；提供 `gui_available()` / `run_gui()` |
 | `packaging/lisuan_fix_md.py` | 轻量 Markdown → Tkinter Text 渲染器：说明弹窗按标题/代码块/表格/列表/引用/粗体/链接样式呈现 |
 | `packaging/build-deb.sh` | deb 打包脚本，产物输出到 `packaging/dist/` |
@@ -833,8 +836,8 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 | 用户态驱动名 | `gf`（Mesa DRI driver / Vulkan ICD 均以此命名）；DRM 名却叫 `lisuan` → 经典坑 |
 | Vulkan ICD | `gf_icd.x86_64.json`（gf Vulkan）；另有 lavapipe `lvp_icd.json`（软件兜底） |
 | GLX vendor | 双下划线变量 `__GLX_VENDOR_LIBRARY_NAME=gf`（pressure-vessel 白名单只认双下划线形式） |
-| 伴生音频 | `4c54:5010` `05:00.1` 是 `gf` 显示驱动内部的**透明 codec**（`disp_codec.c`），**不创建 ALSA 卡**，不能作为声卡使用 |
-| 真正出声 | 海光板载 HDA `1d94:14c9` `07:00.6`（ALC222）—— 与 7G100 GPU **无关** |
+| 伴生音频 | `4c54:5010` `05:00.1` 是**标准 HD-Audio 控制器**（BAR0 16 KiB、GCAP=0x4001），后挂标准 HDMI codec（`0x4c545020`，4 组 converter/pin → PCM 3/7/8/9）。厂商号不在 `snd_hda_intel` 的 id 表 → 需 `driver_override` 绑定；该功能 MSI 不可用，必须 `msi_bus=0` 走 INTx（详见 [`audio/README.md`](./audio/README.md)） |
+| 真正出声 | 板载海光 HDA `1d94:14c9` `07:00.6`（ALC222，`card0`）+ 显卡 HDMI/DP 音频（`05:00.1`，修复后 `card1`）；两者互不影响 |
 | 验证环境 | Ubuntu 24.04.4 LTS (noble) / 内核 `7.0.0-28-generic` (HWE) / gcc 13.3.0 / 驱动包 `lisuangpu-dkms` `262.2.0.56` |
 
 **图形栈层次（从上到下）**：应用 → (Electron/Chromium / Steam CEF / Wine+DXVK) → Mesa(`gf` DRI) / ANGLE → Vulkan(`gf_icd`) 或 GLX(`__GLX_VENDOR_LIBRARY_NAME=gf`) → 内核 `gf.ko`(DRM 名 `lisuan`) → 硬件。每一层都曾踩过坑（见下表）。
@@ -879,6 +882,56 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 
 ---
 
+## 七、HDMI/DP 音频（7G100 伴生 HDA）
+
+> 完整根因、证据链与排障细节见 [`audio/README.md`](./audio/README.md)。
+
+### 症状与根因
+
+`05:00.1`（`4c54:5010`）没有 `Kernel driver in use`，`aplay -l` 只有板载 ALC222，
+系统声音设置里看不到显卡输出。三层原因（2026-10-21 实测）：
+
+1. **它不是"透明 codec"**：BAR0 16 KiB，`GCAP=0x4001`（64 位、4 个输出流）、
+   `VMIN/VMAJ=0/1`，INTCTL/INTSTS/CORB/RIRB/流描述符全按 HDA 规范排布；
+   绑定后 `snd_hda_codec_hdmi` 直接认出标准 HDMI codec（`Vendor Id: 0x4c545020`）。
+2. **内核不自动 probe**：`4c54` 不在 `snd_hda_intel` 的静态 id 表，且本内核上
+   写 `new_id` 返回 EIO；只能用 `driver_override` 强制匹配。
+3. **MSI 是坏的**：默认 MSI 绑定后中断计数恒 0、`INTSTS` 的 CIS/GIS 常置位、
+   内核刷 `Spurious interrupt (vector 0xef)`，PCM 卡住不出声；`msi_bus=0` 改走
+   INTx（ACPI `_PRT`：INB → GSI 31）后一切正常。
+
+### 修复与验证
+
+```sh
+sudo ./audio/fix-lisuan-hdmi-audio.sh      # 立即生效 + 安装开机自绑服务
+./audio/fix-lisuan-hdmi-audio.sh --status  # 任意时刻查状态
+```
+
+正常输出（`cardN` 可能是 0 或 1，取决于海光声卡是否先绑）：
+
+```
+  PCI 功能   : 0000:05:00.1 [0x4c54:0x5010]
+  驱动       : snd_hda_intel（已绑定）
+  中断       : msi_bus=0 → INTx（该功能 MSI 不可用，必须走 INTx）
+  ALSA 卡    : card1
+  显示器 ELD : BenQ BL2780 / DisplayPort / 2 声道
+  HDMI 0     : 就绪（hw:1,3）
+```
+
+然后在「设置 → 声音 → 输出」选择 **"HDA Intel 数字立体声 (HDMI)"**；
+直出验证：`speaker-test -D hw:1,3 -c 2 -r 48000 -t sine -l 1`（应正常结束、
+无 spurious 日志）。
+
+### 遗留问题
+
+- 厂商源码 `disp_codec.c` 的 `Reg_Hau_Reg105` 两个 stream-format 位用了
+  `if/else` 互斥（converter 3 的采样率/位深不更新）——`dkms/vendor-src/` 已修，
+  但已安装的 `/usr/src/lisuangpu-dkms-262.2.0.56/` 仍是旧代码；只影响
+  PCM 8/9（HDMI 2/3）多路输出。
+- MSI 属硬件/固件问题，本修复用 INTx 绕过；厂商修好后 `--uninstall` 即可回退。
+
+---
+
 ## 关于厂商驱动的获取
 
 > **本仓库不分发任何厂商专有文件**（`.deb` 驱动包、闭源 blob、重编出的 `gf.ko`），
@@ -907,7 +960,7 @@ sudo apt-get install -y ./lisuangpu-dkms-262.2.0.56_amd64.deb ./lisuangpu-lib-26
 ## 自动化测试
 
 仓库根目录的 `tests/` 自带一套**离线、无硬件依赖**的测试，
-检验对象是各主题目录的交付物（`steam/` `minion-masters/` `underlords/` `electron/` `dkms/` `mesa/`）：
+检验对象是各主题目录的交付物（`steam/` `minion-masters/` `underlords/` `electron/` `dkms/` `mesa/` `audio/`）：
 
 ```bash
 ./tests/run-tests.sh        # 运行全部
@@ -921,6 +974,7 @@ sudo apt-get install -y ./lisuangpu-dkms-262.2.0.56_amd64.deb ./lisuangpu-lib-26
 | `test-makefile-logic.sh` | 真实 `make` 展开：修复前忽略 `KERNELVER`（复现 bug），修复后优先 `KERNELVER` |
 | `test-fix-script.sh` | `fix-lisuan-gpu.sh` 内置补丁逻辑正确且幂等 |
 | `test-scripts-syntax.sh` | 所有 shell 脚本 `bash -n` 语法检查 |
+| `test-audio-status.sh` | 音频修复器的 CLI 契约：`--status` 恒成功、`--help` 可用、未知参数退 2、无 root 拒绝安装 |
 | `test-repo-health.sh` | 必需文件存在、脚本可执行、无厂商专有产物混入、README 引用可解析 |
 
 ## 自动打包 deb

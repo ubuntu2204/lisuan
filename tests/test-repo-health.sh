@@ -47,7 +47,8 @@ t_assert_grep "$PATCH_FILE" 'uname -r' "patch mentions uname -r"
 # --- 5. README references that exist in this repo ---------------------------
 for f in dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch \
          dkms/fix-lisuan-gpu.sh \
-         dkms/verify-lisuan-gpu.sh; do
+         dkms/verify-lisuan-gpu.sh \
+         audio/fix-lisuan-hdmi-audio.sh; do
   grep -qF -- "$f" "${REPO_TOP}/README.md"
   t_assert_eq 0 $? "README references $f"
 done

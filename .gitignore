@@ -46,6 +46,11 @@ _work/
 *.order
 .tmp_versions/
 
+# audio/ 的 BAR0 诊断探针：源码入库，编译产物不入库
+# （build: gcc -O2 -o /tmp/hda-probe audio/hda-probe.c）
+audio/hda-probe
+audio/hda-peek
+
 # ---- 运行时日志（调试产物，不入库）----
 # 每次运行都会重写，且含机器相关的绝对路径。
 # 例：minion-masters/gf-compat/hook-trace.log

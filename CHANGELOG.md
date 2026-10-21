@@ -3,6 +3,54 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.10.21 — 显卡 HDMI/DP 音频修好（4c54:5010 绑 snd_hda_intel，纠正旧结论）
+
+### 修复
+
+- **7G100 的 HDMI/DP 输出终于能出声**：新增 `audio/fix-lisuan-hdmi-audio.sh`
+  （幂等），安装 `/usr/local/sbin/lisuan-hdmi-audio-bind` + `lisuan-hdmi-audio-bind.service`
+  开机自绑，并立即生效。修复后 `aplay -l` 出现 `card 1: ... HDMI 0 [BenQ BL2780]`，
+  PipeWire 自动多出 "HDA Intel 数字立体声 (HDMI)" 输出，`speaker-test -D hw:1,3`
+  正常结束。
+- 三层根因（2026-10-21 本机实测）：
+  1. `05:00.1` 是**标准 HDA 控制器**（BAR0 16 KiB、`GCAP=0x4001`、
+     `VMIN/VMAJ=0/1`，INTCTL/INTSTS/CORB/RIRB/流描述符全按规范排布），
+     后挂标准 HDMI codec（`Vendor Id: 0x4c545020`，4 组 converter/pin），
+     `snd_hda_codec_hdmi` 无需 quirk 即可驱动；
+  2. `4c54` 不在 `snd_hda_intel` 的静态 PCI id 表，且本内核
+     （`7.0.0-38-generic`）上写 `new_id` 返回 **EIO**——只能用
+     `driver_override` 绕过 id 表；
+  3. 该功能 **MSI 不可用**：MSI 绑定后 `/proc/interrupts` 计数恒 0，
+     `INTSTS` 的 CIS/GIS 常置位，内核刷 `Spurious interrupt (vector 0xef)`，
+     PCM 一开就卡住；`msi_bus=0` 改走 INTx（ACPI `_PRT`：INB → GSI 31）后
+     中断计数正常增长、播放正常。
+- 新增诊断工具 `audio/hda-probe.c`（mmap BAR0 读 GCAP/VMIN/VMAJ/STATESTS）
+  与 `audio/hda-peek.c`（读写单个寄存器，用于复现 INTSTS 常置位）；
+  文档 `audio/README.md` 记录完整证据链与遗留问题。
+- `install.py` 新增菜单 [20]（安装/修复）与 [21]（说明文档），分组 `音频`；
+  `collect_statuses` 按 "驱动是否绑定 + msi_bus=0 + 卡/ELD 是否就绪" 判状态；
+  `packaging/build-deb.sh` 打包 `audio/` 目录。
+
+### 实测更正（推翻 2026.08.23 的结论）
+
+- 旧记录称 `4c54:5010` 是"`gf` 显示驱动内部的透明 codec，不创建 ALSA 卡，
+  绑 `snd_hda_intel` 是死路"——**错误**。当时只试了 `new_id`（返回 EINVAL/EIO）
+  就下了结论；实际上 `driver_override` 可以强制绑定，且 codec 被
+  `snd_hda_codec_hdmi` 正常认出（ELD 里能读到显示器型号）。
+- 真正的"死路"是 **MSI**：那条路会静默丢中断并刷 spurious 日志；
+  INTx 才是这台机器的可用路径。
+- 旧记录中"真正出声只有海光板载 HDA"同步更正为"板载 + 显卡 HDMI/DP 两路"；
+  `README.md` §7.1 技术要点表、章节结构与修复清单已更新。
+
+### 遗留（未在本次改动范围内）
+
+- 厂商 `disp_codec.c` 的 `Reg_Hau_Reg105` 两个 stream-format 位仍用 `if/else`
+  互斥（converter 3 的采样率/位深不更新）；仓库 `dkms/vendor-src/` 已修，
+  已安装的 `/usr/src/lisuangpu-dkms-262.2.0.56/` 仍是旧代码。只影响
+  PCM 8/9（HDMI 2/3）多路输出，当前单显示器走 PCM 3 不受影响。
+
+---
+
 ## 2026.10.15 — Navicat 修复迁出至 hygon 项目
 
 ### Navicat → 独立/合并项目

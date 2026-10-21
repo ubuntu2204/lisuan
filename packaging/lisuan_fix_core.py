@@ -440,11 +440,20 @@ ITEMS: list[Item] = [
      "cmd": lambda a: _sh("kingdom-rush/fix-kingdom-rush.sh"), "doc": ""},
     {"id": 19, "title": "说明：Kingdom Rush 修复文档", "group": "王国保卫战",
      "root": False, "cmd": None, "doc": _doc("kingdom-rush/README.md")},
+
+    # ---- 音频 ----
+    # 伴生 HDA（05:00.1 4c54:5010）是标准 HDA 控制器，但不在 snd_hda_intel
+    # 的 id 表、且 MSI 不可用，需要 driver_override + msi_bus=0 才能出声。
+    {"id": 20, "title": "安装/修复：显卡 HDMI/DP 音频（伴生 HDA 绑 snd_hda_intel，强制 INTx）",
+     "group": "音频", "root": True,
+     "cmd": lambda a: _sh("audio/fix-lisuan-hdmi-audio.sh", *a), "doc": ""},
+    {"id": 21, "title": "说明：显卡 HDMI/DP 音频修复（根因与证据）", "group": "音频",
+     "root": False, "cmd": None, "doc": _doc("audio/README.md")},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
 GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业",
-               "王国保卫战"]
+               "王国保卫战", "音频"]
 
 
 class UndoAction(TypedDict):
@@ -477,6 +486,8 @@ UNDO: dict[int, UndoAction] = {
          "root": True, "always": False},
     18: {"cmd": _sh("kingdom-rush/fix-kingdom-rush.sh", "--uninstall"),
          "root": True, "always": False},
+    20: {"cmd": _sh("audio/fix-lisuan-hdmi-audio.sh", "--uninstall"),
+         "root": True, "always": True},   # 幂等：未装也可安全执行
 }
 
 # 显示卸载按钮的状态（"已生效"类的状态），见 collect_statuses 的文本
@@ -723,11 +734,52 @@ def _desktop_configured(paths: list[Path], marker: str) -> bool:
     return False
 
 
+def _lisuan_audio_state() -> tuple[str, str]:
+    """砺算伴生 HDA（4c54:5010）的修复状态。
+
+    ok   = 已绑 snd_hda_intel + INTx + HDMI PCM 就绪
+    bad  = 未绑定 / MSI 模式（会丢中断）/ 绑了但没声卡
+    warn = 卡在但 pcm3p 缺失
+    dim  = 本机没有砺算音频功能
+    """
+    for dev in Path("/sys/bus/pci/devices").glob("*"):
+        try:
+            if (dev / "vendor").read_text().strip() != "0x4c54":
+                continue
+            if (dev / "class").read_text().strip() != "0x040300":
+                continue
+        except OSError:
+            continue
+        link = dev / "driver"
+        driver = Path(os.path.realpath(link)).name if link.is_symlink() else ""
+        if driver != "snd_hda_intel":
+            return ("✗ 需修复", "bad")
+        try:
+            msi_bus = (dev / "msi_bus").read_text().strip()
+        except OSError:
+            msi_bus = ""
+        sound = dev / "sound"
+        cards = sorted(sound.glob("card*")) if sound.is_dir() else []
+        if not cards:
+            return ("✗ 已绑但无声卡", "bad")
+        if msi_bus != "0":
+            return ("✗ MSI 模式（丢中断）", "bad")
+        card = cards[0].name[len("card"):]
+        if not Path(f"/proc/asound/card{card}/pcm3p").exists():
+            return ("! 无 HDMI PCM", "warn")
+        # 当前能出声 ≠ 重启后还能：开机自绑服务必须已 enable
+        if not ok_cmd(["systemctl", "is-enabled", "--quiet",
+                       "lisuan-hdmi-audio-bind.service"]):
+            return ("! 未开机自绑（重启后失效）", "warn")
+        return ("✓ 已修复", "ok")
+    return ("– 未检测到设备", "dim")
+
+
 def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
     级别：ok=已就绪，bad=需修复，warn=需注意，dim=不适用/可选/按需。
-    说明与纯操作项（1/5/6/11/13/15/17/19）不返回状态。
+    说明与纯操作项（1/5/6/11/13/15/17/19/21）不返回状态。
     """
     env = env or detect()
     st: dict[int, tuple[str, str]] = {}
@@ -871,6 +923,10 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
         except OSError:
             kr_inj = False
         st[18] = ("✓ 已修复", "ok") if kr_inj else ("✗ 需修复", "bad")
+
+    # 20 显卡 HDMI/DP 音频：驱动绑定 + INTx + HDMI PCM（21 为说明项）
+    st[20] = _lisuan_audio_state()
+    st[21] = ("按需", "dim")
 
     return st
 
