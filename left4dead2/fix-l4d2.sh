@@ -115,13 +115,18 @@ detect_render_node() {
 
 # ---------- 1) 构建 64 位 Venus 服务端 ----------
 build_server() {
-  if [ -x "$SERVER" ] && [ -x "$WORKER" ]; then
-    say "Venus 服务端已构建: $SERVER"
+  local patch_state="$BRIDGE_HOME/.venus-build.sha256"
+  local build_hash
+  build_hash=$(sha256sum "$VTEST/build-venus-bridge.sh" "$VTEST"/patches/*.patch | sha256sum | cut -d' ' -f1)
+  if [ -x "$SERVER" ] && [ -x "$WORKER" ] && [ -f "$patch_state" ] \
+     && [ "$(cat "$patch_state")" = "$build_hash" ]; then
+    say "Venus 服务端及兼容补丁已是最新: $SERVER"
     return 0
   fi
-  say "构建 64 位 Venus 服务端（首次约需数分钟）"
+  say "构建 64 位 Venus 服务端（首次或补丁更新后约需数分钟）"
   bash "$VTEST/build-venus-bridge.sh" || { err "服务端构建失败"; return 1; }
   [ -x "$SERVER" ] || { err "构建未产出 $SERVER"; return 1; }
+  printf '%s\n' "$build_hash" > "$patch_state"
 }
 
 # ---------- 2) systemd --user 单元：随会话常驻服务端 ----------
@@ -249,22 +254,11 @@ cd "\$GAME"
 # 允许生成 core：默认 ulimit -c 常为 0，段错误拿不到现场
 ulimit -c unlimited 2>/dev/null || true
 
-# Venus 链路下 D3D9 D16 深度纹理创建失败（L4D2 手电筒阴影贴图 400x400），
-# 实测会让游戏以退出码 0 静默退出。默认关掉该特性规避；
-# 设置 L4D2_NO_D16_WORKAROUND=1 可保留原画质（代价是可能随时退出）。
+# 2026-10-25：D16 根因已修，不再默认关闭手电筒深度阴影。
+# 私有 Venus 服务端屏蔽 gf 支持不完整的 VK_EXT_attachment_feedback_loop_layout，
+# 避免 DXVK 给深度纹理附加会被 gf 拒绝的 feedback-loop usage。
+# 用户仍可自行传 +r_flashlightdepthtexture 0 或 1 覆盖游戏设置。
 EXTRA=()
-case " \$* " in
-  *r_flashlightdepthtexture*) ;;
-  *)
-    # 默认【总是】关掉手电筒阴影：2026-10-07 实测，解除该规避后游戏第一次
-    # D16 深度纹理创建失败就 SIGSEGV（core dumped，status=139），此前带规避时
-    # 同一错误出现 12 次也不崩。要做 D16 取证必须显式 L4D2_D16_PROBE=1，
-    # 并自行承担崩溃风险。
-    if [ "\${L4D2_NO_D16_WORKAROUND:-0}" != "1" ] && [ "\${L4D2_D16_PROBE:-0}" != "1" ]; then
-      EXTRA+=(+r_flashlightdepthtexture 0)
-    fi
-    ;;
-esac
 # -novid：跳过开场动画。用户实测：开场动画播放时按 ESC 跳过会触发 Source 引擎的
 # setlocale “Warning” 框（引擎内部行为，与 locale 环境无关）。直接不放开场动画就
 # 没有这个触发。想看开场动画可设 L4D2_KEEPVID=1。
@@ -604,7 +598,7 @@ status() {
   echo "== 渲染节点 =="; echo "  $RENDER_NODE $([ -c "$RENDER_NODE" ] && echo ✅ || echo 缺失)"
   echo "== 启动包装（Steam 链入口）=="; [ -x "$LAUNCH" ] && echo "  $LAUNCH ✅" || echo "  缺失"
   echo "== 宿主启动器 =="; [ -x "$HOST_RUN" ] && echo "  $HOST_RUN ✅" || echo "  缺失"
-  echo "  D16_PROBE = $(sed -n 's/^export L4D2_D16_PROBE="\([01]\)"/\1/p' "$HOST_RUN" 2>/dev/null | head -1)  (0=关手电筒阴影[稳定] / 1=解除规避+shim降级[仅取证,会崩])"
+  echo "  D16_PROBE = $(sed -n 's/^export L4D2_D16_PROBE="\([01]\)"/\1/p' "$HOST_RUN" 2>/dev/null | head -1)  (仅旧 shim 诊断；正常修复由 Venus 服务端补丁完成)"
   echo "== setlocale shim（消除 locale 误报弹框）=="
   if [ -f "$SHIM_SO" ]; then
     echo "  $SHIM_SO ✅ $(file -b "$SHIM_SO" | cut -d, -f1)"
@@ -612,7 +606,7 @@ status() {
   else
     echo "  未构建（重跑 fix-l4d2.sh）"
   fi
-  echo "== vkCreateImage shim（D16 取证）=="
+  echo "== vkCreateImage shim（旧诊断，正常无需启用）=="
   if [ -f "$VKCI_SO" ]; then
     echo "  $VKCI_SO ✅"
     if [ -f /tmp/l4d2-vkCreateImage.log ]; then
