@@ -3,6 +3,36 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.10.25 — L4D2 D16 闪退、locale 模态框与启动链诊断修复
+
+### 修复
+
+- **《求生之路 2》D16 / `MatQueue0` 闪退已根治**：gf 虽上报
+  `VK_EXT_attachment_feedback_loop_layout`，却拒绝带对应 usage 的深度图；私有 Venus
+  服务端现屏蔽该扩展，使 DXVK 回退到合法 usage。启动器不再强制关闭
+  `r_flashlightdepthtexture`，系统 gf 驱动和其他游戏不受影响。
+- **locale 模态 Warning 已根治**：最终取证确认 `launcher.so` 先设置
+  `LC_ALL=en_US.UTF-8`，随后 `linux32/steamclient.so` 调用 `setenv("LC_ALL","C",1)`，
+  使引擎读到混合 locale。新版 `setlocale-shim.c` 只重定向 steamclient 的这一次
+  赋值，其他调用原样通过；默认启用、默认不写日志，不修改 Steam 二进制。
+- **Steam 容器委托不再吞掉真实故障**：`fix-l4d2.sh` 改用 `systemd-run --wait`
+  等待并传回游戏退出码（含 `128+signal`），不再 `reset-failed` 或把异常统一写成
+  `exit 0`。Venus 未就绪时明确报错，不隐式重启；重复委托直接拒绝。
+- **32 位 Venus 冒烟测试假失败已修**：`run-l4d2-venus.sh --test` 复用常驻服务端时，
+  清理函数不再把空判断的 1 带成脚本退出码。
+
+### 验证
+
+- 32 位 vkcube 经 Venus 使用 `LISUAN 7G100`，PASS 且退出码为 0。
+- `-condebug +map c1m1_hotel +r_flashlightdepthtexture 1` 单次回归：`console.log`
+  明确记录 `Map: c1m1_hotel`；同一实例运行 4 分 11 秒后仍活跃，D16 创建错误、
+  SIGSEGV、Vulkan 错误和新转储均为 0，随后主动结束测试。
+- locale 定点版在真实 `steamclient.so` 调用上成功记录 `LC_ALL=C -> en_US.UTF-8`：
+  地图实例约 7 分钟后以 `success/0` 结束；正式部署版地图回归连续 2 分 38 秒
+  Warning/D16/致命错误均为 0，不带 `+map` 的普通启动也通过。未自动点击或重启。
+
+---
+
 ## 2026.10.21 — 显卡 HDMI/DP 音频修好（4c54:5010 绑 snd_hda_intel，纠正旧结论）
 
 ### 修复

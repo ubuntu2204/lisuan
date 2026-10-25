@@ -66,7 +66,10 @@ cleanup() {
         wait "$SERVER_PID" 2>/dev/null || true
     fi
     # 只清理自己拉起的服务端的 socket；复用常驻服务端时不能删
-    [ -n "$SERVER_PID" ] && rm -f "$SOCKET"
+    if [ -n "$SERVER_PID" ]; then
+        rm -f "$SOCKET"
+    fi
+    return 0
 }
 
 start_server() {

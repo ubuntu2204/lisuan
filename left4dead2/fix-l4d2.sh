@@ -52,7 +52,7 @@ RENDER_NODE="${L4D2_RENDER_NODE:-/dev/dri/renderD128}"
 # 自编的完整 en_US.UTF-8 locale 目录：游戏通过 LOCPATH 读它，无论宿主/容器
 # 归档是否完整，Source 引擎 setlocale(LC_ALL,"en_US.UTF-8") 都能成功→不再弹框
 LOC_BUNDLE="$BRIDGE_HOME/locale"
-# 32 位 setlocale 拦截器：见 setlocale-shim.c 头部注释（消除引擎误报弹框）
+# 32 位 steamclient locale 拦截器：见 setlocale-shim.c 头部注释（消除模态 Warning）
 SHIM_SRC="$(cd "$(dirname "$0")" && pwd)/setlocale-shim.c"
 SHIM_SO="$BRIDGE_HOME/setlocale-shim.so"
 # 32 位 vkCreateImage 取证/改写 shim：见 vkcreateimage-shim.c
@@ -79,12 +79,11 @@ D16_PROBE="${L4D2_D16_PROBE:-0}"
 # 属于全局基础设施改动，2026-10-07 实测导致 SDL 取不到 Vulkan 函数
 # （"Failed to create SDL window!"）而无法创建窗口。要启用需显式 L4D2_VKCI_ENABLE=1。
 VKCI_ENABLE="${L4D2_VKCI_ENABLE:-0}"
-# setlocale shim 同样默认【不】注入：2026-10-07 统计全部运行记录，
-# 唯一两次「仅注入 setlocale shim」的运行都以 SIGSEGV 收场，而完全不注入的运行正常。
-# 它有两处真实缺陷：日志缓冲是全局静态变量、多线程并发 setlocale 时无锁（数据竞争）；
-# 归一化会强制重置 locale，可能与引擎故意设 LC_CTYPE=C 的路径冲突。
-# 权衡：不注入 = 保留一个可点 OK 的 locale 警告框，但游戏能玩；注入 = 可能闪退。
-SETLOCALE_ENABLE="${L4D2_SETLOCALE_ENABLE:-0}"
+# 2026-10-25 新版 steamclient locale shim 默认启用：仅拦截 steamclient.so
+# 对 LC_ALL=C/POSIX 的 setenv，防止覆盖 launcher 设置的 en_US.UTF-8。
+# 旧版在 setlocale 查询中重置全部类别且有全局日志竞争，已整体删除。
+# 设 L4D2_SETLOCALE_ENABLE=0 或启动时 L4D2_NO_SETLOCALE_SHIM=1 可禁用。
+SETLOCALE_ENABLE="${L4D2_SETLOCALE_ENABLE:-1}"
 
 say() { echo "[l4d2-venus] $*"; }
 err() { echo "[l4d2-venus] !! $*" >&2; }
@@ -177,11 +176,19 @@ set -u
 SOCKET="$SOCKET"
 GAME="$GAME"
 
-if [ ! -S "\$SOCKET" ]; then
-  systemctl --user start l4d2-venus.service 2>/dev/null || true
-  for _ in \$(seq 1 60); do [ -S "\$SOCKET" ] && break; sleep 0.1; done
+READY=0
+for _ in \$(seq 1 60); do
+  if systemctl --user is-active --quiet l4d2-venus.service && [ -S "\$SOCKET" ]; then
+    READY=1
+    break
+  fi
+  sleep 0.1
+done
+if [ "\$READY" != 1 ]; then
+  echo "[l4d2-venus] !! Venus 服务端未就绪（服务须为 active 且 socket 存在）: \$SOCKET" >&2
+  echo "[l4d2-venus] !! 为保留故障现场，不会自动重启；请查 journalctl --user -u l4d2-venus" >&2
+  exit 1
 fi
-[ -S "\$SOCKET" ] || { echo "[l4d2-venus] !! Venus 服务端 socket 未就绪: \$SOCKET" >&2; exit 1; }
 
 # 32 位进程 -> Mesa Venus ICD -> socket -> 64 位服务端 -> libvulkan_gf.so
 export VK_ICD_FILENAMES="$VIRTIO_ICD"
@@ -213,18 +220,18 @@ export L4D2_D16_PROBE="$D16_PROBE"
 # 而本 shim 用 RTLD_NEXT 找真的转发目标；SDL 以 RTLD_LOCAL dlopen libvulkan，
 # 不在全局搜索顺序里，RTLD_NEXT 找不到 -> SDL 拿到 NULL -> 窗口创建失败。
 export L4D2_VKCI_ENABLE="$VKCI_ENABLE"
-# setlocale shim 注解决策：默认 0=不注入（稳定，代价是可能弹一次可忽略的警告框）
+# steamclient locale shim 注解决策：默认 1=启用，只拦截 steamclient.so 的 LC_ALL=C/POSIX。
 export L4D2_SETLOCALE_ENABLE="$SETLOCALE_ENABLE"
 
-# 32 位 setlocale 拦截器：engine.so 里 setlocale(LC_ALL,"en_US.UTF-8") 返回 NULL 时
-# 会用 GTK 弹 “Please install 'en_US.UTF-8' locale.” 模态框。已实测系统 locale 与
-# 环境变量都正常，属引擎侧异常，这里在 libc 层兜住（详见 setlocale-shim.c）。
+# 32 位定点拦截器：launcher 先设 en_US.UTF-8，steamclient.so 随后把它改成 C，
+# 导致 engine.so 的 LC_ALL 自检发现混合 locale 并弹模态 Warning。新版只改这一次
+# setenv 值，不在 setlocale 查询中重置全部类别（详见 setlocale-shim.c）。
 # 64 位进程（本脚本、hl2.sh 的 bash）会忽略这个 32 位 so，仅 ld.so 报一次
 # wrong ELF class，无害；真正生效的是 exec 后的 32 位 hl2_linux。
+# 默认不写日志；需要审计时自行设 L4D2_SETLOCALE_LOG=/tmp/l4d2-setlocale.log。
 # 关闭：L4D2_NO_SETLOCALE_SHIM=1
 if [ "\${L4D2_NO_SETLOCALE_SHIM:-0}" != "1" ] && [ "\${L4D2_SETLOCALE_ENABLE:-0}" = "1" ] && [ -f "$SHIM_SO" ]; then
   export LD_PRELOAD="$SHIM_SO\${LD_PRELOAD:+:\$LD_PRELOAD}"
-  export L4D2_SETLOCALE_LOG="\${L4D2_SETLOCALE_LOG:-/tmp/l4d2-setlocale.log}"
 fi
 # vkCreateImage 取证 shim：记录游戏实际请求的 D16 参数与返回码（默认只记深度格式）。
 # 可选改写（试探可行组合用，取到日志后再设）：
@@ -361,21 +368,24 @@ if [ "\$IN_CT" = 1 ]; then
   [ -n "\$XAUTH" ] || XAUTH=\$(SS show-environment 2>/dev/null | sed -n 's/^XAUTHORITY=//p')
 
   if SS is-active "\$UNIT" >/dev/null 2>&1; then
-    echo "[l4d2-venus] 宿主游戏已在运行，等待其退出" >&2
-  else
-    SR --unit="\$UNIT" --collect \\
-      --setenv=HOME="\$HOME" \\
-      --setenv=DISPLAY="\${DISPLAY:-:0}" \\
-      --setenv=XAUTHORITY="\$XAUTH" \\
-      /bin/bash "\$HOST_RUN" "\${args[@]}" 2>>"\$LOG" \\
-      || echo "[l4d2-venus] !! systemd-run 失败 rc=\$?" >> "\$LOG"
+    echo "[l4d2-venus] !! 宿主游戏已在运行，拒绝重复委托" >&2
+    echo "FAIL: host unit already active" >> "\$LOG"
+    exit 1
   fi
 
-  sleep 5
-  while SS is-active "\$UNIT" 2>/dev/null | grep -q '^active\$'; do sleep 3; done
-  SS reset-failed "\$UNIT" 2>/dev/null
-  echo "[l4d2-venus] 宿主游戏已退出" >&2
-  exit 0
+  # --wait 等到游戏真正退出并传播其退出码（含 128+signal）；--collect 只清理
+  # 已结束的临时单元，不会停止或重启游戏。失败状态留给 journal 诊断，不再 reset-failed。
+  SR --wait --unit="\$UNIT" --collect \\
+    --setenv=HOME="\$HOME" \\
+    --setenv=DISPLAY="\${DISPLAY:-:0}" \\
+    --setenv=XAUTHORITY="\$XAUTH" \\
+    /bin/bash "\$HOST_RUN" "\${args[@]}" >>"\$LOG" 2>&1
+  rc=\$?
+  echo "\$(date -Is) host unit exit rc=\$rc" >> "\$LOG"
+  if [ "\$rc" -ne 0 ]; then
+    echo "[l4d2-venus] !! 宿主游戏异常退出 rc=\$rc；请查 journalctl --user -u \$UNIT" >&2
+  fi
+  exit "\$rc"
 fi
 
 # 不在容器内（宿主）则直接跑
@@ -408,23 +418,23 @@ ensure_locale_bundle() {
   fi
 }
 
-# ---------- 3c2) 32 位 setlocale 拦截器（消除引擎误报弹框） ----------
-# engine.so 会调 libc setlocale(LC_ALL,"en_US.UTF-8")，失败就用 GTK 弹
-# “Please install 'en_US.UTF-8' locale.” 模态框。已实测：系统 locale 归档完整、
-# 32 位 libc 单独调用成功、进程 env 全为 en_US.UTF-8、低 4GB 仅用 31%——
-# 即引擎侧异常，本 shim 在 libc 层兜住（详见 setlocale-shim.c 注释）。
+# ---------- 3c2) 32 位 steamclient locale 拦截器（消除模态 Warning） ----------
+# launcher 先设 LC_ALL=en_US.UTF-8，steamclient.so 随后 setenv 把它改成 C；
+# engine.so 的 LC_ALL 自检因此读到混合 locale。新版 shim 只重定向这一次调用，
+# 不再像旧版那样在 setlocale 查询中重置全部类别（详见 setlocale-shim.c）。
 # 不用 libc6-dev-i386：源文件不 include 头文件，gcc -m32 -c + ld -shared 即可。
 build_setlocale_shim() {
   [ -f "$SHIM_SRC" ] || { say "无 $SHIM_SRC（跳过 setlocale shim）"; return 0; }
   command -v gcc >/dev/null 2>&1 || { err "无 gcc，跳过 setlocale shim（可能仍弹框）"; return 0; }
   mkdir -p "$BRIDGE_HOME"
   local obj="$BRIDGE_HOME/setlocale-shim.o"
-  if gcc -m32 -fPIC -O2 -fno-stack-protector -c "$SHIM_SRC" -o "$obj" 2>/dev/null \
-     && ld -m elf_i386 -shared -o "$SHIM_SO" "$obj" 2>/dev/null; then
+  if gcc -m32 -fPIC -O2 -fno-stack-protector -fno-builtin -c "$SHIM_SRC" -o "$obj" 2>/dev/null \
+     && ld -m elf_i386 -shared -z noexecstack -o "$SHIM_SO.new" "$obj" 2>/dev/null; then
     rm -f "$obj"
-    say "setlocale shim 已构建: $SHIM_SO"
+    mv -f "$SHIM_SO.new" "$SHIM_SO"   # 换 inode，避免影响正在运行的进程
+    say "steamclient locale shim 已构建: $SHIM_SO"
   else
-    rm -f "$obj"
+    rm -f "$obj" "$SHIM_SO.new"
     err "setlocale shim 构建失败（需要 gcc 支持 -m32；游戏可能仍弹 locale 框）"
     return 1
   fi
@@ -599,10 +609,11 @@ status() {
   echo "== 启动包装（Steam 链入口）=="; [ -x "$LAUNCH" ] && echo "  $LAUNCH ✅" || echo "  缺失"
   echo "== 宿主启动器 =="; [ -x "$HOST_RUN" ] && echo "  $HOST_RUN ✅" || echo "  缺失"
   echo "  D16_PROBE = $(sed -n 's/^export L4D2_D16_PROBE="\([01]\)"/\1/p' "$HOST_RUN" 2>/dev/null | head -1)  (仅旧 shim 诊断；正常修复由 Venus 服务端补丁完成)"
-  echo "== setlocale shim（消除 locale 误报弹框）=="
+  echo "== steamclient locale shim（阻止 LC_ALL 被改为 C）=="
+  echo "  配置启用 = $SETLOCALE_ENABLE（1=启用；0=禁用；运行时可用 L4D2_NO_SETLOCALE_SHIM=1 覆盖）"
   if [ -f "$SHIM_SO" ]; then
     echo "  $SHIM_SO ✅ $(file -b "$SHIM_SO" | cut -d, -f1)"
-    [ -f /tmp/l4d2-setlocale.log ] && echo "  最近一次 libc 失败记录: $(tail -1 /tmp/l4d2-setlocale.log)"
+    [ -f /tmp/l4d2-setlocale.log ] && echo "  最近一次成功重定向: $(tail -1 /tmp/l4d2-setlocale.log)"
   else
     echo "  未构建（重跑 fix-l4d2.sh）"
   fi

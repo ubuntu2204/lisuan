@@ -28,19 +28,14 @@
      `vkAllocateMemory` + `vkBindImageMemory` **全部成功**（4MB，`mtype=1`）；
      `D24_UNORM_S8_UINT`、`R8G8B8A8_UNORM` 同样成功。
    **即 gf 驱动并无缺失，该条不是砺算的问题。**
-2. **（当前唯一真实阻塞）在 Mesa 的 32 位 Venus 客户端 ICD 里修 D16 深度图崩溃**：
-   用 `left4dead2/vk32-depth-test.c`（32 位客户端经 Venus socket 实测）定位到：
-   - 32 位客户端查询能力**正确**（`optimal=0x1de01`，`DEPTH_STENCIL=1`，Venus 服务端转述无误）；
-   - 但真正 `vkCreateImage` 创建深度图时，客户端崩在
-     **`/usr/lib/i386-linux-gnu/libvulkan_virtio.so`**（Mesa 25.2.8 的 Venus 客户端 ICD）
-     偏移 `0x9f41c`，指令 `mov %eax,0x10(%ebx)`，`ebx` 为野指针 → `SIGSEGV`。
-   这是 **Mesa 客户端侧 bug，与 gf 驱动、virglrenderer 服务端都无关**。
-   三条修法（任一即可）：
-   - 升级 Mesa 到修复该 bug 的版本；
-   - 用 `LD_PRELOAD` 在 32 位客户端侧拦 `vkCreateImage`，调整 depth image 的
-     `tiling`/`usage` 以避开崩溃分支（先取证游戏实际请求的参数）；
-   - 自行编译 32 位 Venus ICD 替换 `/usr/lib/i386-linux-gnu/libvulkan_virtio.so`。
-   在此之前用 `+r_flashlightdepthtexture 0` 关闭手电筒阴影规避（其余特性全部 GPU 加速）。
+2. **修正 gf 对 feedback-loop 深度图的支持或能力上报**（2026-10-25 已绕过）：
+   gf 上报支持 `VK_EXT_attachment_feedback_loop_layout`，但
+   `vkGetPhysicalDeviceImageFormatProperties2()` 会拒绝带
+   `VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT` 的 D16 等深度图，返回
+   `VK_ERROR_FORMAT_NOT_SUPPORTED`。DXVK 因预检查失败而报 `Cannot create texture`，
+   随后在 `MatQueue0` 崩溃。当前私有 Venus 服务端已屏蔽该扩展，使 DXVK 回退到合法
+   usage；D16 阴影已恢复，不再使用 `+r_flashlightdepthtexture 0` 规避。
+   驱动修正后，可移除 `vtest-forward/patches/0002-venus-hide-broken-feedback-loop-layout.patch`。
 3. **加快着色器编译**：走 Zink（`-gl`）路线时，32 位客户端经 Venus 把命令发给服务端，
    gf 驱动编译 GLSL→SPIR-V 过慢，触发 Mesa Venus 客户端硬编码的 8 秒 fence 超时：
    ```
@@ -49,7 +44,7 @@
    ```
    （`MESA_VIRTIO` 无可调超时的环境变量）。编译速度提上来后 Zink 路线才可用。
 4. **发布 32 位（i386）用户态驱动**：一旦提供，可跳过 Venus 整层 IPC，
-   也顺带绕开上面第 2 条的 Mesa Venus 客户端崩溃（客户端与驱动都是 32 位直连）。
+   让游戏客户端与驱动以相同的 32 位 ABI 直连。
 5. 注：原生路线曾缺的 32 位 `libopenal.so.1` / `libpng12.so.0` 属发行版依赖，与驱动无关。
 6. 仍建议厂商核对 `vkGetPhysicalDeviceFormatProperties` 的 `linearTilingFeatures`：
    `D16_UNORM` 的 linear 只有 `SAMPLED_IMAGE|BLIT_SRC|FILTER_LINEAR`（缺
@@ -137,8 +132,9 @@ Steam 会**把 Linux 原生游戏也包进容器**（实测启动命令含
 - 且其 glibc 太旧，无法加载宿主编译的 i386 ICD。
 
 所以启动包装 `l4d2-venus-launch.sh` 检测到容器就**委托宿主**运行游戏：经共享会话总线
-调宿主的 `systemd-run --user` 启动 `l4d2-host-run.sh`，并轮询服务状态阻塞到游戏退出，
-让 Steam 的时长/退出检测依然有效。机制与 `../underlords/ul-host-run.sh` 同源。
+调宿主的 `systemd-run --user --wait` 启动 `l4d2-host-run.sh`，等待游戏退出并传回真实
+退出码（含 `128+signal`），让 Steam 的时长/退出检测依然有效。委托器不再把启动失败或
+SIGSEGV 改写成 `exit 0`，也不清除失败状态或自动重启。机制与 `../underlords/ul-host-run.sh` 同源。
 
 > ⚠️ **容器判定不能只看 `/usr/lib/pressure-vessel`**（2026-10-06 实测踩坑）。
 > 本游戏走的是 `SteamLinuxRuntime_soldier` + `scout-on-soldier`，这个容器里
@@ -199,7 +195,7 @@ bash fix-l4d2.sh --status
 | 委托后游戏没起来 | `journalctl --user -u l4d2-host-game`；确认 `XAUTHORITY` 解析成功 |
 | 服务端崩 | `journalctl --user -u l4d2-venus` |
 | `mat_info` 显示 llvmpipe | LaunchOptions 未生效（Steam 覆盖）或走了 `-gl` |
-| 仍弹 `SetLocale failed` 框 | shim 没生效：查 `fix-l4d2.sh --status` 里 shim 是否 ✅；游戏进程 `tr '\0' '\n' < /proc/<pid>/environ | grep LD_PRELOAD` 应含 `setlocale-shim.so`；真实失败记录在 `/tmp/l4d2-setlocale.log` |
+| 仍弹 `SetLocale failed` 框 | **已修（2026-10-25 最终定位）**：`launcher.so` 先设 `LC_ALL=en_US.UTF-8`，随后 `steamclient.so` 执行 `setenv("LC_ALL","C",1)`，使引擎读到混合 locale。新版 `setlocale-shim.so` 默认启用，只拦截 steamclient 的这一次赋值，其他调用不变。检查 `--status` 的“配置启用 = 1”；审计可设 `L4D2_SETLOCALE_LOG=/tmp/l4d2-setlocale.log`，禁用用 `L4D2_NO_SETLOCALE_SHIM=1` |
 | `Failed to create SDL window!` / `SDL video target is 'x11'` 后退出 1 | **dlsym hook 的坑（2026-10-07）**：`vkcreateimage-shim.so` 会改写 `dlsym` 与 `vkGet{Instance,Device}ProcAddr`。SDL 用 `dlopen(..., RTLD_LOCAL)` 加载 libvulkan，**RTLD_LOCAL 的库不在全局搜索顺序里**，shim 用 `RTLD_NEXT` 找不到真转发目标 → SDL 拿到 NULL 函数指针 → 窗口创建失败。修法已落地（转发改为 `RTLD_NEXT` 失败则 `dlopen` 拿句柄再 `dlsym(handle,...)`），但**默认不注入**，要试必须显式 `L4D2_VKCI_ENABLE=1 bash fix-l4d2.sh` |
 | 想知道游戏怎么请求 D16 | 看 `/tmp/l4d2-vkCreateImage.log`（`vkcreateimage-shim.so` 记录，默认只记深度格式；`L4D2_VKCI_ALL=1` 记全部）。改写试探：`L4D2_VKCI_TILING=0\|1`、`L4D2_VKCI_USAGE_MASK=<hex>`；关掉 shim 用 `L4D2_NO_VKCI_SHIM=1` |
 | 手动直跑调试 | `bash vtest-forward/run-l4d2-venus.sh --game` |
@@ -211,14 +207,18 @@ bash fix-l4d2.sh --status
 
 ### 3.1 已知告警清单（哪些有害、哪些不用管）
 
+> **2026-10-25 locale 最终更正**：截图中的模态 Warning 已由 `steamclient.so`
+> 覆盖 `LC_ALL` 引起，新版定点 shim 已默认修复。下面两条关于容器、Source 引擎和
+> 旧 setlocale shim 的长段落仅保留为历史排查过程，不再作为当前操作依据。
+
 | 告警 | 性质 |
 |---|---|
 | `Couldn't find custom font file 'resource/linux_fonts/*.ttf'` | **已修**：Valve 的 Linux 版没随包带字体，`fix-l4d2.sh` 会软链系统 DejaVu/Liberation 补齐（也影响中文 VGUI 文本） |
-| `err: D3D9: Cannot create texture / Format: D3D9Format::D16 / 400x400` | **真问题，但责任方是 Mesa 不是砺算**（2026-10-07 重新定位）：gf 原生与 Venus 能力上报都正确、深度图也能真创建；实际是 **32 位 Venus 客户端 ICD 崩了**（`libvulkan_virtio.so+0x9f41c`），详见「至砺算」2。当前默认已规避：启动器自动加 `+r_flashlightdepthtexture 0`（代价仅手电筒动态阴影，**其余特性全部 GPU 加速**）；`L4D2_NO_D16_WORKAROUND=1` 可保留原画质去复现崩溃 |
+| `err: D3D9: Cannot create texture / Format: D3D9Format::D16 / 400x400` | **根因已修（2026-10-25）**：gf 拒绝带 feedback-loop usage 的深度图，DXVK 在 `vkCreateImage` 前的能力检查就失败。私有 Venus 已屏蔽 `VK_EXT_attachment_feedback_loop_layout`，启动器不再强制 `+r_flashlightdepthtexture 0`。若复发，先确认补丁二进制已重建、DXVK 日志中 `attachmentFeedbackLoopLayout: 0`，不要启用旧 `vkCreateImage` shim |
 | `CMaterialReference::Init got error material for particle\*.vmt` | 粒子材质在已下载资源里查不到（不在 `pak01_dir.vpk` 索引中），游戏退回 error material。表现为部分粒子特效缺失，**不致命** |
 | `failed to get driver name for fd 7 / No driver found` | SDL 启动时探测 OpenGL DRI（`4c54:5006` 在 Mesa 无驱动）失败。走 `-vulkan` 不需要 GL，**无害噪音** |
-| `SetLocale('en_US.UTF-8') failed. Using 'LC_CTYPE=C;…'. You may have limited glyph support. Please install 'en_US.UTF-8' locale.`（弹「Warning」框 + stdout 一行 `WARNING: setlocale('en_US.UTF-8') failed, using locale:'C'.`） | **仅当游戏被「容器内直跑」时出现**：soldier 容器自带的 locale 归档不完整（约 3MB，缺 `LC_CTYPE/LC_COLLATE/LC_TIME/LC_MONETARY` 数据），Source 引擎 `setlocale('en_US.UTF-8')` 返回 NULL → 回落部分类别到 C 并弹框、随后挂起；宿主归档（约 6MB）完整，委托到宿主则不弹。**复发根因（2026-10-07 实测）**：Steam 运行中会用内存配置回写 `localconfig.vdf`，把 `LaunchOptions`/`Language` 刷掉（`--status` 里 `Language=未设置` 即信号），一旦启动项被清空，Steam 会绕过包装器直接跑 `hl2.sh` → 落回容器 → 弹框。**正确修法**：完全退出 Steam（`steam -shutdown`）后重跑 `fix-l4d2.sh`，让 `LaunchOptions`+`Language` 持久写回。**纵深护栏**：`l4d2-host-run.sh` 现用「容器独有、宿主必无」的标志（`PRESSURE_VESSEL_RUNTIME`/`PRESSURE_VESSEL_PREFIX`/`container=pressure-vessel`/`/run/pressure-vessel`）自检，若被误在容器内执行则 `exit 42` 报错而非静默弹框挂起（注意：`/host` 在部分沙箱视图里也存在，不作判据）。宿主 `locale-gen` 与 Steam 客户端自身启动时的同名告警是两回事，后者要重启 Steam 才消失。**最终定位（2026-10-07、多次迭代后的准确结论）**：①用 `xdotool`/`xprop` 抓到 `Warning` 窗口（`WM_TRANSIENT_FOR` 指向游戏窗口），确认是**委托到宿主的游戏进程**弹的，而它 env 里 `LC_ALL=en_US.UTF-8` 俱在却仍弹。②用**免 root 解包 `libc6-dev-i386`+`lib32gcc-13-dev` 编出真·32 位探针**实测：32 位 glibc **能完整读**系统归档和 64 位 `localedef` 编的 `LOCPATH` 目录的所有类别——所以“32 位读不了 64 位 locale”是错的（曾一度误判为元凶），设不设 LOCPATH 都不是根因；strace 也见游戏 `openat locale-archive` 成功。③真诱因（高置信、但弹窗**具间歇性**）：委托环境从 systemd 用户管理器继承 `LANG=zh_CN.UTF-8`，与 `LC_ALL=en_US.UTF-8` 不一致，游戏直接 `getenv` 读个别 `LC_*`/`LANG` 判断时产生命搭歧义→误报。**正解：HOST_RUN 把整套 locale 显式统一为 `en_US.UTF-8`**（`LC_ALL`+`LANG`+各 `LC_*`）、不设 `LOCPATH`；实测委托启动两次均无弹窗。`steam.desktop` 也只注 `LC_ALL=en_US.UTF-8`。（因弹窗非确定性，单次不弹不能 100% 定论，需真实 Steam 启动多次验证）**最终定性与处置（2026-10-07）**：把整套 locale 显式统一为 `en_US.UTF-8` 后游戏**仍会弹**，且弹窗串里 `LC_CTYPE=C` 与 env 的 `LC_CTYPE=en_US.UTF-8` 直接矛盾、strace 又确认 `locale-archive` 加载成功 → **这不是 locale 环境问题，而是 Valve Source 引擎自身的已知 bug**（见 `ValveSoftware/halflife#3006`）：跳过开场 movie 时引擎会报这个 `SetLocale failed` 警告。我们改不了游戏二进制。**确定性触发（用户提供）**：开场动画播放时按 ESC 跳过。**根因级缓解**：`l4d2-host-run.sh` 默认加 **`-novid`** 不放开场动画→消除触发源（且玩家本就会手动跳过）；想看动画设 `L4D2_KEEPVID=1`。曾加过一个 `l4d2-dismiss-warning.sh` 自动点0守护，但**已删除**——那是掩盖症状而非解决问题。彻底修复需等 Valve 修引擎。 |
-| 上面那条 locale 框 | **已加 shim 兜住（2026-10-07 二次取证后定案）**：`left4dead2/setlocale-shim.c`。本轮把「环境/系统 locale 有问题」的可能性逐条实测排除：①`localedef --list-archive` 显示 `/usr/lib/locale/locale-archive`（6.2MB）含 `en_US.utf8`；②用免 dev 包的 32 位探针（`gcc -m32 -c` + `ld -m elf_i386 -e main … libc.so.6`）在同一台机器上 `setlocale(LC_ALL,"en_US.UTF-8")` 返回正常；③`/proc/<pid>/environ` 显示游戏进程 `LC_ALL/LANG/各 LC_*` 全为 `en_US.UTF-8`；④`readelf -sW` 确认 `engine.so/gameui.so/libcef.so` 的 `setlocale` 全是 **UND**（真 libc，无库自带实现覆盖）；⑤低 4GB 只映射 1275MB/4096MB（31%），排除 32 位地址空间耗尽。`xprop` 也确认弹框是游戏进程（`WM_TRANSIENT_FOR` → hl2_linux 窗口）的 GTK DIALOG/MODAL。**第二次取证推翻「引擎侧异常」，拿到准确根因（2026-10-07）**：反汇编 `engine.so` 的 `0x4105a0` 段发现，弹框条件**不是 `setlocale` 失败**，而是「`setlocale(LC_ALL,NULL)` 的返回值 ≠ `"en_US.UTF-8"`」。而 glibc 在 **LC_ALL 处于混合态**（各类别分属不同 locale）时返回的是复合名 —— 用 32 位探针 `locmix.c` 复现出的字符串与弹窗文本**逐字一致**（`LC_CTYPE=C;LC_NUMERIC=en_US.UTF-8;…`）。即：**游戏里有代码单独执行了 `setlocale(LC_CTYPE,"C")`**（该调用成功，所以 shim 的「失败日志」为空），把 CTYPE 从 `en_US.UTF-8` 降到 `C`，`LC_ALL` 因此变混合 → 引擎自检判失败 → 弹框。shim 改为：**任何 `setlocale(LC_ALL,NULL)` 查询若返回复合名（以 `LC_CTYPE=` 开头），就重新 `setlocale(LC_ALL,"en_US.UTF-8")` 把混合态拉回一致并返回规范名**（真修，不是骗检查）；同时把「LC_CTYPE 被降级」「归一化动作」「显式设置失败」连同调用返回地址写进 `/tmp/l4d2-setlocale.log` 用于定位是哪个模块在动 locale。`setlocale-shim.c` 内注释提醒：`lput()` 依赖 NUL 终止，所有临时缓冲必须补 `'\0'`（否则日志乱码）。关闭：`L4D2_NO_SETLOCALE_SHIM=1`。 |
+| `SetLocale('en_US.UTF-8') failed. Using 'LC_CTYPE=C;…'. You may have limited glyph support. Please install 'en_US.UTF-8' locale.`（弹「Warning」框 + stdout 一行 `WARNING: setlocale('en_US.UTF-8') failed, using locale:'C'.`） | **容器内直跑必现；宿主启动也偶发（2026-10-25 两次 `+map` 测试均复现）**：soldier 容器自带的 locale 归档不完整（约 3MB，缺 `LC_CTYPE/LC_COLLATE/LC_TIME/LC_MONETARY` 数据），Source 引擎 `setlocale('en_US.UTF-8')` 返回 NULL → 回落部分类别到 C 并弹框、随后挂起；宿主归档（约 6MB）完整，委托到宿主则不弹。**复发根因（2026-10-07 实测）**：Steam 运行中会用内存配置回写 `localconfig.vdf`，把 `LaunchOptions`/`Language` 刷掉（`--status` 里 `Language=未设置` 即信号），一旦启动项被清空，Steam 会绕过包装器直接跑 `hl2.sh` → 落回容器 → 弹框。**正确修法**：完全退出 Steam（`steam -shutdown`）后重跑 `fix-l4d2.sh`，让 `LaunchOptions`+`Language` 持久写回。**纵深护栏**：`l4d2-host-run.sh` 现用「容器独有、宿主必无」的标志（`PRESSURE_VESSEL_RUNTIME`/`PRESSURE_VESSEL_PREFIX`/`container=pressure-vessel`/`/run/pressure-vessel`）自检，若被误在容器内执行则 `exit 42` 报错而非静默弹框挂起（注意：`/host` 在部分沙箱视图里也存在，不作判据）。宿主 `locale-gen` 与 Steam 客户端自身启动时的同名告警是两回事，后者要重启 Steam 才消失。**最终定位（2026-10-07、多次迭代后的准确结论）**：①用 `xdotool`/`xprop` 抓到 `Warning` 窗口（`WM_TRANSIENT_FOR` 指向游戏窗口），确认是**委托到宿主的游戏进程**弹的，而它 env 里 `LC_ALL=en_US.UTF-8` 俱在却仍弹。②用**免 root 解包 `libc6-dev-i386`+`lib32gcc-13-dev` 编出真·32 位探针**实测：32 位 glibc **能完整读**系统归档和 64 位 `localedef` 编的 `LOCPATH` 目录的所有类别——所以“32 位读不了 64 位 locale”是错的（曾一度误判为元凶），设不设 LOCPATH 都不是根因；strace 也见游戏 `openat locale-archive` 成功。③真诱因（高置信、但弹窗**具间歇性**）：委托环境从 systemd 用户管理器继承 `LANG=zh_CN.UTF-8`，与 `LC_ALL=en_US.UTF-8` 不一致，游戏直接 `getenv` 读个别 `LC_*`/`LANG` 判断时产生命搭歧义→误报。**正解：HOST_RUN 把整套 locale 显式统一为 `en_US.UTF-8`**（`LC_ALL`+`LANG`+各 `LC_*`）、不设 `LOCPATH`；实测委托启动两次均无弹窗。`steam.desktop` 也只注 `LC_ALL=en_US.UTF-8`。（因弹窗非确定性，单次不弹不能 100% 定论，需真实 Steam 启动多次验证）**最终定性与处置（2026-10-07）**：把整套 locale 显式统一为 `en_US.UTF-8` 后游戏**仍会弹**，且弹窗串里 `LC_CTYPE=C` 与 env 的 `LC_CTYPE=en_US.UTF-8` 直接矛盾、strace 又确认 `locale-archive` 加载成功 → **这不是 locale 环境问题，而是 Valve Source 引擎自身的已知 bug**（见 `ValveSoftware/halflife#3006`）：跳过开场 movie 时引擎会报这个 `SetLocale failed` 警告。我们改不了游戏二进制。**确定性触发（用户提供）**：开场动画播放时按 ESC 跳过。**缓解而非根治**：`l4d2-host-run.sh` 默认加 **`-novid`** 不放开场动画可减少触发，但 2026-10-25 的 `+map` 宿主测试仍出现该框；想看动画设 `L4D2_KEEPVID=1`。曾加过一个 `l4d2-dismiss-warning.sh` 自动点0守护，但**已删除**——那是掩盖症状而非解决问题。彻底修复需等 Valve 修引擎。 |
+| 上面那条 locale 框 | **旧版 shim 历史诊断，已由 steamclient 定点版替代**：`left4dead2/setlocale-shim.c`。本轮把「环境/系统 locale 有问题」的可能性逐条实测排除：①`localedef --list-archive` 显示 `/usr/lib/locale/locale-archive`（6.2MB）含 `en_US.utf8`；②用免 dev 包的 32 位探针（`gcc -m32 -c` + `ld -m elf_i386 -e main … libc.so.6`）在同一台机器上 `setlocale(LC_ALL,"en_US.UTF-8")` 返回正常；③`/proc/<pid>/environ` 显示游戏进程 `LC_ALL/LANG/各 LC_*` 全为 `en_US.UTF-8`；④`readelf -sW` 确认 `engine.so/gameui.so/libcef.so` 的 `setlocale` 全是 **UND**（真 libc，无库自带实现覆盖）；⑤低 4GB 只映射 1275MB/4096MB（31%），排除 32 位地址空间耗尽。`xprop` 也确认弹框是游戏进程（`WM_TRANSIENT_FOR` → hl2_linux 窗口）的 GTK DIALOG/MODAL。**第二次取证推翻「引擎侧异常」，拿到准确根因（2026-10-07）**：反汇编 `engine.so` 的 `0x4105a0` 段发现，弹框条件**不是 `setlocale` 失败**，而是「`setlocale(LC_ALL,NULL)` 的返回值 ≠ `"en_US.UTF-8"`」。而 glibc 在 **LC_ALL 处于混合态**（各类别分属不同 locale）时返回的是复合名 —— 用 32 位探针 `locmix.c` 复现出的字符串与弹窗文本**逐字一致**（`LC_CTYPE=C;LC_NUMERIC=en_US.UTF-8;…`）。即：**游戏里有代码单独执行了 `setlocale(LC_CTYPE,"C")`**（该调用成功，所以 shim 的「失败日志」为空），把 CTYPE 从 `en_US.UTF-8` 降到 `C`，`LC_ALL` 因此变混合 → 引擎自检判失败 → 弹框。shim 改为：**任何 `setlocale(LC_ALL,NULL)` 查询若返回复合名（以 `LC_CTYPE=` 开头），就重新 `setlocale(LC_ALL,"en_US.UTF-8")` 把混合态拉回一致并返回规范名**（真修，不是骗检查）；同时把「LC_CTYPE 被降级」「归一化动作」「显式设置失败」连同调用返回地址写进 `/tmp/l4d2-setlocale.log` 用于定位是哪个模块在动 locale。`setlocale-shim.c` 内注释提醒：`lput()` 依赖 NUL 终止，所有临时缓冲必须补 `'\0'`（否则日志乱码）。关闭：`L4D2_NO_SETLOCALE_SHIM=1`。 |
 | `warn: D3D9Cursor::ShowCursor: Not supported` | DXVK 在 Linux 原生的已知限制，无害 |
 | `File ...pak01_0xx.vpk was never closed` | Source 引擎退出时未关闭 VPK 句柄，正常噪音 |
 | `ld.so: gameoverlayrenderer.so ... ELFCLASS64: ignored` | 64 位 overlay 注入 32 位进程被 ld.so 拒绝，无害 |
@@ -226,13 +226,16 @@ bash fix-l4d2.sh --status
 ### 3.2 闪退排查
 
 游戏自带 breakpad，且 `ulimit -c` 常为 0，段错误往往拿不到现场。
-宿主启动器已加 `ulimit -c unlimited`，下次闪退后：
+宿主启动器已加 `ulimit -c unlimited`。Steam 委托器使用 `systemd-run --wait` 传回真实
+退出码，并把 `host unit exit rc=<值>` 写入 `/tmp/l4d2-venus-launch.log`；不再执行
+`reset-failed`，Venus 未就绪也不会被游戏启动器隐式重启。下次闪退后：
 
 ```bash
-ls -lt /var/crash/ | head          # apport 落盘（core_pattern 指向 apport）
-dmesg | tail -20                   # 内核记录
-journalctl --user -u l4d2-host-game   # 委托实例的游戏输出
-journalctl --user -u l4d2-venus        # Venus 服务端
+tail -n 60 /tmp/l4d2-venus-launch.log   # 委托结果与真实 rc（如 SIGSEGV 通常为 139）
+ls -lt /var/crash/ | head               # apport 落盘（core_pattern 指向 apport）
+journalctl --user -u l4d2-host-game     # 委托实例的游戏输出与致命信号
+journalctl --user -u l4d2-venus          # Venus 服务端
+find /tmp/dumps -type f -printf '%TY-%Tm-%Td %TH:%TM:%TS %s %p\n' | sort
 ```
 
 已知现象：32 位 `vulkaninfo` 在这条链路上会段错误（枚举设备能力时，仅输出 104 行），
