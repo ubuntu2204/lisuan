@@ -6,7 +6,9 @@
     python3 install.py                 桌面窗口（Tkinter）
     python3 install.py --detect        只检测并打印报告
     python3 install.py --detect --json 检测并输出 JSON（便于脚本化）
-    python3 install.py 17 [参数]       非交互直执行第 17 项（修复 Steam）
+    python3 install.py 12 [参数]       非交互直执行第 12 项（修复 Steam）
+    python3 install.py 22 [参数]       非交互直执行第 22 项（安装/修复 L4D2）
+    python3 install.py 23                查看 L4D2 修复与排障说明
     python3 install.py -h              显示核心模块帮助
 
 实现拆分：

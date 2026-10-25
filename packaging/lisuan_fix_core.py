@@ -335,6 +335,15 @@ def detect() -> Env:
         env.add("游戏", "warn",
                 "Kingdom Rush 修复未安装（Steam 启动会报 GLXBadFBConfig）—— 菜单 [18]", "18")
 
+    l4d2_root = Path.home() / ".local/share/Steam/steamapps/common/Left 4 Dead 2"
+    if l4d2_root.is_dir():
+        l4d2_text, l4d2_level = _l4d2_state(Path.home())
+        if l4d2_level == "ok":
+            env.add("游戏", "ok", "Left 4 Dead 2 原生 Venus 修复已安装")
+        else:
+            env.add("游戏", "warn",
+                    f"Left 4 Dead 2 修复状态：{l4d2_text} —— 菜单 [22]", "22")
+
     return env
 
 
@@ -365,7 +374,7 @@ def _doc(rel: str) -> str:
 # 分组与排列规则（2026-09-05 修订）：
 #   1) 环境检测单独一节，两项"体检"也归入此节（本质就是检测）；
 #   2) 其余按类别（目录）分组，顺序：DKMS -> Mesa -> Electron -> Steam
-#      -> 随从大师 -> 刀塔霸业 -> 王国保卫战（新类别追加在末尾）；
+#      -> 随从大师 -> 刀塔霸业 -> 王国保卫战 -> 音频 -> 求生之路 2（新类别追加在末尾）；
 #   3) 每个类别内严格按"安装/修复 -> 卸载 -> 说明"排列。
 #   4) 历史"建立 lisuan_dri.so 软链"方案整体退出菜单：宿主 Mesa 由 drirc
 #      （01-gf_drv.conf 的 kernel_driver/dri_driver 映射）天然找到 gf 驱动，
@@ -449,11 +458,19 @@ ITEMS: list[Item] = [
      "cmd": lambda a: _sh("audio/fix-lisuan-hdmi-audio.sh", *a), "doc": ""},
     {"id": 21, "title": "说明：显卡 HDMI/DP 音频修复（根因与证据）", "group": "音频",
      "root": False, "cmd": None, "doc": _doc("audio/README.md")},
+
+    # ---- 求生之路 2 ----
+    # 原生 32 位游戏经 Venus 转发到 64 位 gf；全程当前用户环境，不能用 sudo。
+    {"id": 22, "title": "安装/修复：求生之路 2（原生 32 位 Vulkan → Venus → 7G100）",
+     "group": "求生之路 2", "root": False,
+     "cmd": lambda a: _sh("left4dead2/fix-l4d2.sh", *a), "doc": ""},
+    {"id": 23, "title": "说明：求生之路 2（L4D2）修复与排障文档", "group": "求生之路 2",
+     "root": False, "cmd": None, "doc": _doc("left4dead2/README.md")},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
 GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业",
-               "王国保卫战", "音频"]
+               "王国保卫战", "音频", "求生之路 2"]
 
 
 class UndoAction(TypedDict):
@@ -488,6 +505,8 @@ UNDO: dict[int, UndoAction] = {
          "root": True, "always": False},
     20: {"cmd": _sh("audio/fix-lisuan-hdmi-audio.sh", "--uninstall"),
          "root": True, "always": True},   # 幂等：未装也可安全执行
+    22: {"cmd": _sh("left4dead2/fix-l4d2.sh", "--uninstall"),
+         "root": False, "always": False},
 }
 
 # 显示卸载按钮的状态（"已生效"类的状态），见 collect_statuses 的文本
@@ -775,11 +794,40 @@ def _lisuan_audio_state() -> tuple[str, str]:
     return ("– 未检测到设备", "dim")
 
 
+def _l4d2_state(home: Path) -> tuple[str, str]:
+    """L4D2 的实际部署状态；--status 仅用于取证，不把其返回码当结果。"""
+    game = home / ".local/share/Steam/steamapps/common/Left 4 Dead 2"
+    if not game.is_dir():
+        return ("未安装", "dim")
+
+    bridge = home / ".local/share/l4d2-venus"
+    status = out(["bash", str(S / "left4dead2/fix-l4d2.sh"), "--status"], timeout=30)
+    socket_ready = any(ln.strip().startswith("socket:") and "✅" in ln
+                       for ln in status.splitlines())
+    launch_section = status.split("== LaunchOpts ==", 1)
+    launch_configured = (len(launch_section) == 2
+                         and "l4d2-venus-launch.sh %command%" in launch_section[1])
+    required = (
+        "bin/shaderapivk.so ✅",
+        "virgl_test_server ✅",
+        "systemd: active",
+        "l4d2-venus-launch.sh ✅",
+        "l4d2-host-run.sh ✅",
+        "配置启用 = 1",
+        "未绑定 ✅",
+    )
+    if all(marker in status for marker in required) and socket_ready and launch_configured:
+        return ("✓ 已修复", "ok")
+
+    remnants = bridge.exists() or "l4d2-venus-launch.sh" in status
+    return ("有残留", "warn") if remnants else ("✗ 需修复", "bad")
+
+
 def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
     级别：ok=已就绪，bad=需修复，warn=需注意，dim=不适用/可选/按需。
-    说明与纯操作项（1/5/6/11/13/15/17/19/21）不返回状态。
+    说明与纯操作项（1/5/6/11/13/15/17/19/21/23）不返回状态。
     """
     env = env or detect()
     st: dict[int, tuple[str, str]] = {}
@@ -927,6 +975,10 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     # 20 显卡 HDMI/DP 音频：驱动绑定 + INTx + HDMI PCM（21 为说明项）
     st[20] = _lisuan_audio_state()
     st[21] = ("按需", "dim")
+
+    # 22 L4D2：原生 Venus 服务、启动链、Steam 配置与 locale shim（23 为说明项）
+    st[22] = _l4d2_state(home)
+    st[23] = ("按需", "dim")
 
     return st
 

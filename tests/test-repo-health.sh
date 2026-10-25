@@ -30,13 +30,16 @@ done
 
 # --- 3. Scripts are executable ---------------------------------------------
 # 交付子树与仓库根的所有 .sh 都必须带可执行位（否则用户直接 ./xxx.sh 会失败）
-for s in "${REPO_TOP}"/*.sh "${REPO_ROOT}"/*/*.sh; do
+for s in "${REPO_TOP}"/*.sh; do
   [[ -f "$s" ]] || continue
-  # _work/ 是本机诊断草稿区，不是交付物，不参与可执行位检查
-  case "$s" in */_work/*) continue ;; esac
   [[ -x "$s" ]]
   t_assert_eq 0 $? "script is executable: $(basename "$s")"
 done
+while IFS= read -r -d '' s; do
+  [[ -x "$s" ]]
+  t_assert_eq 0 $? "script is executable: ${s#"$REPO_ROOT"/}"
+done < <(find "$REPO_ROOT" -mindepth 2 -maxdepth 3 -type f -name '*.sh' \
+           ! -path '*/_work/*' ! -path '*/.git/*' ! -path '*/packaging/dist/*' -print0)
 
 # --- 4. Patch file is non-empty and mentions the root cause -----------------
 [[ -s "$PATCH_FILE" ]]
@@ -58,5 +61,40 @@ for f in CHANGELOG.md NOTICE LICENSE; do
   [[ -f "${REPO_TOP}/$f" ]]
   t_assert_eq 0 $? "top-level doc present: $f"
 done
+
+# --- 7. L4D2 current resources, archive paths and menu registration -----------
+for f in left4dead2/fix-l4d2.sh \
+         left4dead2/setlocale-shim.c \
+         left4dead2/README.md \
+         left4dead2/探索记录.md \
+         left4dead2/archive/README.md \
+         left4dead2/archive/vkcreateimage-shim.c \
+         left4dead2/vtest-forward/build-venus-bridge.sh \
+         left4dead2/vtest-forward/run-l4d2-venus.sh \
+         left4dead2/vtest-forward/patches/0001-venus-prefer-ext-calibrated-timestamps.patch \
+         left4dead2/vtest-forward/patches/0002-venus-hide-broken-feedback-loop-layout.patch; do
+  [[ -f "${REPO_TOP}/$f" ]]
+  t_assert_eq 0 $? "L4D2 resource present: $f"
+done
+t_assert_grep "${REPO_TOP}/left4dead2/fix-l4d2.sh" \
+  'archive/vkcreateimage-shim.c' "L4D2 optional shim uses archive path"
+t_assert_grep "${REPO_TOP}/packaging/build-deb.sh" \
+  'find left4dead2' "deb includes L4D2 resources"
+python3 - "$REPO_TOP" <<'PY'
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "packaging"))
+import lisuan_fix_core as core
+assert len(core.ITEMS_BY_ID) == 23
+assert core.GROUP_ORDER[-1] == "求生之路 2"
+assert core.ITEMS_BY_ID[22]["root"] is False
+assert core.ITEMS_BY_ID[22]["cmd"]([])[1].endswith("left4dead2/fix-l4d2.sh")
+assert core.ITEMS_BY_ID[23]["root"] is False
+assert core.ITEMS_BY_ID[23]["doc"] == "left4dead2/README.md"
+assert core.UNDO[22]["root"] is False
+assert "--uninstall" in core.UNDO[22]["cmd"]
+PY
+t_assert_eq 0 $? "L4D2 menu 22/23 and undo registration"
 
 t_finish "test-repo-health.sh"

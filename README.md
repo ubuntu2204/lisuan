@@ -101,7 +101,7 @@ right headers.
 |---|---|---|
 | `steam/` | Steam 平台 | 容器 CEF 崩溃修复、开机自愈、容器架构说明 |
 | `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3。其中 `gf-compat/` 是 Vulkan 兼容层（源码与运行时产物同处该目录，两个厂商专有 `.so` 不入库、获取方式见其 README），`assets-mm-gf-vulkan/` 是 C# 补丁工程（MMPatch 唯一权威源码所在；原开发工作目录 `mm-patch/` 已于 2026-08-31 删除，git 历史可查） |
-| `left4dead2/` | 求生之路 2 | 7G100 硬件渲染（Proton new WoW64 + DXVK v2.3 -> 64 位 gf Vulkan）。`fix-l4d2.sh` 自持运行时部署目录 `gf-compat/`（hook/垫片 ICD 编译产物），源码复用 `minion-masters/assets-mm-gf-vulkan/` |
+| `left4dead2/` | 求生之路 2 | **原生 Linux 32 位 Vulkan** → 32 位 Mesa Venus ICD → Unix socket → 私有 64 位 `virgl_test_server --venus` → 64 位 gf → 7G100；含 D16 与 steamclient locale 修复。根目录保留当前修复与文档，`archive/` 保存历史探针和验证材料 |
 | `underlords/` | 刀塔霸业 | 容器委托宿主直跑、libpng12 补齐、崩溃智能重试 |
 | `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder / Trae 四个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
 | `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |
@@ -121,8 +121,9 @@ right headers.
 | `dkms/patches/0001-dkms-makefile-honor-KERNELVER.patch` | 厂商 DKMS Makefile 的 `KERNEL_VERSION`/`KERNELVER` 变量名错配修复（一行补丁） |
 | `dkms/fix-lisuan-gpu.sh` | 一键应用补丁并重编/重装/加载 `gf.ko`（幂等、自动备份） |
 | `audio/fix-lisuan-hdmi-audio.sh` | **显卡 HDMI/DP 音频修复**：把 7G100 伴生 HDA 功能（`4c54:5010`）绑到 `snd_hda_intel`（`driver_override` + 强制 INTx），开机自绑；`--status` 查状态、`--uninstall` 撤销（幂等） |
+| `left4dead2/fix-l4d2.sh` | **L4D2 原生 Venus 修复安装器**：部署 64 位私有 Venus、宿主/Steam 启动链、D16 与 locale 修复；`--status` 查状态、`--uninstall` 卸载。菜单 **22** 安装、**23** 查看说明，均为当前用户操作 |
 | `steam/fix-steam-cef-lock.sh` | **Steam 清理工具**（非日常修复入口）：检测并移除 `steamwebhelper_sniper_wrap.sh` 中历史遗留的 gf 注入（`GBM_BACKEND=dri` + `LD_PRELOAD` glapi）与 `chattr +i` 锁定。`--unlock` 只解锁、`--uninstall` 还原原厂。**注意**：注入方案已于 2026-09-01 废弃，现改用 `GBM_BACKEND=dri` 环境变量（详见[三](#三steam-适配)） |
-| `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 24/25） |
+| `underlords/fix-underlords-native.sh` | **Dota Underlords 修复安装器**（幂等）：容器委托宿主直跑 + 残留 shm 清理/退出检测 + libpng12 补齐 + 桌面项；`--status` 查状态、`--uninstall` 卸载。**自动重启默认关闭**（崩溃直接退出，符合[崩溃处理约定](.codebuddy/rules/崩溃处理约定.md)），`--autorestart` 可显式开启（菜单 16/17） |
 | `dkms/uninstall-lisuan-gpu.sh` | 卸载：撤销 DKMS Makefile 补丁（优先从 `.bak` 还原，不影响已装驱动） |
 
 **体检类（verify）**——只读诊断，不修改任何状态，需要有砺算显卡的真机：
@@ -148,6 +149,7 @@ right headers.
 |---|---|
 | `mesa/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
 | `dkms/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
+| `left4dead2/README.md` | **求生之路 2 操作指南**：原生 32 位 Vulkan/Venus 链、安装与验证、D16 和 locale 排障；完整证据见同目录 `探索记录.md`，历史工具见 `archive/README.md` |
 | `underlords/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
 | `minion-masters/fix-minion-masters.md` | **随从大师（Minion Masters）修复文档**：Vivox 登录崩溃与 Texture 异常的 BepInEx 运行时 patch 三件套、证书 patch 回归（黑屏 Zenject 循环）教训、游戏后端 API 404、Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染；**推荐 Proton 11.0 稳定版**，更新频率低于 Experimental）、user_settings.py 注入无效教训、Steam 状态卡死坑 |
 | `dkms/vendor-src/` | 厂商 DKMS 内核源码原样转录（GPLv2/Dual MIT/GPLv2 授权部分，69 个 .c + 99 个 .h；闭源 blob 不在其中，见其 README） |
@@ -161,7 +163,7 @@ right headers.
 |---|---|
 | `CHANGELOG.md` | 更新日志：每个版本的新增/修复/实测更正，均实机验证 |
 | `install.py` | **交互式修复索引（推荐入口，仓库根）**：入口壳，定位并导入核心模块后转交 `main()`。非交互用法：`--detect` / `--detect --json` / 菜单编号 |
-| `packaging/lisuan_fix_core.py` | 核心逻辑（无 UI）：环境检测 / 菜单定义（9 组 21 项）/ 修复执行 / CLI 分发，仅标准库 |
+| `packaging/lisuan_fix_core.py` | 核心逻辑（无 UI）：环境检测 / 菜单定义（10 组 23 项）/ 修复执行 / CLI 分发，仅标准库 |
 | `packaging/lisuan_fix_gui.py` | Tkinter 桌面界面（需 `python3-tk`）：左检测、右菜单树（每项标题后缀**修复状态**并整行染色）、底部日志；提供 `gui_available()` / `run_gui()` |
 | `packaging/lisuan_fix_md.py` | 轻量 Markdown → Tkinter Text 渲染器：说明弹窗按标题/代码块/表格/列表/引用/粗体/链接样式呈现 |
 | `packaging/build-deb.sh` | deb 打包脚本，产物输出到 `packaging/dist/` |
@@ -196,6 +198,8 @@ python3 install.py                    # 桌面窗口（Tkinter，需 python3-tk�
 python3 install.py --detect           # 只做环境检测并打印报告
 python3 install.py --detect --json    # JSON 输出，便于脚本化/排障
 python3 install.py 12                 # 直接执行第 12 项（修复 Steam 界面崩溃）
+python3 install.py 22                 # 安装/修复 Left 4 Dead 2（当前用户，不用 sudo）
+python3 install.py 23                 # 查看 Left 4 Dead 2 修复与排障说明
 ```
 
 **deb 包安装**（推荐给其他砺算 7G100 机器使用，无需带源码仓库）：
@@ -206,9 +210,9 @@ sudo dpkg -i packaging/dist/lisuan-fix_*_all.deb        # 安装
 lisuan-fix --detect                                     # PATH 直达，资源在 /usr/share/lisuan-fix
 ```
 
-**菜单结构**（2026-10-15 修订）：环境检测单独一节（两项体检也归入此节），
+**菜单结构**（2026-10-25 修订）：环境检测单独一节（两项体检也归入此节），
 其余按**类别**分组，顺序为 **DKMS → Mesa → Electron → Steam → 随从大师 → 刀塔霸业
-→ 王国保卫战**（新类别追加在末尾），
+→ 王国保卫战 → 音频 → 求生之路 2**（新类别追加在末尾），
 每个类别内严格按 **安装/修复 → 卸载 → 说明** 排列（说明项打开该目录下的 md 文档）：
 
 ```
@@ -220,6 +224,8 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 14-15)  随从大师     安装/修复 · 说明
 16-17)  刀塔霸业     安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
 18-19)  王国保卫战   安装/修复 · 说明
+20-21)  音频         显卡 HDMI/DP 安装/修复 · 说明
+22-23)  求生之路 2   原生 Venus 安装/修复 · 说明（卸载走 22 的操作列）
 ```
 
 > 注意：编号已按新分组**重新编排**。

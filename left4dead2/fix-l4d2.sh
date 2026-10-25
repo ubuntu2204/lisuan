@@ -55,8 +55,8 @@ LOC_BUNDLE="$BRIDGE_HOME/locale"
 # 32 位 steamclient locale 拦截器：见 setlocale-shim.c 头部注释（消除模态 Warning）
 SHIM_SRC="$(cd "$(dirname "$0")" && pwd)/setlocale-shim.c"
 SHIM_SO="$BRIDGE_HOME/setlocale-shim.so"
-# 32 位 vkCreateImage 取证/改写 shim：见 vkcreateimage-shim.c
-VKCI_SRC="$(cd "$(dirname "$0")" && pwd)/vkcreateimage-shim.c"
+# 32 位 vkCreateImage 取证/改写 shim：见 archive/vkcreateimage-shim.c（可选诊断）
+VKCI_SRC="$(cd "$(dirname "$0")" && pwd)/archive/vkcreateimage-shim.c"
 VKCI_SO="$BRIDGE_HOME/vkcreateimage-shim.so"
 
 UNIT_DIR="$HOME/.config/systemd/user"
@@ -444,7 +444,7 @@ build_setlocale_shim() {
 # 游戏里 D16（手电筒阴影贴图）创建失败，能力却是对的（gf 与 Venus 都正确上报
 # DEPTH_STENCIL_ATTACHMENT）。这个 shim 挂住 vkCreateImage，把 format/tiling/usage/
 # 返回码/调用者地址记进日志；也能按环境变量改写 tiling/usage 试探可行组合。
-# 详见 vkcreateimage-shim.c 头部注释。
+# 详见 archive/vkcreateimage-shim.c 头部注释。
 build_vkci_shim() {
   [ -f "$VKCI_SRC" ] || { say "无 $VKCI_SRC（跳过 vkCreateImage shim）"; return 0; }
   command -v gcc >/dev/null 2>&1 || { err "无 gcc，跳过 vkCreateImage shim"; return 0; }
@@ -676,10 +676,19 @@ uninstall() {
   systemctl --user disable l4d2-venus.service 2>/dev/null && say "单元已禁用"
   rm -f "$UNIT"; systemctl --user daemon-reload 2>/dev/null
   rm -f "$LAUNCH" "$HOST_RUN" "$SOCKET" "$SHIM_SO" "$VKCI_SO"
-  # 还原 Steam 客户端 locale 注入（若曾备份）
+  # 只移除本方案注入的 locale，绝不用旧备份覆盖整个 steam.desktop，
+  # 以免把用户后来添加的 GBM_BACKEND=dri 或其他启动器修改一并回滚。
   local sdesk="$HOME/.local/share/applications/steam.desktop"
-  if [ -e "$sdesk.l4d2-bak" ]; then
-    mv -f "$sdesk.l4d2-bak" "$sdesk" && say "steam.desktop 已还原（移除 LC_ALL/LOCPATH 注入）"
+  if [ -f "$sdesk" ] && [ -f "$sdesk.l4d2-bak" ]; then
+    if ! grep -q 'LC_ALL=en_US.UTF-8' "$sdesk.l4d2-bak"; then
+      sed -i -E '/^Exec=/s# ?LC_ALL=en_US.UTF-8##' "$sdesk"
+    fi
+    if ! grep -q "LOCPATH=$LOC_BUNDLE" "$sdesk.l4d2-bak"; then
+      sed -i -E "/^Exec=/s# ?LOCPATH=$LOC_BUNDLE##" "$sdesk"
+    fi
+    command -v update-desktop-database >/dev/null 2>&1 \
+      && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null
+    say "已仅移除 L4D2 注入的 locale（保留其他 Steam 启动器修改）"
   fi
 
   # LaunchOptions 还原为用户自有参数

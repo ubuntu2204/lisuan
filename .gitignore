@@ -23,8 +23,8 @@ dist/
 minion-masters/gf-compat/lib/libSC.so
 minion-masters/gf-compat/lib/libvulkan_gf.so
 
-# left4dead2/gf-compat 是 fix-l4d2.sh 的运行时部署目录（hook、垫片 ICD、
-# 驱动库副本，均由脚本从宿主与厂商包重建），无自有源码，整体不入库。
+# left4dead2/gf-compat 是已废弃 Proton 方案的历史运行时目录（hook、垫片 ICD、
+# 驱动库副本），无自有源码，整体不入库；当前原生 Venus 部署在 ~/.local/share/l4d2-venus。
 left4dead2/gf-compat/
 
 # ---- 本地诊断草稿区：构建日志、探针、解包的厂商源码等，整体不入库 ----

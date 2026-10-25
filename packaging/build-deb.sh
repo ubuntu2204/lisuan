@@ -5,7 +5,7 @@
 # 产物布局：
 #   /usr/bin/lisuan-fix                     可执行入口（install.py 副本，无扩展名）
 #   /usr/share/lisuan-fix/{install.py,lisuan_fix_core.py,lisuan_fix_gui.py}  模块
-#   /usr/share/lisuan-fix/{dkms,mesa,steam,underlords,electron,kingdom-rush,audio}/   修复脚本
+#   /usr/share/lisuan-fix/{dkms,mesa,steam,underlords,electron,kingdom-rush,audio,left4dead2}/ 修复脚本
 #   /usr/share/applications/lisuan-fix.desktop                     终端菜单项
 #
 # 用法：
@@ -58,6 +58,21 @@ for d in dkms mesa steam underlords electron kingdom-rush audio; do
   find "$T/usr/share/$PKG/$d" -name '*.sh' -exec chmod 755 {} +
 done
 
+# Left 4 Dead 2：当前原生 Venus 修复、操作文档和归档诊断源码。
+# 归档截图/运行日志不属于安装资源，不入包。
+(cd "$ROOT" && find left4dead2 -type f \
+    ! -name '*.png' \
+    ! -name '*.log' \
+    ! -name '*.bak' \
+    ! -name '__pycache__/*' \
+    ! -name '*.pyc' \
+    -print0) |
+while IFS= read -r -d '' f; do
+  mkdir -p "$T/usr/share/$PKG/$(dirname "$f")"
+  install -m 644 "$ROOT/$f" "$T/usr/share/$PKG/$f"
+done
+find "$T/usr/share/$PKG/left4dead2" -name '*.sh' -exec chmod 755 {} +
+
 # minion-masters（按需精简打包）：
 #   主脚本 + 说明 + assets-mm-gf-vulkan（部署源：MMPatch/hook 源码/ICD）。
 #   不打包：gf-compat/lib（34M 驱动库副本——部署时由脚本从宿主重建）、
@@ -84,7 +99,7 @@ Exec=x-terminal-emulator -e /usr/bin/lisuan-fix
 Terminal=false
 Type=Application
 Categories=System;Utility;
-Keywords=lisuan;7G100;gpu;steam;hdmi;audio;
+Keywords=lisuan;7G100;gpu;steam;hdmi;audio;l4d2;left4dead2;
 EOF
 
 # ---- 控制文件 -------------------------------------------------------------
@@ -103,6 +118,7 @@ Description: 砺算 7G100 GPU 修复工具（DKMS/Mesa/Steam/游戏/Electron/音
   - DKMS 驱动构建/加载（vermagic 错配、黑屏）
   - Mesa DRI 驱动名适配（lisuan vs gf）
   - Steam 客户端 CEF 崩溃（GBM_BACKEND=dri 环境变量方案）
+  - Left 4 Dead 2 原生 Venus 硬件渲染、D16 与 locale 修复
   - Dota Underlords 原生直跑补丁
   - Electron 应用（ZCode/CodeBuddy/Qoder）gf 硬件加速
   - 显卡 HDMI/DP 音频（伴生 HDA 4c54:5010 绑 snd_hda_intel + 强制 INTx）

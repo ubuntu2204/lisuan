@@ -12,6 +12,9 @@
 > 私有 Venus 服务端现屏蔽该扩展，使 DXVK 回退到合法的普通 usage 组合。
 >
 > 下载：Steam 商店《Left 4 Dead 2》（**付费**，AppID 550）—— <https://store.steampowered.com/app/550/>
+>
+> 目录组织：根目录只保留当前修复、文档和 Venus 构建链；历史探针与验证材料见
+> [`archive/`](./archive/README.md)。归档中的旧工具不是当前启动依赖，使用前先看其说明。
 
 ## 至砺算：官方实现什么可以让本方案退役
 
@@ -19,7 +22,7 @@
 
 1. ~~**补齐 Vulkan 深度格式能力**~~ —— **该条已作废（2026-10-07 实测推翻）**：
    原先判断「gf 报 D16 无 `DEPTH_STENCIL_ATTACHMENT`」是**我们自己的探测脚本
-   `vk-format-probe.py` 位标志错位**造成的误判（漏了 `VERTEX_BUFFER=0x40`，导致
+   `archive/vk-format-probe.py` 位标志错位**造成的误判（漏了 `VERTEX_BUFFER=0x40`，导致
    `COLOR_ATTACHMENT=0x80`/`DEPTH_STENCIL_ATTACHMENT=0x200` 及其后所有 mask 整体偏移
    一位，把真的 `DEPTH_STENCIL_ATTACHMENT=0x200` 误读成 `BLIT_SRC`）。修正 mask 后实测：
    - `vkGetPhysicalDeviceFormatProperties(D16_UNORM)` → `optimal=0x1de01`，**含
@@ -64,6 +67,10 @@ bash fix-l4d2.sh --status     # 随时查看各环节状态
 bash fix-l4d2.sh --uninstall  # 停服务 + 还原 Steam 配置
 ```
 
+也可从仓库根使用交互索引：菜单 **22 = 安装/修复**，**23 = 本文档**。
+非交互执行：`python3 install.py 22`；查看说明：`python3 install.py 23`。
+菜单 22 的“卸载”操作与上面的 `--uninstall` 等价，均只使用当前用户权限。
+
 游戏内验证 GPU 生效：控制台 `mat_info`，Renderer 应显示 **LISUAN**（而非 llvmpipe）。
 
 ---
@@ -99,7 +106,7 @@ hl2_linux -vulkan
 | 2 | systemd --user 单元 | `~/.config/systemd/user/l4d2-venus.service` | 随登录常驻服务端（`WantedBy=default.target`） |
 | 3 | 宿主启动器 | `~/.local/share/l4d2-venus/l4d2-host-run.sh` | 真正跑游戏：确认 socket 就绪 → 注入环境变量 → `exec hl2.sh` |
 | 4 | 32 位 setlocale shim | `~/.local/share/l4d2-venus/setlocale-shim.so`（源码 `setlocale-shim.c`） | 消除引擎的 `SetLocale failed` 误报弹框（见 §3.1）；`LD_PRELOAD` 注入，可关 |
-| 5 | 32 位 vkCreateImage shim | `~/.local/share/l4d2-venus/vkcreateimage-shim.so`（源码 `vkcreateimage-shim.c`） | 拦 `vkCreateImage` 对 D16 做降级链（D16→D24S8→D32→D16@1x1→RGBA8@1x1）并记录参数/返回码。**默认不注入**，需 `L4D2_VKCI_ENABLE=1` 才会加载（原因见下方「dlsym hook 的坑」） |
+| 5 | 32 位 vkCreateImage shim | `~/.local/share/l4d2-venus/vkcreateimage-shim.so`（源码 `archive/vkcreateimage-shim.c`） | 拦 `vkCreateImage` 对 D16 做降级链（D16→D24S8→D32→D16@1x1→RGBA8@1x1）并记录参数/返回码。**默认不注入**，需 `L4D2_VKCI_ENABLE=1` 才会加载（原因见下方「dlsym hook 的坑」） |
 | 6 | Steam 启动包装 | `~/.local/share/l4d2-venus/l4d2-venus-launch.sh` | Steam 链入口；检测到容器则委托宿主，否则直接跑宿主启动器 |
 | 7 | Steam 启动选项 | localconfig.vdf | `<包装器> %command% -vulkan` |
 
