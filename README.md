@@ -102,6 +102,7 @@ right headers.
 | `steam/` | Steam 平台 | 容器 CEF 崩溃修复、开机自愈、容器架构说明 |
 | `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3。其中 `gf-compat/` 是 Vulkan 兼容层（源码与运行时产物同处该目录，两个厂商专有 `.so` 不入库、获取方式见其 README），`assets-mm-gf-vulkan/` 是 C# 补丁工程（MMPatch 唯一权威源码所在；原开发工作目录 `mm-patch/` 已于 2026-08-31 删除，git 历史可查） |
 | `left4dead2/` | 求生之路 2 | **原生 Linux 32 位 Vulkan** → 32 位 Mesa Venus ICD → Unix socket → 私有 64 位 `virgl_test_server --venus` → 64 位 gf → 7G100；含 D16 与 steamclient locale 修复。根目录保留当前修复与文档，`archive/` 保存历史探针和验证材料 |
+| `Plants-vs-Zombies/` | 植物大战僵尸 GOTY | 32 位 Windows 游戏（Proton）三层根因：容器内无图形栈、传统 wow64 拿不到厂商 32 位驱动、PopCap 启动器 `-changedir` 被本体判非法；修法为 **new WoW64 + wined3d Vulkan 后端** 硬件渲染 + 抽本体宿主直跑 |
 | `underlords/` | 刀塔霸业 | 容器委托宿主直跑、libpng12 补齐、崩溃智能重试 |
 | `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder / Trae 四个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
 | `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |
@@ -815,6 +816,8 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
   —— Unity/IL2CPP 游戏：Vivox 登录崩溃 + 图片下载 Texture 异常的 BepInEx 运行时 patch 三件套（Vivox `LoginAsync`、新闻下载状态机 `MoveNext`、`DownloadHandlerTexture.InternalGetTexture`）；证书 patch 反致黑屏（Zenject 异常循环）的回归教训；游戏后端 `LoginQueueService.Post` 404 与 Azure IP 封锁（2026-08-31 复测：**不阻塞**，已完整打完一局对战）；Proton 选型（须支持 new WoW64，Proton 8.0 不可用于硬件渲染；**推荐 Proton 11.0 稳定版**，更新频率低于 Experimental）、user_settings.py 注入无效教训、Steam 状态卡死坑。
 - [随从大师（Minion Masters）修复（一篇通）](./minion-masters/fix-minion-masters.md)
   —— 32 位游戏 × 只有 64 位 gf 驱动的完整攻坚：WoW64 路线、发行版白名单绕过（os-release 重定向）、libSC 依赖、DXVK 降级 v2.3、`vkMapMemory` 高地址 vs 32 位 thunk 的根因与**低 4GB 重映射池**。**2026-08-29 硬件渲染链路端到端打通**（`Renderer: LISUAN 7G100` + 登录流程），系统驱动保持原版、改动隔离在 LD_PRELOAD；含 2026-09-06 组件消融实测（5 项全部必需）、排障速查与废弃路线清单。剩余阻塞仅服务端 API 404。
+- [植物大战僵尸 GOTY（Plants vs. Zombies）修复](./Plants-vs-Zombies/README.md)
+  —— 32 位 Windows 游戏的三层根因：① 容器内 Mesa 缺 `lisuan→gf` 映射、`winex11.drv` 连 GL 都加载不了（日志暴涨 1.7 GB）；② 传统 wow64 下 32 位进程没有厂商驱动（i386 下无 `libvulkan_gf.so`/`gf_dri.so`）→ 只能 llvmpipe 软渲染；③ PopCap 启动器传的 `-changedir` 被本体判非法。修法：**new WoW64（`PROTON_USE_WOW64=1`）+ 重建 wow64 前缀 + wined3d Vulkan 后端** → 32 位 D3D8 真正跑在 7G100 上（CPU 450–510% → ~100%，进程持有 `/dev/dri/renderD128`）；容器内启动选项走宿主委托。
 
 ---
 
@@ -860,6 +863,10 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 | Steam/CEF | `gf_gbm.so` 段错误 + ANGLE 惰性符号失败 | 仅游戏进程树注入（`dkms/vendor-bug-report-gf-gbm-crash.md`） |
 | Steam/CEF | **全局 dri 软链 `lisuan_dri.so->gf_dri.so` / Steam 客户端 PRELOAD 使 Steam 客户端 double free**（致命坑） | 默认不建软链、不向 Steam wrap 注入 gf（`steam/steam-on-lisuan.md` §2/§3） |
 | Wine/DXVK | `d3d11: failed to create factory` 渲染卡死 | `PROTON_USE_WINED3D=1`（`minion-masters/fix-minion-masters.md` 附录 A1） |
+| 32 位 Windows 游戏 | **传统 wow64 下 32 位进程拿不到厂商图形栈**（`/usr/share/vulkan/icd.d` 只有 `gf_icd.x86_64.json`、i386 下无 `libvulkan_gf.so`/`gf_dri.so`）→ 只能 llvmpipe 软渲染 | `PROTON_USE_WOW64=1` + 重建 wow64 前缀（`Plants-vs-Zombies/README.md` 根因 2） |
+| Wine/D3D8 | DXVK 无原生 d3d8（2.3）/ 需 `VK_KHR_maintenance5`（≥2.4，gf 缺） | wined3d + `WINE_D3D_CONFIG=renderer=vulkan`（`Plants-vs-Zombies/README.md`） |
+| 容器 | 容器内 Mesa 无 `lisuan→gf` drirc 映射 → `libGL error: No driver found` → `winex11.drv` 卸载、Wine 建不了窗 | 游戏委托宿主直跑（`Plants-vs-Zombies/README.md` 根因 1 / `underlords/`） |
+| 游戏逻辑 | **PopCap 启动器传 `-changedir`，游戏本体判为非法参数** → `FATAL ERROR: Invalid command line parameter` | 绕过启动器直接跑本体、cwd=游戏目录（`Plants-vs-Zombies/README.md` 根因 3） |
 | Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`minion-masters/fix-minion-masters.md` 附录 A1） |
 | 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`minion-masters/fix-minion-masters.md` 游戏坑 1） |
 | 游戏逻辑 | **证书 patch（`CertificateHandler.ValidateCertificate`）反致黑屏**：Zenject 循环 + BootstrapInstaller NullReference + `NotSupportedException` 刷屏 | 禁用证书 patch，改 patch `DownloadHandlerTexture.InternalGetTexture` 返回 null（`minion-masters/fix-minion-masters.md` 游戏坑 1 / 游戏坑 2） |

@@ -344,6 +344,16 @@ def detect() -> Env:
             env.add("游戏", "warn",
                     f"Left 4 Dead 2 修复状态：{l4d2_text} —— 菜单 [22]", "22")
 
+    # 植物大战僵尸 GOTY：抽本体 + new WoW64（32 位游戏调 64 位 gf Vulkan）
+    # + wined3d Vulkan 后端；容器内委托宿主直跑
+    pvz_run = Path.home() / ".local/share/lisuan-fix/plants-vs-zombies"
+    pvz_game = Path.home() / ".local/share/Steam/steamapps/common/Plants Vs Zombies"
+    if (pvz_run / "plants-vs-zombies-host-run.sh").is_file() and (pvz_run / "pvz-game.exe").is_file():
+        env.add("游戏", "ok", "植物大战僵尸 GOTY 修复已安装（new WoW64 + 7G100 硬件渲染）")
+    elif pvz_game.is_dir():
+        env.add("游戏", "warn",
+                "植物大战僵尸 GOTY 修复未安装（直接启动会闪退/报 -changedir）—— 菜单 [24]", "24")
+
     return env
 
 
@@ -466,11 +476,20 @@ ITEMS: list[Item] = [
      "cmd": lambda a: _sh("left4dead2/fix-l4d2.sh", *a), "doc": ""},
     {"id": 23, "title": "说明：求生之路 2（L4D2）修复与排障文档", "group": "求生之路 2",
      "root": False, "cmd": None, "doc": _doc("left4dead2/README.md")},
+
+    # ---- 植物大战僵尸 GOTY ----
+    # 32 位 Windows 游戏：容器内无可用图形栈；传统 wow64 拿不到厂商 32 位驱动；
+    # 启动器传的 -changedir 本体不认。修法：new WoW64 + wined3d Vulkan + 抽本体。
+    {"id": 24, "title": "安装/修复：植物大战僵尸 GOTY（new WoW64 + 7G100 硬件渲染）",
+     "group": "植物大战僵尸", "root": False,
+     "cmd": lambda a: _sh("Plants-vs-Zombies/fix-plants-vs-zombies.sh", *a), "doc": ""},
+    {"id": 25, "title": "说明：植物大战僵尸 GOTY 修复文档", "group": "植物大战僵尸",
+     "root": False, "cmd": None, "doc": _doc("Plants-vs-Zombies/README.md")},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
 GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业",
-               "王国保卫战", "音频", "求生之路 2"]
+               "王国保卫战", "植物大战僵尸", "音频", "求生之路 2"]
 
 
 class UndoAction(TypedDict):
@@ -506,6 +525,8 @@ UNDO: dict[int, UndoAction] = {
     20: {"cmd": _sh("audio/fix-lisuan-hdmi-audio.sh", "--uninstall"),
          "root": True, "always": True},   # 幂等：未装也可安全执行
     22: {"cmd": _sh("left4dead2/fix-l4d2.sh", "--uninstall"),
+         "root": False, "always": False},
+    24: {"cmd": _sh("Plants-vs-Zombies/fix-plants-vs-zombies.sh", "--uninstall"),
          "root": False, "always": False},
 }
 

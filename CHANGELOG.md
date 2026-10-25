@@ -3,6 +3,52 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.10.25 — 植物大战僵尸 GOTY（AppID 3590）三层根因与 7G100 硬件渲染修复
+
+### 新增
+
+- **`Plants-vs-Zombies/`**：《植物大战僵尸 GOTY》修复集——`fix-plants-vs-zombies.sh`
+  （安装/修复/状态/卸载/前缀迁移/启动选项）、`patch_launch_options.py`（只改目标 AppID
+  的 `LaunchOptions`，写入前做括号平衡自检）、`README.md`（根因与证据）。运行时产物落在
+  `~/.local/share/lisuan-fix/plants-vs-zombies/`，不进 Steam 安装目录，避免"验证文件完整性"误删。
+- 交互索引新增 **24（安装/修复）/ 25（说明）**，状态检测覆盖已安装/未安装，卸载接入 `UNDO`。
+
+### 根因（三层，均有日志/截图实证）
+
+1. **容器内无可用图形栈**：容器 Mesa 缺厂商 `01-gf_drv.conf` 的 `lisuan→gf` 映射，也无 gf 的
+   glvnd vendor → `libGL error: No driver found` → `winex11.drv` 卸载、Wine 建不了窗；
+   `PROTON_LOG=1` 在该分支刷出 1.7 GB 日志。
+2. **传统 wow64 下 32 位进程拿不到厂商驱动**：厂商只装 x86_64（`gf_icd.x86_64.json`、
+   `gf_dri.so`），i386 下无 `libvulkan_gf.so`/`gf_dri.so` → 32 位 DXVK 无 ICD、
+   wined3d 落到 Mesa llvmpipe（1080p 全屏 450–510% CPU）。**不接受软件渲染**。
+3. **PopCap 启动器传的 `-changedir` 被本体判非法**：启动器把本体解到 `%ProgramData%` 后带
+   `-changedir="<游戏目录>"` 启动，本体对任何形式的该参数都弹
+   `FATAL ERROR: Invalid command line parameter: -changedir`（与路径是否含空格无关）。
+
+### 修复（沿用 minion-masters 的 32 位硬件渲染路线）
+
+- **Proton new WoW64**（`PROTON_USE_WOW64=1`）：32 位 PE 经 wow64 thunk 调 **64 位** gf Vulkan；
+  前缀必须重建为 wow64 布局，脚本用 `$COMPAT_DATA/.lisuan-pvz-wow64` 标记位只迁移一次
+  （旧前缀保留为 `pfx.pre-wow64-<ts>`，`--reset-prefix` 可强制重来）。
+- **wined3d + Vulkan 后端**（`PROTON_USE_WINED3D=1` + `WINE_D3D_CONFIG=renderer=vulkan`）：
+  PvZ 是 DirectDraw/D3D8 游戏，DXVK 2.3 无 d3d8、DXVK ≥2.4 需 `VK_KHR_maintenance5`（gf 缺），
+  故走 wined3d 的 Vulkan 实现。
+- 抽本体常驻 + 宿主直跑（cwd = 游戏目录、不带参数）；`flock` 单实例。
+- Steam 内"开始游戏"：启动选项指向 `plants-vs-zombies-steam.sh`，容器内经会话总线
+  `systemd-run --user --wait` 委托宿主拉起并回传退出码（同 `kingdom-rush/`、`underlords/`）。
+
+### 验证
+
+- wined3d 日志确认 `Using the Vulkan renderer` + 设备 `LISUAN 7G100 Series Graphics` `4c54:5006`。
+- 游戏进程为 64 位 `wine-preloader`（wow64 生效），持有 `/dev/dri/renderD128`（2 个 fd）。
+- CPU：1080p 全屏 450–510%（llvmpipe）→ **~100%**（单核）；窗口连续存活 90s+，无崩溃弹窗。
+- 音频：进程持有 PulseAudio memfd，bass 链路已建立。
+- 离线测试：新增 `tests/test-plants-vs-zombies.sh`（19 项，覆盖脚本语法、wow64/Vulkan 后端断言、
+  `LaunchOptions` 的 VDF 结构/幂等/清除/未知 AppID）；全量 `tests/run-tests.sh` 9/9 通过。
+- 未覆盖：Steam 内"开始游戏"的端到端需重启 Steam 后才能验证（写 `localconfig.vdf` 必须
+  Steam 已退出），本次未重启用户的 Steam。Xephyr（无 DRI3）下硬件路径会崩在 wined3d，
+  属嵌套 X 的 Vulkan WSI 限制。
+
 ## 2026.10.25 — L4D2 D16 闪退、locale 模态框与启动链诊断修复
 
 ### 修复

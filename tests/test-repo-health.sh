@@ -86,7 +86,7 @@ from pathlib import Path
 root = Path(sys.argv[1])
 sys.path.insert(0, str(root / "packaging"))
 import lisuan_fix_core as core
-assert len(core.ITEMS_BY_ID) == 23
+assert len(core.ITEMS_BY_ID) == 25
 assert core.GROUP_ORDER[-1] == "求生之路 2"
 assert core.ITEMS_BY_ID[22]["root"] is False
 assert core.ITEMS_BY_ID[22]["cmd"]([])[1].endswith("left4dead2/fix-l4d2.sh")
@@ -94,6 +94,12 @@ assert core.ITEMS_BY_ID[23]["root"] is False
 assert core.ITEMS_BY_ID[23]["doc"] == "left4dead2/README.md"
 assert core.UNDO[22]["root"] is False
 assert "--uninstall" in core.UNDO[22]["cmd"]
+# 植物大战僵尸 GOTY（32 位 Windows 游戏，new WoW64 + 7G100 硬件渲染）：安装/说明 + 卸载
+assert core.ITEMS_BY_ID[24]["root"] is False
+assert core.ITEMS_BY_ID[24]["cmd"]([])[1].endswith("Plants-vs-Zombies/fix-plants-vs-zombies.sh")
+assert core.ITEMS_BY_ID[25]["doc"] == "Plants-vs-Zombies/README.md"
+assert core.UNDO[24]["root"] is False
+assert "--uninstall" in core.UNDO[24]["cmd"]
 PY
 t_assert_eq 0 $? "L4D2 menu 22/23 and undo registration"
 
