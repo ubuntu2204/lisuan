@@ -1,0 +1,16 @@
+diff --git a/src/venus/vkr_common.c b/src/venus/vkr_common.c
+index 9c3fb84..e64ad2a 100644
+--- a/src/venus/vkr_common.c
++++ b/src/venus/vkr_common.c
+@@ -138,7 +138,10 @@ static const struct vn_info_extension_table vkr_extension_table = {
+    .KHR_workgroup_memory_explicit_layout = true,
+    /* EXT extensions */
+    .EXT_attachment_feedback_loop_dynamic_state = true,
+-   .EXT_attachment_feedback_loop_layout = true,
++   /* gf advertises this extension but rejects depth images carrying the
++    * corresponding usage bit. Hide it from DXVK in this private bridge.
++    */
++   .EXT_attachment_feedback_loop_layout = false,
+    .EXT_blend_operation_advanced = true,
+    .EXT_border_color_swizzle = true,
+    .EXT_buffer_device_address = true,

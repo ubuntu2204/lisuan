@@ -14,7 +14,7 @@ DEPS="$BRIDGE_HOME/deps"
 DOWNLOADS="$BRIDGE_HOME/downloads"
 MESON_ROOT="$DEPS/meson"
 VULKAN_ROOT="$DEPS/vulkan"
-GF_PATCH="$SCRIPT_DIR/patches/0001-venus-prefer-ext-calibrated-timestamps.patch"
+PATCHES=("$SCRIPT_DIR"/patches/*.patch)
 
 say() { printf '[l4d2-venus] %s\n' "$*"; }
 die() { printf '[l4d2-venus] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -79,14 +79,16 @@ else
         die "$SRC is $current, expected $VERSION; remove it or set L4D2_VIRGL_VERSION"
 fi
 
-if patch -d "$SRC" -p1 --dry-run --forward <"$GF_PATCH" >/dev/null 2>&1; then
-    say "applying gf calibrated-timestamps compatibility patch"
-    patch -d "$SRC" -p1 --forward <"$GF_PATCH"
-elif patch -d "$SRC" -p1 --dry-run --reverse <"$GF_PATCH" >/dev/null 2>&1; then
-    say "gf calibrated-timestamps compatibility patch is already applied"
-else
-    die "cannot apply $GF_PATCH to $VERSION"
-fi
+for patch_file in "${PATCHES[@]}"; do
+    if patch -d "$SRC" -p1 --dry-run --forward <"$patch_file" >/dev/null 2>&1; then
+        say "applying $(basename "$patch_file")"
+        patch -d "$SRC" -p1 --forward <"$patch_file"
+    elif patch -d "$SRC" -p1 --dry-run --reverse <"$patch_file" >/dev/null 2>&1; then
+        say "$(basename "$patch_file") is already applied"
+    else
+        die "cannot apply $patch_file to $VERSION"
+    fi
+done
 
 say "configuring private 64-bit Venus server"
 setup_mode=()
