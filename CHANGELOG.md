@@ -3,7 +3,7 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
-## 2026.10.25 — 植物大战僵尸 GOTY（AppID 3590）三层根因与 7G100 硬件渲染修复
+## 2026.10.25 — 植物大战僵尸 GOTY（AppID 3590）四层根因与 7G100 硬件渲染修复
 
 ### 新增
 
@@ -13,7 +13,7 @@
   `~/.local/share/lisuan-fix/plants-vs-zombies/`，不进 Steam 安装目录，避免"验证文件完整性"误删。
 - 交互索引新增 **24（安装/修复）/ 25（说明）**，状态检测覆盖已安装/未安装，卸载接入 `UNDO`。
 
-### 根因（三层，均有日志/截图实证）
+### 根因（四层，均有日志/截图实证）
 
 1. **容器内无可用图形栈**：容器 Mesa 缺厂商 `01-gf_drv.conf` 的 `lisuan→gf` 映射，也无 gf 的
    glvnd vendor → `libGL error: No driver found` → `winex11.drv` 卸载、Wine 建不了窗；
@@ -24,6 +24,21 @@
 3. **PopCap 启动器传的 `-changedir` 被本体判非法**：启动器把本体解到 `%ProgramData%` 后带
    `-changedir="<游戏目录>"` 启动，本体对任何形式的该参数都弹
    `FATAL ERROR: Invalid command line parameter: -changedir`（与路径是否含空格无关）。
+4. **new WoW64 的高地址显存映射接不住（黑屏真因）**：`vkMapMemory` 返回 ≥4GB 指针，
+   wine 的 thunk 交不给 32 位代码 → `wined3d_allocator_chunk_vk_map Failed to map chunk
+   memory` → 全屏黑屏 + GNOME 弹“steam_app_3590 无响应”（窗口存在、CPU 占满一核）。
+
+### 黑屏回归与修正（2026-10-25 晚）
+
+首版只做到 new WoW64 + wined3d Vulkan，**把“窗口存在 + 持有 `/dev/dri/renderD128` +
+CPU 占用”当成了渲染正常的证据**，实际是黑屏。补上 minion-masters 的同一个修复后：
+
+- 宿主启动器默认 `LD_PRELOAD` 低 4GB 重映射池
+  （`minion-masters/gf-compat/lib/osrelease_redirect.so`，安装时解析路径并校验为 64 位，
+  可用 `PVZ_SHIM` 覆盖；`--status` 单列一项）。
+- 实测：`does not fit 32-bit pointer` / `Failed to map chunk` 计数归零，shim 日志
+  `reloc` 3179 次；`_NET_WM_PING` 从“无回应”变为“8s 内回应”；GPU fd 从 2 变 4。
+- **画面已由用户确认正常**（Steam 里点“开始游戏”，标题画面正常显示）。
 
 ### 修复（沿用 minion-masters 的 32 位硬件渲染路线）
 

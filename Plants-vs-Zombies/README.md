@@ -1,9 +1,8 @@
 # 植物大战僵尸 GOTY（Plants vs. Zombies, AppID 3590）在砺算 7G100 上的硬件渲染修复
 
 > 32 位 Windows 游戏 × 只有 64 位用户态驱动的砺算 7G100。现象是"点了没反应"，
-> 实际是三层独立故障叠加，而且**前两层的自然结局都是软件渲染（llvmpipe）**——
-> 本方案不接受，改用 minion-masters 已经跑通的 new WoW64 路线，让 32 位 D3D8
-> 真正落到 **7G100** 上。
+> 实际是**四层独立故障叠加**：容器内图形栈不可用、32 位进程拿不到厂商驱动、
+> PopCap 启动器参数被本体拒收、new WoW64 的高地址显存映射接不住（黑屏）。
 
 ---
 
@@ -23,6 +22,9 @@
 3. **`libvulkan_gf.so` 补 `VK_KHR_maintenance5`**，并把 ICD 的 **loader interface
    version 升到 5**。这样 DXVK ≥2.4（含原生 d3d8 实现）就能直接用；当前 gf 会被
    DXVK 跳过，只能用 wined3d 的 Vulkan 后端。
+4. **CPU 可见映射不要默认落在 ≥4GB**：new WoW64 下 `vkMapMemory` 返回高地址指针，
+   wine 的 thunk 交不给 32 位代码，直接表现为黑屏 + “无响应”。驱动若优先在低 4GB
+   分配，本目录的“低 4GB 重映射池”LD_PRELOAD 即可退役（与 minion-masters 同一诉求）。
 
 ---
 
@@ -33,10 +35,11 @@
 | Steam 里点"开始游戏" | 没有任何游戏画面；Steam 认为游戏在运行，3 分钟后被手动停止 |
 | 宿主直跑启动器 | PopCap 弹窗：`FATAL ERROR / Invalid command line parameter: -changedir` |
 | 宿主直跑本体（传统 wow64） | 能进游戏，但 **llvmpipe 软件渲染**：1080p 全屏 450–510% CPU |
+| new WoW64 但未加重映射池 | **全屏黑屏** + GNOME 弹“steam_app_3590 无响应”，窗口存在、CPU 占满一核 |
 
 复现时 `PROTON_LOG=1` 的日志在容器分支涨到 **1.7 GB**（`trace:seh:handle_syscall_fault` 刷屏）。
 
-## 根因（三层，均有实证）
+## 根因（四层，均有实证）
 
 ### 1. 容器内没有可用图形栈 → Wine 的 explorer 直接崩
 
@@ -85,6 +88,30 @@ fixme:d3d:wined3d_guess_card No card selector available for card vendor 0000
 与路径是否含空格无关——复制到 `/tmp/pvz_nospace` 仍失败）。截图取证：窗口标题
 `FATAL ERROR`，正文 `Invalid command line parameter: -changedir`。
 
+### 4. new WoW64 的致命陷阱：`vkMapMemory` 返回高地址，32 位代码接不住（黑屏真因）
+
+只把 32 位进程接到 64 位 gf Vulkan 上还不够。new WoW64 下显存映射由 64 位宿主
+进程完成，返回的 CPU 指针在高位（如 `0x7fd188000000`），wine 的 thunk 无法把它交给
+32 位代码，于是 wined3d 建不出顶点/像素缓冲：
+
+```text
+fixme:vulkan:win32u_vkMapMemory2KHR returned mapping 0x7fd188000000 does not fit 32-bit pointer
+err:d3d:wined3d_allocator_chunk_vk_map Failed to map chunk memory, vr VK_ERROR_OUT_OF_HOST_MEMORY.
+err:d3d:wined3d_bo_vk_map Failed to map chunk.
+err:d3d:adapter_vk_map_bo_address Failed to map bo.
+```
+
+用户看到的现象就是：**全屏黑屏 + GNOME 弹“steam_app_3590 无响应”**（主线程在等
+永远建不出的缓冲，不再泵 X 事件循环），而窗口列表里窗口存在、CPU 占满一个核。
+
+**修法**：沿用 `minion-masters/gf-compat/` 的 **低 4GB 重映射池** LD_PRELOAD
+（`osrelease_redirect.so`）——它在 `mmap` 层把“结果地址 ≥ 4GB 且 fd 是 GPU 设备”的
+共享映射重定位到 2.25–4GB，驱动保持原版、只对配了该预加载的进程生效。
+加上后：映射失败计数归零，shim 日志重定位 3179 次，`_NET_WM_PING` 恢复应答。
+
+> 这是 minion-masters 当年为 DXVK 踩出来的同一个坑（见
+> `minion-masters/fix-minion-masters.md` 游戏坑 8 障碍 5）；wined3d 的 Vulkan 后端同样会踩。
+
 ## 修复（硬件渲染路线，参考 minion-masters）
 
 1. **Proton new WoW64**：`PROTON_USE_WOW64=1`，让 32 位 PE 经 wow64 thunk 调
@@ -112,7 +139,10 @@ fixme:d3d:wined3d_guess_card No card selector available for card vendor 0000
    `plants-vs-zombies-steam.sh`；它在容器内用 `systemd-run --user --wait` 委托宿主拉起
    宿主启动器并回传退出码（同 `left4dead2/`、`kingdom-rush/`、`underlords/`）。
    委托能否成功取决于三件容易踩错的事，见下面的「委托链路的三个坑」。
-5. `flock /tmp/plants-vs-zombies-3590.lock` 保证单实例。
+5. **低 4GB 重映射池**：宿主启动器默认 `LD_PRELOAD` 上
+   `minion-masters/gf-compat/lib/osrelease_redirect.so`（安装时自动解析路径并校
+   验是 64 位；可用 `PVZ_SHIM=<路径>` 覆盖）。缺它会黑屏，`--status` 会单独列这一项。
+6. `flock /tmp/plants-vs-zombies-3590.lock` 保证单实例。
 
 ### 委托链路的三个坑（本轮实测抓出来）
 
@@ -161,18 +191,29 @@ Steam 启动选项（也可直接在 Steam 属性里粘贴）：
 | 进程架构 | 游戏进程是 64 位 `wine-preloader`（wow64 生效） |
 | 稳定性 | 窗口 `Plants vs. Zombies` 连续存活 90s+，无崩溃弹窗 |
 | 音频 | 进程持有 PulseAudio memfd，bass 音频链路已建立 |
-| **Steam 按钮端到端** | 库里点"开始游戏"→ Steam 命令行变为 `"…/plants-vs-zombies-steam.sh" …`→ 容器内 `in_container=1 hostpfx=/host`、总线走代理 → 宿主单元 `pvz-plantsvszombies.service` 拉起游戏（GPU fd 2、CPU ~100%）→ Steam 状态 `App Running` |
+| 活性 | `_NET_WM_PING` 发向游戏窗口并在 8s 内收到回复 → 事件循环正常（修复前收不到，GNOME 因此弹“无响应”） |
+| 显存映射 | 加 shim 后 `does not fit 32-bit pointer` / `Failed to map chunk` 均为 **0**（修复前必现），shim 日志 `reloc` 3179 次 |
+| **Steam 按钮端到端** | 库里点"开始游戏"→ Steam 命令行变为 `"…/plants-vs-zombies-steam.sh" …`→ 容器内 `in_container=1 hostpfx=/host`、总线走代理 → 宿主单元 `pvz-plantsvszombies.service` 拉起游戏（GPU fd 4、CPU ~150%）→ Steam 状态 `App Running` |
+| 画面 | **已人眼确认正常**（2026-10-25，Steam 里点"开始游戏"后标题画面正常显示） |
 | 退出回传 | 游戏结束后单元 `inactive`、包装进程退出、Steam 状态回到 `Fully Installed`（时长统计有效） |
 | 前缀迁移 | `--reset-prefix` 移走旧前缀 → Proton 重建 → 仍是硬件渲染 |
 | 离线测试 | `tests/test-plants-vs-zombies.sh` 19/19；全量 `tests/run-tests.sh` 9/9 |
 
+> **验证方法的教训**：本轮一度把“窗口存在 + 持有 `/dev/dri/renderD128` + CPU 占用”
+> 当作渲染正常的证据，实际是黑屏。现在改用 `_NET_WM_PING` 活性 + 映射失败计数
+> 作最低门槛，**画面本身必须让人看一眼**（Wayland 会话下无法自行截图）。
+>
 > 截图验证的边界：本机是 Wayland 会话，XWayland 下 `xwd` 抓不到 GPU 直出窗口；
-> 用 Xephyr（嵌套 X，**没有 DRI3**）跑硬件路径会崩在 `wined3d.dll` —— 属嵌套 X 的
-> Vulkan WSI 限制，真实显示（XWayland）下窗口稳定。软件路径在 Xephyr 下可截图，
-> 但软渲染正是本方案要淘汰的路径。
+> 改用 Xephyr（嵌套 X，**没有 DRI3**）则无论有无 shim 都会崩在 `wined3d.dll` 同一
+> 地址（`0001:000F07A2`），属嵌套 X 的 Vulkan WSI 限制，不能用于验证本路径。
 
 ## 已知限制
 
+* **跨目录依赖**：宿主启动器预加载的 shim 在
+  `minion-masters/gf-compat/lib/osrelease_redirect.so`（与随从大师共用同一个产物）。
+  它内部把伪造的 `/etc/os-release` 路径写死为仓库内绝对路径，所以仓库移动位置后需
+  重跑 `minion-masters/gf-compat/deploy.sh` 重编；本目录的 `find_shim()` 只校
+  验存在与“是 64 位”，可用 `PVZ_SHIM=<路径>` 改指。
 * **首次安装要重建前缀**（约 30–60 秒）：wow64 布局与旧前缀不兼容；旧前缀会保留为
   `compatdata/3590/pfx.pre-wow64-<时间>`，其中的本地存档/PopCap userdata 不自动迁移
   （Steam 云存档不受影响）。
@@ -198,6 +239,7 @@ Steam 启动选项（也可直接在 Steam 属性里粘贴）：
 
 | 现象 | 先看哪里 |
 |---|---|
+| **全屏黑屏 + GNOME 弹“无响应”** | 低 4GB 重映射池没生效：看 `--status` 里 shim 是否 [OK]，日志里是否有 `does not fit 32-bit pointer` |
 | Steam 里点了仍没反应 | `~/.local/share/Steam/logs/console_log.txt` 里该 AppID 的命令行是否已变成 `plants-vs-zombies-steam.sh`；没变 = 启动选项未生效 |
 | 启动了但秒退 | `/tmp/plants-vs-zombies-hostrun.log`（含 `in_container` / `hostpfx` / `bus` / 退出码） |
 | 日志 `undefined symbol: __nptl_change_stack_perm` | 用了容器 ld.so → 重跑安装脚本拿新版委托逻辑 |

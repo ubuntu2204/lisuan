@@ -102,7 +102,7 @@ right headers.
 | `steam/` | Steam 平台 | 容器 CEF 崩溃修复、开机自愈、容器架构说明 |
 | `minion-masters/` | 随从大师 | 7G100 硬件渲染、Vivox/Texture patch、低 4GB 映射 shim、DXVK 2.3。其中 `gf-compat/` 是 Vulkan 兼容层（源码与运行时产物同处该目录，两个厂商专有 `.so` 不入库、获取方式见其 README），`assets-mm-gf-vulkan/` 是 C# 补丁工程（MMPatch 唯一权威源码所在；原开发工作目录 `mm-patch/` 已于 2026-08-31 删除，git 历史可查） |
 | `left4dead2/` | 求生之路 2 | **原生 Linux 32 位 Vulkan** → 32 位 Mesa Venus ICD → Unix socket → 私有 64 位 `virgl_test_server --venus` → 64 位 gf → 7G100；含 D16 与 steamclient locale 修复。根目录保留当前修复与文档，`archive/` 保存历史探针和验证材料 |
-| `Plants-vs-Zombies/` | 植物大战僵尸 GOTY | 32 位 Windows 游戏（Proton）三层根因：容器内无图形栈、传统 wow64 拿不到厂商 32 位驱动、PopCap 启动器 `-changedir` 被本体判非法；修法为 **new WoW64 + wined3d Vulkan 后端** 硬件渲染 + 抽本体宿主直跑 |
+| `Plants-vs-Zombies/` | 植物大战僵尸 GOTY | 32 位 Windows 游戏（Proton）四层根因：容器内无图形栈、传统 wow64 拿不到厂商 32 位驱动、PopCap 启动器 `-changedir` 被本体判非法、new WoW64 高地址显存映射接不住（黑屏）；修法为 **new WoW64 + wined3d Vulkan 后端 + 低 4GB 重映射池**（沿用 minion-masters/gf-compat） |
 | `underlords/` | 刀塔霸业 | 容器委托宿主直跑、libpng12 补齐、崩溃智能重试 |
 | `electron/` | Electron 类应用 | 通用加速 wrapper（`use-electron-gf.sh`）+ ZCode / CodeBuddy / Qoder / Trae 四个应用入口。注意事项（gf 不支持的扩展、显示异常三件套等）见 [`electron/README.md`](./electron/README.md) |
 | `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |
@@ -817,7 +817,7 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 - [随从大师（Minion Masters）修复（一篇通）](./minion-masters/fix-minion-masters.md)
   —— 32 位游戏 × 只有 64 位 gf 驱动的完整攻坚：WoW64 路线、发行版白名单绕过（os-release 重定向）、libSC 依赖、DXVK 降级 v2.3、`vkMapMemory` 高地址 vs 32 位 thunk 的根因与**低 4GB 重映射池**。**2026-08-29 硬件渲染链路端到端打通**（`Renderer: LISUAN 7G100` + 登录流程），系统驱动保持原版、改动隔离在 LD_PRELOAD；含 2026-09-06 组件消融实测（5 项全部必需）、排障速查与废弃路线清单。剩余阻塞仅服务端 API 404。
 - [植物大战僵尸 GOTY（Plants vs. Zombies）修复](./Plants-vs-Zombies/README.md)
-  —— 32 位 Windows 游戏的三层根因：① 容器内 Mesa 缺 `lisuan→gf` 映射、`winex11.drv` 连 GL 都加载不了（日志暴涨 1.7 GB）；② 传统 wow64 下 32 位进程没有厂商驱动（i386 下无 `libvulkan_gf.so`/`gf_dri.so`）→ 只能 llvmpipe 软渲染；③ PopCap 启动器传的 `-changedir` 被本体判非法。修法：**new WoW64（`PROTON_USE_WOW64=1`）+ 重建 wow64 前缀 + wined3d Vulkan 后端** → 32 位 D3D8 真正跑在 7G100 上（CPU 450–510% → ~100%，进程持有 `/dev/dri/renderD128`）；容器内启动选项走宿主委托。
+  —— 32 位 Windows 游戏的四层根因：① 容器内 Mesa 缺 `lisuan→gf` 映射、`winex11.drv` 连 GL 都加载不了（日志暴涨 1.7 GB）；② 传统 wow64 下 32 位进程没有厂商驱动（i386 下无 `libvulkan_gf.so`/`gf_dri.so`）→ 只能 llvmpipe 软渲染；③ PopCap 启动器传的 `-changedir` 被本体判非法；④ new WoW64 下 `vkMapMemory` 返回 ≥4GB 指针、wine thunk 交不给 32 位代码 → **黑屏 + “无响应”**。修法：**new WoW64（`PROTON_USE_WOW64=1`）+ 重建 wow64 前缀 + wined3d Vulkan 后端 + 沿用 `minion-masters/gf-compat` 的低 4GB 重映射池** → 32 位 D3D8 真正跑在 7G100 上（CPU 450–510% → ~150%，`_NET_WM_PING` 应答正常）；容器内启动选项走宿主委托。
 
 ---
 
@@ -871,6 +871,8 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 | 容器→宿主委托 | 宿主挂载点不唯一：手跑 `_v2-entry-point` 是 `/run/host`，Steam 真启动游戏是 `/host` | 两种都探测（`left4dead2/fix-l4d2.sh` 已如此处理） |
 | Steam 客户端 | 从带 `SteamAppId` 的 shell 启动 Steam → 客户端被当成游戏进程，新启动卡在 `WaitingPrevProcess` 后直接 `Completed`（“点了没反应”） | 用干净环境启动 Steam；排查 `tr '\0' '\n' < /proc/<pid>/environ \| grep SteamAppId` |
 | 游戏逻辑 | **PopCap 启动器传 `-changedir`，游戏本体判为非法参数** → `FATAL ERROR: Invalid command line parameter` | 绕过启动器直接跑本体、cwd=游戏目录（`Plants-vs-Zombies/README.md` 根因 3） |
+| new WoW64 | `vkMapMemory` 返回 ≥4GB 指针，wine thunk 交不给 32 位代码 → wined3d/DXVK 建不出缓冲 → **黑屏 + “无响应”**（窗口存在、CPU 占满一核） | 低 4GB 重映射池 LD_PRELOAD（`minion-masters/gf-compat/lib/osrelease_redirect.so`，`Plants-vs-Zombies/README.md` 根因 4） |
+| 验证方法 | “窗口存在 + 持有 `/dev/dri/renderD128` + CPU 占用”**不能**证明画面正常（实际黑屏） | 改用 `_NET_WM_PING` 活性 + 映射失败计数作门槛，画面交给人眼确认（`Plants-vs-Zombies/README.md` 验证表） |
 | Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`minion-masters/fix-minion-masters.md` 附录 A1） |
 | 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`minion-masters/fix-minion-masters.md` 游戏坑 1） |
 | 游戏逻辑 | **证书 patch（`CertificateHandler.ValidateCertificate`）反致黑屏**：Zenject 循环 + BootstrapInstaller NullReference + `NotSupportedException` 刷屏 | 禁用证书 patch，改 patch `DownloadHandlerTexture.InternalGetTexture` 返回 null（`minion-masters/fix-minion-masters.md` 游戏坑 1 / 游戏坑 2） |

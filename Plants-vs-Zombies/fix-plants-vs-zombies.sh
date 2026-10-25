@@ -68,6 +68,8 @@ DESK="$REAL_HOME/.local/share/applications/plants-vs-zombies-lisuan.desktop"
 # 前缀是否已迁到 new WoW64 布局的标记（放在 pfx 之外，移动前缀不会丢）
 WOW64_MARKER="$COMPAT_DATA/.lisuan-pvz-wow64"
 STEAM_LAUNCH="\"$RUN_DIR/plants-vs-zombies-steam.sh\" %command%"
+# 低 4GB 重映射池（沿用 minion-masters 的 gf-compat，同一个 wow64 陷阱同一个产物）
+SHIM_HINT="$REAL_HOME/project/lisuan/minion-masters/gf-compat/lib/osrelease_redirect.so"
 
 log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n'  "$*" >&2; }
@@ -93,6 +95,11 @@ status() {
   [[ -x "$HOSTRUN" ]]   && echo "  [OK] 宿主启动器就绪（new WoW64 + wined3d Vulkan）" \
                        || echo "  [--] 宿主启动器缺失"
   [[ -x "$STEAMWRAP" ]] && echo "  [OK] Steam 入口就绪" || echo "  [--] Steam 入口缺失"
+  if shim="$(find_shim || true)"; then
+    echo "  [OK] 低 4GB 重映射池 shim：$shim"
+  else
+    echo "  [--] 缺低 4GB 重映射池 shim（会黑屏）——跟 minion-masters/gf-compat/deploy.sh 生成"
+  fi
   [[ -f "$DESK" ]]      && echo "  [OK] 桌面项已安装"   || echo "  [--] 桌面项未安装"
   [[ -f "$WOW64_MARKER" ]] && echo "  [OK] 前缀已标记为 new WoW64 布局" \
                           || echo "  [--] 前缀未迁移（32 位进程会退回软件渲染）"
@@ -173,8 +180,30 @@ ensure_wow64_prefix() {
   warn "旧前缀内的本地存档/PopCap userdata 不会自动迁移（Steam 云存档不受影响）"
 }
 
+# ---- 低 4GB 重映射池 shim -------------------------------------------------
+# new WoW64 下 32 位 PE 拿不住 64 位显存映射指针：wined3d/DXVK 会报
+#   fixme:vulkan:win32u_vkMapMemory2KHR returned mapping 0x... does not fit 32-bit pointer
+#   err:d3d:wined3d_allocator_chunk_vk_map Failed to map chunk memory
+# 表现为黑屏 + 主循环空转卡死（GNOME 弹“无响应”）。minion-masters 已经为此写了
+# 一个在 mmap 层把 ≥4GB 的 GPU 映射重定位到 2.25–4GB 的 LD_PRELOAD，这里直接复用。
+find_shim() {
+  local c
+  for c in "${PVZ_SHIM:-}" "$SHIM_HINT" \
+           "$SELF_DIR/../minion-masters/gf-compat/lib/osrelease_redirect.so" \
+           "$REAL_HOME/gf-compat/osrelease_redirect.so"; do
+    [[ -n "$c" && -f "$c" ]] || continue
+    file -b -L "$c" 2>/dev/null | grep -q 'ELF 64-bit' || continue
+    printf '%s' "$c"
+    return 0
+  done
+  return 1
+}
+
 # ---- 安装宿主启动器 ---------------------------------------------------------
 install_hostrun() {
+  local shim
+  shim="$(find_shim || true)"
+  [[ -n "$shim" ]] || warn "没找到低 4GB 重映射池 shim（会黑屏！）：请跑 minion-masters/gf-compat/deploy.sh，或用 PVZ_SHIM=<路径> 指定"
   cat > "$HOSTRUN" <<EOF
 #!/bin/bash
 # Lisuan 7G100: 在【宿主】用硬件渲染运行《植物大战僵尸 GOTY》。
@@ -196,6 +225,7 @@ GAME_DIR="${GAME_DIR}"
 PROTON_DIR="${PROTON_DIR}"
 COMPAT_DATA="${COMPAT_DATA}"
 BODY="${BODY}"
+SHIM="${shim:-}"
 APPID=${APPID}
 LOCK=/tmp/plants-vs-zombies-3590.lock
 
@@ -213,6 +243,13 @@ cd "\$GAME_DIR" || { echo "找不到游戏目录: \$GAME_DIR" >&2; exit 1; }
 export PROTON_USE_WOW64=1
 export PROTON_USE_WINED3D=1
 export WINE_D3D_CONFIG="\${WINE_D3D_CONFIG:-renderer=vulkan}"
+# 低 4GB 重映射池：不预加载它会黑屏（vkMapMemory 返回的高地址指针
+# 交不到 32 位代码手里 → wined3d 建不出缓冲 → 主循环空转）
+if [ -n "\$SHIM" ] && [ -f "\$SHIM" ]; then
+  export LD_PRELOAD="\$SHIM\${LD_PRELOAD:+ \$LD_PRELOAD}"
+else
+  echo "!! 缺少低 4GB 重映射池 shim（\${SHIM:-未配置}），预计会黑屏；请重跑 fix 脚本" >&2
+fi
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="\${STEAM_COMPAT_CLIENT_INSTALL_PATH:-$STEAM_ROOT}"
 export STEAM_COMPAT_DATA_PATH="\$COMPAT_DATA"
 export SteamAppId="\${SteamAppId:-\$APPID}"

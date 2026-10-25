@@ -36,6 +36,9 @@ t_assert_grep "$FIX" 'for p in /run/host /host' "steam entry handles both host-m
 t_assert_grep "$FIX" 'PRESSURE_VESSEL_PREFIX' "steam entry also detects container by env markers"
 t_assert_grep "$FIX" 'PROTON_USE_WINED3D=1' "host launcher forces wined3d (DXVK can't cover D3D8 here)"
 t_assert_grep "$FIX" 'flock -n 9' "host launcher is single-instance"
+t_assert_grep "$FIX" 'osrelease_redirect\.so' "host launcher preloads the low-4GB remap pool (black screen fix)"
+t_assert_grep "$FIX" 'PVZ_SHIM' "shim path is overridable"
+t_assert_grep "$FIX" 'ELF 64-bit' "shim is validated as a 64-bit object"
 t_assert_grep "$FIX" 'popcapgame1\.exe' "fix script extracts the PopCap body"
 
 # --- 1. set writes a single LaunchOptions line inside the 3590 block --------
