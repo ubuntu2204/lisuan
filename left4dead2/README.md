@@ -1,12 +1,15 @@
 # 《求生之路 2》（Left 4 Dead 2, AppID 550）7G100 硬件渲染修复
 
-> 状态：**链路已打通，渲染受 gf 驱动能力限制**（2026-10-06）
+> 状态：**全 GPU 硬件渲染稳定可玩，D16 手电筒阴影已恢复**（2026-10-25）
 > 修复脚本：`./fix-l4d2.sh`（幂等，支持 `--status` / `--uninstall`）
+> 完整探索记录：[探索记录.md](./探索记录.md)
 >
 > **不使用** `left4dead2.exe`、**不使用 Proton/DXVK**、**不使用软件渲染**。
 >
-> ⚠️ 已知阻塞（详见「至砺算」1~2 条）：游戏能启动、能识别 `LISUAN 7G100`，
-> 但 L4D2 手电筒阴影贴图（`D16` 深度附件）在 Venus 客户端侧崩溃，只能关闭该特性。
+> 2026-10-25 根因：gf 驱动虽上报支持 `VK_EXT_attachment_feedback_loop_layout`，
+> 但拒绝带 `VK_IMAGE_USAGE_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT` 的深度纹理；
+> DXVK 因此在真正 `vkCreateImage` 前就认为 D16 创建失败，最终在 `MatQueue0` 崩溃。
+> 私有 Venus 服务端现屏蔽该扩展，使 DXVK 回退到合法的普通 usage 组合。
 >
 > 下载：Steam 商店《Left 4 Dead 2》（**付费**，AppID 550）—— <https://store.steampowered.com/app/550/>
 
