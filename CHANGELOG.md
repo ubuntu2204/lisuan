@@ -43,11 +43,28 @@
 - 游戏进程为 64 位 `wine-preloader`（wow64 生效），持有 `/dev/dri/renderD128`（2 个 fd）。
 - CPU：1080p 全屏 450–510%（llvmpipe）→ **~100%**（单核）；窗口连续存活 90s+，无崩溃弹窗。
 - 音频：进程持有 PulseAudio memfd，bass 链路已建立。
+- **Steam 按钮端到端**（已写入启动选项并重启 Steam 实测）：库里点"开始游戏"→ Steam 命令行
+  变为 `plants-vs-zombies-steam.sh` → 容器内 `in_container=1 hostpfx=/host`、总线走代理 →
+  宿主单元 `pvz-plantsvszombies.service` 拉起游戏（GPU fd 2、CPU ~100%）→ Steam `App Running`；
+  游戏结束后单元 `inactive`、Steam 状态回到 `Fully Installed`。
 - 离线测试：新增 `tests/test-plants-vs-zombies.sh`（19 项，覆盖脚本语法、wow64/Vulkan 后端断言、
-  `LaunchOptions` 的 VDF 结构/幂等/清除/未知 AppID）；全量 `tests/run-tests.sh` 9/9 通过。
-- 未覆盖：Steam 内"开始游戏"的端到端需重启 Steam 后才能验证（写 `localconfig.vdf` 必须
-  Steam 已退出），本次未重启用户的 Steam。Xephyr（无 DRI3）下硬件路径会崩在 wined3d，
-  属嵌套 X 的 Vulkan WSI 限制。
+  委托链路断言、`LaunchOptions` 的 VDF 结构/幂等/清除/未知 AppID）；全量 `tests/run-tests.sh` 9/9 通过。
+
+### 委托链路本轮修掉的坑（均有日志原文）
+
+- 用容器内 ld.so 跑宿主 `systemd-run` → `undefined symbol: __nptl_change_stack_perm (GLIBC_PRIVATE)`；
+  改用宿主 `$HOSTPFX/lib64/ld-linux-x86-64.so.2` + `--library-path`。
+- steamrt4 **不挂载宿主 /run**，硬写的 `$HOSTPFX/run/user/<uid>/bus` 不存在 →
+  `Failed to connect to bus`；改为逐个探测总线候选并用 `systemctl --user show-environment` 验活
+  （pressure-vessel 会把会话总线代理到 `/run/pressure-vessel/bus`）。
+- 宿主挂载点不唯一：手跑 `_v2-entry-point` 时是 `/run/host`，**Steam 客户端真启动游戏时是 `/host`**；
+  两者都探测后 Steam 按钮路径才能稳定委托。
+- 另记一坑（排查代价最大）：从带 `SteamAppId=3590` 的 shell 重启 Steam 客户端，客户端被
+  当成游戏进程本身，导致新启动卡在 `WaitingPrevProcess` 后直接 `Completed`（“点了没反应”）。
+
+### 仍未覆盖
+
+- Xephyr（无 DRI3）下硬件路径会崩在 wined3d，属嵌套 X 的 Vulkan WSI 限制；真实显示（XWayland）下窗口稳定。
 
 ## 2026.10.25 — L4D2 D16 闪退、locale 模态框与启动链诊断修复
 

@@ -226,43 +226,123 @@ EOF
 }
 
 # ---- 安装 Steam 入口（容器 → 宿主委托）-------------------------------------
+# 用带引号的 heredoc：生成物内部自己算路径与 uid，不在安装时做字符串拼接，
+# 避免“游戏目录含空格/特殊字符”时转义链出错。
 install_steamwrap() {
-  cat > "$STEAMWRAP" <<EOF
+  cat > "$STEAMWRAP" <<'EOF'
 #!/bin/bash
 # Lisuan 7G100: Steam 里点"开始游戏"时由启动选项调用的入口。
 #
-# Steam 会用 pressure-vessel 容器包住整条命令，而容器内没有可用图形栈，
-# 因此这里检测到沙箱后，经共享会话总线请宿主 systemd 拉起宿主启动器，
-# 并阻塞到游戏退出（--wait 回传退出码），Steam 的运行时长统计依然准确。
-# 不在容器（桌面项 / 终端直接跑）时就直接执行宿主启动器。
+# Steam 会用 pressure-vessel 容器包住整条命令，而容器内没有可用图形栈
+#（Mesa 缺 lisuan→gf 映射、无厂商 glvnd vendor），所以检测到容器后必须把
+# 游戏交给宿主。经共享会话总线调宿主的 systemd-run --user 拉起宿主启动器，
+# --wait 阻塞到游戏退出并回传退出码（含 128+signal），Steam 的时长/退出检测依然有效。
+# 机制与 left4dead2/、kingdom-rush/、underlords/ 一致（含它们踩过的坑）。
 set -u
-SELF_DIR="\$(cd "\$(dirname "\$(readlink -f "\$0")")" && pwd)"
-HOSTRUN="\$SELF_DIR/plants-vs-zombies-host-run.sh"
+SELF_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+HOST_RUN="$SELF_DIR/plants-vs-zombies-host-run.sh"
+UNIT="pvz-plantsvszombies.service"
+LOG=/tmp/plants-vs-zombies-hostrun.log
+UID_NUM=$(id -u)
+APPID_DEFAULT=3590
 
-if [ ! -d /run/host ]; then
-  exec "\$HOSTRUN"
+# 容器判定：不同 runtime（steamrt4 / soldier / sniper）布局不同，单看
+# /usr/lib/pressure-vessel 会漏判（漏判 = 在容器内直接跑游戏 = 必然失败）。
+HOSTPFX=""
+for p in /run/host /host; do
+  [ -d "$p/usr/bin" ] && HOSTPFX="$p" && break
+done
+IN_CT=0
+for m in /usr/lib/pressure-vessel /run/pressure-vessel /run/host /host; do
+  [ -d "$m" ] && IN_CT=1
+done
+# pressure-vessel 在容器内注入的独有环境变量（宿主必无），比文件系统标志更可靠
+[ -n "${PRESSURE_VESSEL_PREFIX:-}" ] && IN_CT=1
+[ -n "${PRESSURE_VESSEL_RUNTIME:-}" ] && IN_CT=1
+[ "${container:-}" = pressure-vessel ] && IN_CT=1
+[ -n "$HOSTPFX" ] && IN_CT=1
+
+{
+  echo "=== $(date -Is) ==="
+  echo "argv: $*"
+  echo "in_container=$IN_CT hostpfx=${HOSTPFX:-无}"
+} >> "$LOG" 2>&1
+
+# 不在容器（桌面项 / 终端直跑）→ 直接执行宿主启动器
+if [ "$IN_CT" = 0 ]; then
+  echo "branch: host-direct" >> "$LOG"
+  exec "$HOST_RUN"
 fi
 
-LDSO=/lib64/ld-linux-x86-64.so.2
-LIBPATH=/run/host/usr/lib/x86_64-linux-gnu:/run/host/lib/x86_64-linux-gnu:/run/host/usr/lib/x86_64-linux-gnu/systemd
-SR() { \$LDSO --library-path "\$LIBPATH" /run/host/usr/bin/systemd-run --user "\$@"; }
+# 委托所需的东西缺一不可；缺了就报错退出，绝不在容器内直接跑游戏
+if [ -z "$HOSTPFX" ] || [ ! -e "$HOSTPFX/usr/bin/systemd-run" ]; then
+  echo "[plants-vs-zombies] !! 容器内但缺少委托条件（宿主前缀=无），拒绝在容器内启动游戏" >&2
+  echo "FAIL: missing delegation tools" >> "$LOG"
+  exit 1
+fi
 
-# 宿主侧 X 认证文件（Xwayland 会话每次登录随机后缀）
-XAUTH=\$(ls /run/host/run/user/${REAL_UID}/.mutter-Xwaylandauth.* /run/host/run/user/${REAL_UID}/.Xauthority 2>/dev/null | head -1)
-XAUTH=\${XAUTH#/run/host}
+# 动态链接器：宿主可能是 /lib64 或 /lib/x86_64-linux-gnu
+LDSO=""
+for l in "$HOSTPFX/lib64/ld-linux-x86-64.so.2" "$HOSTPFX/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"; do
+  [ -e "$l" ] && LDSO="$l" && break
+done
+[ -n "$LDSO" ] || { echo "FAIL: no host ld.so under $HOSTPFX" >> "$LOG"; exit 1; }
+LIBPATH="$HOSTPFX/usr/lib/x86_64-linux-gnu:$HOSTPFX/lib/x86_64-linux-gnu:$HOSTPFX/usr/lib/x86_64-linux-gnu/systemd"
+# 选一个能连上宿主用户 systemd 的总线地址：
+#   * steamrt4（SteamLinuxRuntime_4）不挂载宿主 /run，但 pressure-vessel 会把
+#     会话总线代理到 /run/pressure-vessel/bus，容器默认 DBUS_SESSION_BUS_ADDRESS 就指它；
+#   * 旧布局则把宿主 /run 挂在 $HOSTPFX 下。
+# 逐个探测，连不上就报错退出，绝不退回“在容器内直接跑游戏”。
+try_bus() {
+  DBUS_SESSION_BUS_ADDRESS="$1" \
+    $LDSO --library-path "$LIBPATH" $HOSTPFX/usr/bin/systemctl --user show-environment >/dev/null 2>&1
+}
+BUS=""
+for cand in "${DBUS_SESSION_BUS_ADDRESS:-}" "unix:path=$HOSTPFX/run/user/$UID_NUM/bus" "unix:path=/run/user/$UID_NUM/bus"; do
+  [ -n "$cand" ] || continue
+  if try_bus "$cand"; then BUS="$cand"; break; fi
+done
+if [ -z "$BUS" ]; then
+  echo "FAIL: no host session bus reachable" >> "$LOG"
+  echo "[plants-vs-zombies] !! 容器内但连不上宿主会话总线，拒绝在容器内启动游戏" >&2
+  exit 1
+fi
+export DBUS_SESSION_BUS_ADDRESS="$BUS"
+# 只有宿主 run 目录真可见时才改 XDG_RUNTIME_DIR（否则保持容器值，与总线代理一致）
+[ -d "$HOSTPFX/run/user/$UID_NUM" ] && export XDG_RUNTIME_DIR="$HOSTPFX/run/user/$UID_NUM"
+SR() { $LDSO --library-path "$LIBPATH" $HOSTPFX/usr/bin/systemd-run --user "$@"; }
+SS() { $LDSO --library-path "$LIBPATH" $HOSTPFX/usr/bin/systemctl --user "$@"; }
+echo "bus=$BUS xdg=$XDG_RUNTIME_DIR" >> "$LOG"
 
-UNIT="pvz-plantsvszombies.service"
-exec 3>&2 2>>/tmp/plants-vs-zombies-hostrun.log
+# 宿主侧 X 认证文件：先看宿主 run 目录是否可见，再回退到问宿主 systemd
+XAUTH=""
+[ -d "$HOSTPFX/run/user/$UID_NUM" ] && XAUTH=$(ls $HOSTPFX/run/user/$UID_NUM/.mutter-Xwaylandauth.* $HOSTPFX/run/user/$UID_NUM/.Xauthority 2>/dev/null | head -1)
+XAUTH=${XAUTH#$HOSTPFX}
+[ -n "$XAUTH" ] || XAUTH=$(SS show-environment 2>/dev/null | sed -n 's/^XAUTHORITY=//p')
 
-SR --unit="\$UNIT" --collect --wait \\
-  --setenv=DISPLAY=:0 \\
-  --setenv=SteamAppId="\${SteamAppId:-$APPID}" \\
-  --setenv=SteamGameId="\${SteamGameId:-$APPID}" \\
-  \${XAUTH:+--setenv=XAUTHORITY="\$XAUTH"} \\
-  /bin/bash "\$HOSTRUN"
-rc=\$?
-[ \$rc -ne 0 ] && echo "[plants-vs-zombies-steam] 宿主启动器退出码 \$rc" >&2
-exit \$rc
+if SS is-active "$UNIT" >/dev/null 2>&1; then
+  echo "[plants-vs-zombies] !! 宿主游戏已在运行，拒绝重复委托" >&2
+  echo "FAIL: host unit already active" >> "$LOG"
+  exit 1
+fi
+
+# 转发 Steam 注入的 appid 环境：缺了宿主侧 steam_api 认不出游戏 ID，会 ABRT 重拉
+SPID_ENV=""
+[ -n "${SteamPID:-}" ] && SPID_ENV="--setenv=SteamPID=$SteamPID"
+SR --wait --unit="$UNIT" --collect \
+  --setenv=HOME="$HOME" \
+  --setenv=DISPLAY="${DISPLAY:-:0}" \
+  --setenv=XAUTHORITY="$XAUTH" \
+  --setenv=SteamAppId="${SteamAppId:-$APPID_DEFAULT}" \
+  --setenv=SteamGameId="${SteamGameId:-$APPID_DEFAULT}" \
+  $SPID_ENV \
+  /bin/bash "$HOST_RUN" >>"$LOG" 2>&1
+rc=$?
+echo "$(date -Is) host unit exit rc=$rc" >> "$LOG"
+if [ "$rc" -ne 0 ]; then
+  echo "[plants-vs-zombies] !! 宿主游戏异常退出 rc=$rc；请查 journalctl --user -u $UNIT" >&2
+fi
+exit "$rc"
 EOF
   chmod 755 "$STEAMWRAP"
   bash -n "$STEAMWRAP" || die "Steam 入口生成异常"

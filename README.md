@@ -866,6 +866,10 @@ bash use-qoder.sh --install-desktop     # 桌面项改写到用户级, 从菜单
 | 32 位 Windows 游戏 | **传统 wow64 下 32 位进程拿不到厂商图形栈**（`/usr/share/vulkan/icd.d` 只有 `gf_icd.x86_64.json`、i386 下无 `libvulkan_gf.so`/`gf_dri.so`）→ 只能 llvmpipe 软渲染 | `PROTON_USE_WOW64=1` + 重建 wow64 前缀（`Plants-vs-Zombies/README.md` 根因 2） |
 | Wine/D3D8 | DXVK 无原生 d3d8（2.3）/ 需 `VK_KHR_maintenance5`（≥2.4，gf 缺） | wined3d + `WINE_D3D_CONFIG=renderer=vulkan`（`Plants-vs-Zombies/README.md`） |
 | 容器 | 容器内 Mesa 无 `lisuan→gf` drirc 映射 → `libGL error: No driver found` → `winex11.drv` 卸载、Wine 建不了窗 | 游戏委托宿主直跑（`Plants-vs-Zombies/README.md` 根因 1 / `underlords/`） |
+| 容器→宿主委托 | 用**容器内** ld.so 跑宿主 `systemd-run` → `undefined symbol: __nptl_change_stack_perm (GLIBC_PRIVATE)` | 用宿主 ld.so `$HOSTPFX/lib64/ld-linux-x86-64.so.2` + `--library-path` 指宿主库（`Plants-vs-Zombies/README.md` 委托链路的三个坑） |
+| 容器→宿主委托 | steamrt4 **不挂载宿主 /run**，硬写 `$HOSTPFX/run/user/<uid>/bus` 连不上总线 | 逐个探测：容器默认 `$DBUS_SESSION_BUS_ADDRESS`（pressure-vessel 代理）→ `$HOSTPFX/run/...` → `/run/user/...`，用 `systemctl --user show-environment` 验活 |
+| 容器→宿主委托 | 宿主挂载点不唯一：手跑 `_v2-entry-point` 是 `/run/host`，Steam 真启动游戏是 `/host` | 两种都探测（`left4dead2/fix-l4d2.sh` 已如此处理） |
+| Steam 客户端 | 从带 `SteamAppId` 的 shell 启动 Steam → 客户端被当成游戏进程，新启动卡在 `WaitingPrevProcess` 后直接 `Completed`（“点了没反应”） | 用干净环境启动 Steam；排查 `tr '\0' '\n' < /proc/<pid>/environ \| grep SteamAppId` |
 | 游戏逻辑 | **PopCap 启动器传 `-changedir`，游戏本体判为非法参数** → `FATAL ERROR: Invalid command line parameter` | 绕过启动器直接跑本体、cwd=游戏目录（`Plants-vs-Zombies/README.md` 根因 3） |
 | Wine/DXVK | 手动 `run-mm.sh` 硬塞 env 破坏 Steam 注入 | 清空 LaunchOptions 恢复默认（`minion-masters/fix-minion-masters.md` 附录 A1） |
 | 游戏逻辑 | Vivox 登录崩溃（IL2CPP 机器码） | `MMSkipVivox` 插件（`minion-masters/fix-minion-masters.md` 游戏坑 1） |
