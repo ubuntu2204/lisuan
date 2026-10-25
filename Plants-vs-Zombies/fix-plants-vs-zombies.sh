@@ -92,14 +92,19 @@ status() {
   [[ -d "$GAME_DIR" ]] || { echo "  游戏未安装于 $GAME_DIR"; exit 0; }
   [[ -f "$BODY" ]] && echo "  [OK] 游戏本体已抽取（$BODY）" \
                    || echo "  [--] 游戏本体未抽取（首次安装会自动抽取）"
-  [[ -x "$HOSTRUN" ]]   && echo "  [OK] 宿主启动器就绪（new WoW64 + wined3d Vulkan）" \
+  [[ -x "$HOSTRUN" ]]   && echo "  [OK] 宿主启动器就绪（new WoW64 + wined3d GL）" \
                        || echo "  [--] 宿主启动器缺失"
   [[ -x "$STEAMWRAP" ]] && echo "  [OK] Steam 入口就绪" || echo "  [--] Steam 入口缺失"
   if shim="$(find_shim || true)"; then
-    echo "  [OK] 低 4GB 重映射池 shim：$shim"
+    echo "  [OK] 低 4GB 重映射池 shim 可用（仅 vulkan 后端需要）：$shim"
   else
-    echo "  [--] 缺低 4GB 重映射池 shim（会黑屏）——跟 minion-masters/gf-compat/deploy.sh 生成"
+    echo "  [--] 无低 4GB 重映射池 shim（只有改用 PVZ_RENDERER=vulkan 时才需要）"
   fi
+  case "$(read_3d_verdict)" in
+    PASS)   echo "  [OK] 游戏自己的 3D 检测：通过（硬件加速开着）" ;;
+    NOKEY)  echo "  [--] 游戏还没跑过 3D 检测" ;;
+    *)      echo "  [!!] 游戏 3D 检测不通过：$(read_3d_verdict) —— 已进安全模式（软件渲染）" ;;
+  esac
   [[ -f "$DESK" ]]      && echo "  [OK] 桌面项已安装"   || echo "  [--] 桌面项未安装"
   [[ -f "$WOW64_MARKER" ]] && echo "  [OK] 前缀已标记为 new WoW64 布局" \
                           || echo "  [--] 前缀未迁移（32 位进程会退回软件渲染）"
@@ -203,7 +208,6 @@ find_shim() {
 install_hostrun() {
   local shim
   shim="$(find_shim || true)"
-  [[ -n "$shim" ]] || warn "没找到低 4GB 重映射池 shim（会黑屏！）：请跑 minion-masters/gf-compat/deploy.sh，或用 PVZ_SHIM=<路径> 指定"
   cat > "$HOSTRUN" <<EOF
 #!/bin/bash
 # Lisuan 7G100: 在【宿主】用硬件渲染运行《植物大战僵尸 GOTY》。
@@ -211,12 +215,16 @@ install_hostrun() {
 # 为什么必须在宿主跑：Steam 的 pressure-vessel 容器里 Mesa 找不到 lisuan→gf
 # 映射、也没有厂商 glvnd GLX vendor，winex11.drv 连 GL 都加载不了 → Wine 起不来。
 #
-# 为什么这样就能硬件渲染（参考 minion-masters 的 32 位路线）：
-#   * PROTON_USE_WOW64=1 → 32 位 PE 经 wow64 thunk 调用 **64 位** gf Vulkan，
-#     绕开"厂商没有 i386 驱动"这个死结（前缀必须是 wow64 布局，见 fix 脚本）；
-#   * PROTON_USE_WINED3D=1 + WINE_D3D_CONFIG=renderer=vulkan → 用 wined3d 的
-#     Vulkan 后端。PvZ 是 D3D8 游戏：DXVK 2.3 没有 d3d8，DXVK ≥2.4 又硬要求
-#     VK_KHR_maintenance5（gf 没有），所以 DXVK 这条路走不通。
+# 为什么是 wined3d 的 GL 后端（最重要）：
+#   PvZ 是 DirectDraw/D3D8 游戏，启动时会自己跑一次 3D 能力检测，结论写进注册表
+#   HKCU\\Software\\SteamPopCap\\PlantsVsZombies\\Test3D\\FailureReason：
+#     * renderer=vulkan → "Alpha blend Not Supported"（wined3d 的 Vulkan 后端不报
+#       D3DPBCAPS_SRCALPHA）→ 游戏进 PopCap 安全模式：自动关掉 3D 加速 +
+#       把存档隔离到 userdata_backup → 变成软件渲染 → 非常卡；
+#     * renderer=gl     → FailureReason=""（检测通过，3D 加速保持开启）。
+#   所以这里用 GL；而且**不能加低 4GB 重映射池 shim**——shim 会把 GL 的 DRI
+#   映射也搬进低 4GB，gf 驱动陷入 reloc64 死循环（实测 200% CPU 不推进）。
+#   DXVK 始终不可用：2.3 没有 d3d8，≥ 2.4 硬要求 gf 缺的 VK_KHR_maintenance5。
 #
 # 为什么不用 PopCap 启动器：它会给本体传 -changedir="<游戏目录>"，本体判非法
 # （FATAL ERROR: Invalid command line parameter），且该参数任何形式都不被接受。
@@ -239,16 +247,19 @@ fi
 cd "\$GAME_DIR" || { echo "找不到游戏目录: \$GAME_DIR" >&2; exit 1; }
 [ -f "\$BODY" ] || { echo "找不到游戏本体: \$BODY（请重跑 fix-plants-vs-zombies.sh）" >&2; exit 1; }
 
-# 32 位 → 64 位 gf Vulkan（new WoW64）；wined3d 的 Vulkan 后端
+# 32 位 PE 经 wow64 thunk 调 64 位驱动（new WoW64）；渲染走 wined3d 的 GL 后端
 export PROTON_USE_WOW64=1
 export PROTON_USE_WINED3D=1
-export WINE_D3D_CONFIG="\${WINE_D3D_CONFIG:-renderer=vulkan}"
-# 低 4GB 重映射池：不预加载它会黑屏（vkMapMemory 返回的高地址指针
-# 交不到 32 位代码手里 → wined3d 建不出缓冲 → 主循环空转）
-if [ -n "\$SHIM" ] && [ -f "\$SHIM" ]; then
-  export LD_PRELOAD="\$SHIM\${LD_PRELOAD:+ \$LD_PRELOAD}"
-else
-  echo "!! 缺少低 4GB 重映射池 shim（\${SHIM:-未配置}），预计会黑屏；请重跑 fix 脚本" >&2
+# PVZ_RENDERER 默认 gl；改 vulkan 会被游戏的 3D 检测判不合格，除非你清楚自己在做什么
+export WINE_D3D_CONFIG="\${WINE_D3D_CONFIG:-renderer=\${PVZ_RENDERER:-gl}}"
+# 低 4GB 重映射池只对 Vulkan 路径有意义（vkMapMemory 高地址）；
+# 给 GL 路径加它反而会让 gf 驱动在 reloc64 上死循环，所以默认不预加载。
+if [ "\${PVZ_RENDERER:-gl}" = "vulkan" ]; then
+  if [ -n "\$SHIM" ] && [ -f "\$SHIM" ]; then
+    export LD_PRELOAD="\$SHIM\${LD_PRELOAD:+ \$LD_PRELOAD}"
+  else
+    echo "!! Vulkan 路径缺少低 4GB 重映射池（\${SHIM:-未配置}），预计会黑屏" >&2
+  fi
 fi
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="\${STEAM_COMPAT_CLIENT_INSTALL_PATH:-$STEAM_ROOT}"
 export STEAM_COMPAT_DATA_PATH="\$COMPAT_DATA"
@@ -438,9 +449,63 @@ clear_launch_options() {
   log "Steam 启动选项已清除（备份：$cfg.plants-vs-zombies.bak）"
 }
 
+# ---- 游戏自己的 3D 检测结论（无需截图即可判定硬件加速是否真开着）--------------
+# PvZ 启动时跑一次能力检测，结果写进 HKCU\Software\SteamPopCap\PlantsVsZombies\Test3D
+# 的 FailureReason：空串 = 通过；非空（如 "Alpha blend Not Supported"）= 不通过，
+# 游戏会进安全模式（关掉 3D 加速 + 把存档隔到 userdata_backup）→ 软件渲染→卡。
+read_3d_verdict() {
+  local reg="$COMPAT_DATA/pfx/user.reg"
+  [[ -f "$reg" ]] || { echo "NOKEY"; return 0; }
+  python3 - "$reg" <<'PY'
+import re, sys
+txt = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+m = re.search(r'\[Software\\\\SteamPopCap\\\\PlantsVsZombies\\\\Test3D\](.*?)(?=\n\[|\Z)', txt, re.S)
+if not m:
+    print("NOKEY"); raise SystemExit
+r = re.search(r'"FailureReason"="([^"]*)"', m.group(1))
+if not r:
+    print("NOPVAL"); raise SystemExit
+print("PASS" if r.group(1) == "" else r.group(1))
+PY
+}
+
+check_3d() {
+  local v; v="$(read_3d_verdict)"
+  case "$v" in
+    PASS)   log "游戏自己的 3D 检测：通过（FailureReason 为空，硬件加速确实开着）" ;;
+    NOKEY)  warn "游戏还没跑过 3D 检测（先启动一次游戏）" ;;
+    NOPVAL) warn "Test3D 键里没有 FailureReason 字段" ;;
+    *)      warn "游戏 3D 检测不通过：$v —— 已进安全模式（软件渲染），先跑 --reset-3d-test 并确认后端是 gl" ;;
+  esac
+}
+
+# 把游戏从安全模式里拉出来：清掉失效的 Test3D 缓存、把被隔离的存档放回 userdata/。
+# 换过渲染后端后尤其需要：DisplayGUID 与能力集一变，旧结论会把游戏锁在软件渲染里。
+reset_3d_test() {
+  local reg="$COMPAT_DATA/pfx/user.reg" D="$COMPAT_DATA/pfx/drive_c/ProgramData/Steam/PlantsVsZombies"
+  pgrep -f 'pvz-game\.exe' >/dev/null 2>&1 && die "游戏正在运行：先退出游戏再复位"
+  [[ -f "$reg" ]] || die "没有前缀注册表：$reg"
+  cp -a "$reg" "$reg.reset-3d.bak"
+  python3 - "$reg" <<'PY'
+import re, sys
+p = sys.argv[1]
+s = open(p, encoding="utf-8", errors="surrogateescape").read()
+s2 = re.sub(r'\[Software\\\\SteamPopCap\\\\PlantsVsZombies\\\\Test3D\].*?(?=\n\[|\Z)', '', s, count=1, flags=re.S)
+open(p, "w", encoding="utf-8", errors="surrogateescape").write(s2)
+print("Test3D 缓存已清除" if "Test3D" not in s2 else "仍有残留 Test3D 键，请手工检查")
+PY
+  if [[ -f "$D/userdata_backup/user1.dat" && ! -f "$D/userdata/user1.dat" ]]; then
+    cp -a "$D/userdata_backup/user1.dat" "$D/userdata/user1.dat"
+    log "被隔离的存档已放回 userdata/（backup 原件保留）"
+  fi
+  log "已复位 3D 检测；下次启动会重测（后端为 gl 时 FailureReason 应为空）"
+}
+
 # ---- 参数分发 --------------------------------------------------------------
 case "${1:-}" in
   --status)   status; exit 0 ;;
+  --check-3d) check_3d; exit 0 ;;
+  --reset-3d-test) reset_3d_test; exit 0 ;;
   --launch)
     [[ -x "$HOSTRUN" ]] || die "尚未安装，先运行：$0"
     exec "$HOSTRUN" ;;
@@ -455,7 +520,7 @@ case "${1:-}" in
   --force)    ;;   # 与安装同时使用：--force 重抽本体
   --reset-prefix) ;;   # 与安装同时使用：强制前缀重建
   "")         ;;
-  *)          die "未知参数：$1（--status / --launch / --force / --reset-prefix / --set-launch-options / --clear-launch-options / --uninstall）" ;;
+  *)          die "未知参数：$1（--status / --check-3d / --reset-3d-test / --launch / --force / --reset-prefix / --set-launch-options / --clear-launch-options / --uninstall）" ;;
 esac
 
 # ---- 安装流程 --------------------------------------------------------------
@@ -475,9 +540,10 @@ install_hostrun
 install_steamwrap
 install_desktop
 
-log "全部完成（硬件渲染：new WoW64 + wined3d Vulkan → 7G100）。"
+log "全部完成（硬件渲染：new WoW64 + wined3d GL 后端 → 7G100）。"
 log "  直接玩（推荐）：桌面菜单里的 \"Plants vs. Zombies (Lisuan 7G100)\"，或 $STEAMWRAP"
 log "  Steam 里点开始游戏：先关 Steam 执行 ./fix-plants-vs-zombies.sh --set-launch-options，"
 log "    或在 属性 → 通用 → 启动选项 粘贴： $STEAM_LAUNCH"
 log "  首次启动会重建 wow64 前缀（约 30–60 秒），之后正常。"
+log "  查硬件加速是否真开着（不用看画面）：./fix-plants-vs-zombies.sh --check-3d"
 log "  状态检查：./fix-plants-vs-zombies.sh --status"

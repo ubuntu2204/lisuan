@@ -22,7 +22,9 @@
 3. **`libvulkan_gf.so` 补 `VK_KHR_maintenance5`**，并把 ICD 的 **loader interface
    version 升到 5**。这样 DXVK ≥2.4（含原生 d3d8 实现）就能直接用；当前 gf 会被
    DXVK 跳过，只能用 wined3d 的 Vulkan 后端。
-4. **CPU 可见映射不要默认落在 ≥4GB**：new WoW64 下 `vkMapMemory` 返回高地址指针，
+4. **wined3d 的 Vulkan 后端补齐光栅/混合能力上报**（至少 `D3DPBCAPS_SRCALPHA`）：
+   否则依赖老 D3D8 能力检测的游戏（如本作）会判定 Vulkan 后端不合格、只能退回 GL 后端。
+5. **CPU 可见映射不要默认落在 ≥4GB**：new WoW64 下 `vkMapMemory` 返回高地址指针，
    wine 的 thunk 交不给 32 位代码，直接表现为黑屏 + “无响应”。驱动若优先在低 4GB
    分配，本目录的“低 4GB 重映射池”LD_PRELOAD 即可退役（与 minion-masters 同一诉求）。
 
@@ -88,29 +90,43 @@ fixme:d3d:wined3d_guess_card No card selector available for card vendor 0000
 与路径是否含空格无关——复制到 `/tmp/pvz_nospace` 仍失败）。截图取证：窗口标题
 `FATAL ERROR`，正文 `Invalid command line parameter: -changedir`。
 
-### 4. new WoW64 的致命陷阱：`vkMapMemory` 返回高地址，32 位代码接不住（黑屏真因）
+### 4. 走 Vulkan 会遇到两个坑（最终选 GL 后端的原因）
 
-只把 32 位进程接到 64 位 gf Vulkan 上还不够。new WoW64 下显存映射由 64 位宿主
-进程完成，返回的 CPU 指针在高位（如 `0x7fd188000000`），wine 的 thunk 无法把它交给
-32 位代码，于是 wined3d 建不出顶点/像素缓冲：
+**坑 4a：`vkMapMemory` 返回高地址，32 位代码接不住 → 黑屏**
+
+new WoW64 下显存映射由 64 位宿主进程完成，返回的 CPU 指针在高位（如
+`0x7fd188000000`），wine 的 thunk 无法把它交给 32 位代码，wined3d 建不出缓冲：
 
 ```text
 fixme:vulkan:win32u_vkMapMemory2KHR returned mapping 0x7fd188000000 does not fit 32-bit pointer
 err:d3d:wined3d_allocator_chunk_vk_map Failed to map chunk memory, vr VK_ERROR_OUT_OF_HOST_MEMORY.
-err:d3d:wined3d_bo_vk_map Failed to map chunk.
-err:d3d:adapter_vk_map_bo_address Failed to map bo.
 ```
 
-用户看到的现象就是：**全屏黑屏 + GNOME 弹“steam_app_3590 无响应”**（主线程在等
-永远建不出的缓冲，不再泵 X 事件循环），而窗口列表里窗口存在、CPU 占满一个核。
+现象：**全屏黑屏 + GNOME 弹“steam_app_3590 无响应”**（主线程等一个永远建不出的
+缓冲，不再泵 X 事件循环），而窗口存在、CPU 占满一核。
+解法是沿用 `minion-masters/gf-compat/` 的**低 4GB 重映射池** LD_PRELOAD（在 `mmap`
+层把 ≥4GB 的 GPU 映射重定位到 2.25–4GB），实测可让画面出来。
 
-**修法**：沿用 `minion-masters/gf-compat/` 的 **低 4GB 重映射池** LD_PRELOAD
-（`osrelease_redirect.so`）——它在 `mmap` 层把“结果地址 ≥ 4GB 且 fd 是 GPU 设备”的
-共享映射重定位到 2.25–4GB，驱动保持原版、只对配了该预加载的进程生效。
-加上后：映射失败计数归零，shim 日志重定位 3179 次，`_NET_WM_PING` 恢复应答。
+**坑 4b：wined3d 的 Vulkan 后端不上报 alpha 混合能力 → 游戏自己关掉 3D 加速 → 卡**
 
-> 这是 minion-masters 当年为 DXVK 踩出来的同一个坑（见
-> `minion-masters/fix-minion-masters.md` 游戏坑 8 障碍 5）；wined3d 的 Vulkan 后端同样会踩。
+PvZ 启动时自己跑一遍 3D 能力检测（字符串表里可见它查 `A4R4G4B4`/`A8R8G8B8`
+纹理与 alpha/additive 混合），结论写进注册表，可直接读：
+
+```text
+renderer=vulkan → FailureReason = "Alpha blend Not Supported"   ← 不通过
+renderer=gl     → FailureReason = ""                            ← 通过
+```
+
+不通过时游戏进 **PopCap 安全模式**：自动关掉 3D 加速、把存档隔离到
+`userdata_backup/` → 变成软件渲染 → 用户看到的就是“画面正常但非常卡”。
+
+**结论**：两个坑都是“Vulkan 路径”自带的；而 GL 路径在 wow64 下用 64 位
+`libGL` → 厂商 GLX（`Using the OpenGL renderer` + `GL_VENDOR "LISUAN"`），既能硬件
+渲染、又能过检测，而且根本不需要 shim（给 GL 加 shim 反而会让 gf 驱动在
+`reloc64` 上死循环）。这就是最终配置。
+
+> 另外，在两个后端之间来回切换会让 `Test3D\DisplayGUID` 缓存与实际能力集不一致，
+> 旧结论把游戏锁在安全模式里——这就是 `--reset-3d-test` 存在的理由。
 
 ## 修复（硬件渲染路线，参考 minion-masters）
 
@@ -118,19 +134,29 @@ err:d3d:adapter_vk_map_bo_address Failed to map bo.
    **64 位** gf Vulkan——不需要厂商提供 i386 驱动。前提是**前缀必须是 wow64 布局**：
    旧前缀沿用经典布局，必须移走重建。本目录用 `$COMPAT_DATA/.lisuan-pvz-wow64`
    标记位保证只迁移一次（`--reset-prefix` 可强制重来）。
-2. **渲染后端用 wined3d 的 Vulkan 实现**：`PROTON_USE_WINED3D=1` +
-   `WINE_D3D_CONFIG=renderer=vulkan`。日志确认：
+2. **渲染后端用 wined3d 的 GL 实现**：`PROTON_USE_WINED3D=1` +
+   `WINE_D3D_CONFIG=renderer=gl`（启动器里用 `PVZ_RENDERER` 可改）。
+   wow64 下 GL 走的也是 64 位 `libGL` → 厂商 GLX，日志为
+   `Using the OpenGL renderer` + `GL_VENDOR "LISUAN"`，仍是**硬件渲染**。
+
+   **为什么不是 Vulkan 后端**：wined3d 的 Vulkan 后端不上报 `D3DPBCAPS_SRCALPHA`，
+   而 PvZ 启动时会自己跑一次 3D 能力检测，结论写进注册表
+   `HKCU\Software\SteamPopCap\PlantsVsZombies\Test3D\FailureReason`：
 
    ```text
-   err:winediag:wined3d_dll_init Using the Vulkan renderer.
-   fixme:d3d:adapter_vk_init_driver_info Failed to retrieve GPU description
-         for device "LISUAN 7G100 Series Graphics" 4c54:5006.
+   renderer=vulkan → "FailureReason"="Alpha blend Not Supported"   ← 不通过
+   renderer=gl     → "FailureReason"=""                            ← 通过
    ```
+
+   不通过时游戏进 **PopCap 安全模式**：自动关掉 3D 加速 + 把存档隔离到
+   `userdata_backup/` → 变成软件渲染 → 表现就是“非常卡”。因此本目录提供
+   `--check-3d`（读游戏自己的结论，无需看画面）与 `--reset-3d-test`（跳出安全模式）。
 
    **为什么不用 DXVK**：PvZ 走 **DirectDraw/D3D8**（二进制里 `Direct3DCreate8`、
    `DirectDrawCreateEx`）。DXVK **2.3 没有 d3d8**（仓库里的 `minion-masters/dxvk23`
    就是 2.3，只有 d3d9/d3d11/dxgi），而 DXVK ≥2.4 硬要求 `VK_KHR_maintenance5`
-   （gf 缺），所以 DXVK 两条路都堵死——wined3d Vulkan 才是这台机器上的正解。
+   （gf 缺），所以 DXVK 两条路都堵死——只能走 wined3d，而 wined3d 里只有 GL
+   后端能过游戏的 alpha 混合检测。
 3. **抽本体常驻**：启动一次启动器，趁 `popcapgame1.exe` 存在时复制到
    `~/.local/share/lisuan-fix/plants-vs-zombies/pvz-game.exe`（启动器退出会删掉它）。
    放在 Steam 安装目录之外，避免"验证文件完整性"把产物删掉。
@@ -139,9 +165,11 @@ err:d3d:adapter_vk_map_bo_address Failed to map bo.
    `plants-vs-zombies-steam.sh`；它在容器内用 `systemd-run --user --wait` 委托宿主拉起
    宿主启动器并回传退出码（同 `left4dead2/`、`kingdom-rush/`、`underlords/`）。
    委托能否成功取决于三件容易踩错的事，见下面的「委托链路的三个坑」。
-5. **低 4GB 重映射池**：宿主启动器默认 `LD_PRELOAD` 上
-   `minion-masters/gf-compat/lib/osrelease_redirect.so`（安装时自动解析路径并校
-   验是 64 位；可用 `PVZ_SHIM=<路径>` 覆盖）。缺它会黑屏，`--status` 会单独列这一项。
+5. **低 4GB 重映射池（只对 vulkan 后端需要）**：`minion-masters/gf-compat/` 的
+   `osrelease_redirect.so` 在 `mmap` 层把“结果地址 ≥ 4GB 且 fd 是 GPU 设备”的映射
+   搬到 2.25–4GB。启动器仅在 `PVZ_RENDERER=vulkan` 时预加载它；**默认的 GL 路径
+   不加载**，因为 shim 会把 GL 的 DRI 映射也搬走，gf 驱动会陷入 `reloc64` 死循环
+   （实测 200% CPU 不推进）。
 6. `flock /tmp/plants-vs-zombies-3590.lock` 保证单实例。
 
 ### 委托链路的三个坑（本轮实测抓出来）
@@ -191,6 +219,9 @@ Steam 启动选项（也可直接在 Steam 属性里粘贴）：
 | 进程架构 | 游戏进程是 64 位 `wine-preloader`（wow64 生效） |
 | 稳定性 | 窗口 `Plants vs. Zombies` 连续存活 90s+，无崩溃弹窗 |
 | 音频 | 进程持有 PulseAudio memfd，bass 音频链路已建立 |
+| 渲染后端 | `Using the OpenGL renderer` + `GL_VENDOR "LISUAN"`（wow64 下走 64 位厂商 GLX，硬件） |
+| **游戏自己的 3D 检测** | `--check-3d` 读到 `FailureReason=""` → **通过**，3D 加速保持开启（Vulkan 后端下同一字段为 `Alpha blend Not Supported`） |
+| 安全模式 | 存档留在 `userdata/`，未被隔离到 `userdata_backup/` |
 | 活性 | `_NET_WM_PING` 发向游戏窗口并在 8s 内收到回复 → 事件循环正常（修复前收不到，GNOME 因此弹“无响应”） |
 | 显存映射 | 加 shim 后 `does not fit 32-bit pointer` / `Failed to map chunk` 均为 **0**（修复前必现），shim 日志 `reloc` 3179 次 |
 | **Steam 按钮端到端** | 库里点"开始游戏"→ Steam 命令行变为 `"…/plants-vs-zombies-steam.sh" …`→ 容器内 `in_container=1 hostpfx=/host`、总线走代理 → 宿主单元 `pvz-plantsvszombies.service` 拉起游戏（GPU fd 4、CPU ~150%）→ Steam 状态 `App Running` |
@@ -214,6 +245,9 @@ Steam 启动选项（也可直接在 Steam 属性里粘贴）：
   它内部把伪造的 `/etc/os-release` 路径写死为仓库内绝对路径，所以仓库移动位置后需
   重跑 `minion-masters/gf-compat/deploy.sh` 重编；本目录的 `find_shim()` 只校
   验存在与“是 64 位”，可用 `PVZ_SHIM=<路径>` 改指。
+* **CPU 占用仍偏高**（GL 后端 1080p 实测 ~190–200%）：PvZ 的 `WaitForVSync`
+  默认关（注册表里写 1 会被游戏自己改回去），游戏不限帧运行。若风扇转得厉害，
+  在游戏内 OPTIONS 关掉全屏（800×600 窗口化，像素量降一个量级）最有效。
 * **首次安装要重建前缀**（约 30–60 秒）：wow64 布局与旧前缀不兼容；旧前缀会保留为
   `compatdata/3590/pfx.pre-wow64-<时间>`，其中的本地存档/PopCap userdata 不自动迁移
   （Steam 云存档不受影响）。
@@ -239,7 +273,8 @@ Steam 启动选项（也可直接在 Steam 属性里粘贴）：
 
 | 现象 | 先看哪里 |
 |---|---|
-| **全屏黑屏 + GNOME 弹“无响应”** | 低 4GB 重映射池没生效：看 `--status` 里 shim 是否 [OK]，日志里是否有 `does not fit 32-bit pointer` |
+| **画面正常但非常卡** | 十有八九是游戏进了安全模式（3D 加速被自动关掉）：跑 `--check-3d`，非空就先 `--reset-3d-test`，并确认后端是 gl |
+| **全屏黑屏 + “无响应”** | 只在 `PVZ_RENDERER=vulkan` 下会发生（低 4GB 重映射池没生效）；用默认 gl 后端不涉及此路径 |
 | Steam 里点了仍没反应 | `~/.local/share/Steam/logs/console_log.txt` 里该 AppID 的命令行是否已变成 `plants-vs-zombies-steam.sh`；没变 = 启动选项未生效 |
 | 启动了但秒退 | `/tmp/plants-vs-zombies-hostrun.log`（含 `in_container` / `hostpfx` / `bus` / 退出码） |
 | 日志 `undefined symbol: __nptl_change_stack_perm` | 用了容器 ld.so → 重跑安装脚本拿新版委托逻辑 |

@@ -40,6 +40,29 @@ CPU 占用”当成了渲染正常的证据**，实际是黑屏。补上 minion-
   `reloc` 3179 次；`_NET_WM_PING` 从“无回应”变为“8s 内回应”；GPU fd 从 2 变 4。
 - **画面已由用户确认正常**（Steam 里点“开始游戏”，标题画面正常显示）。
 
+### 第2次修正：“画面正常但非常卡”——游戏自己的 3D 检测否决了 Vulkan 后端
+
+上一步只验证到“标题画面能出”，用户反馈**非常卡**，并补图了墓碑框
+`Not Supported / Hardware Acceleration cannot be enabled on this computer`。这次不再靠猜：
+游戏自己把检测结论写进了注册表，可直接读。
+
+- 本体字符串表暴露检测项：`A4R4G4B4`/`A8R8G8B8` 纹理与 alpha/additive 混合。
+- 对比两个后端的实测结论（`HKCU\Software\SteamPopCap\PlantsVsZombies\Test3D\FailureReason`）：
+  `renderer=vulkan` → `"Alpha blend Not Supported"`（不通过）；`renderer=gl` → `""`（通过）。
+- 不通过时游戏进 **PopCap 安全模式**：自动关掉 3D 加速、把存档隔离到
+  `userdata_backup/` → 退回软件渲染 → 这就是“卡”的来源。之前把卡归因到
+  “GL 后端比 Vulkan 慢”是错的。
+- 因此最终配置改为 **wined3d GL 后端**（wow64 下用 64 位 `libGL` → 厂商 GLX，
+  `GL_VENDOR "LISUAN"`，仍是硬件渲染），且 **默认不加载低 4GB shim**：
+  shim 会把 GL 的 DRI 映射也搬进低 4GB，gf 驱动会陷入 `reloc64` 死循环。
+  shim 仅在 `PVZ_RENDERER=vulkan` 时才预加载。
+- 新增两个能力：`--check-3d`（读游戏自己的结论，不需看画面即可判定硬件加速
+  是否真开着）与 `--reset-3d-test`（清 `Test3D` 缓存 + 把被隔离的存档放回
+  `userdata/`，将游戏从安全模式拉出来）；`--status` 现在也显示这一项。
+- 现场已复位：删掉失效的 `Test3D` 键、`user1.dat` 放回 `userdata/`、`user.reg` 先备份。
+- 本轮走过的弯路也记录在此：曾在 Vulkan/GL 之间反复切换，使 `Test3D\DisplayGUID`
+  与实际能力集不一致，把游戏锁在安全模式里——这正是需要 `--reset-3d-test` 的原因。
+
 ### 修复（沿用 minion-masters 的 32 位硬件渲染路线）
 
 - **Proton new WoW64**（`PROTON_USE_WOW64=1`）：32 位 PE 经 wow64 thunk 调 **64 位** gf Vulkan；
