@@ -1,8 +1,51 @@
-# 植物大战僵尸 GOTY（Plants vs. Zombies, AppID 3590）在砺算 7G100 上的硬件渲染修复
+# 植物大战僵尸 GOTY（Plants vs. Zombies, AppID 3590）在砺算 7G100 上的启动与渲染修复
 
 > 32 位 Windows 游戏 × 只有 64 位用户态驱动的砺算 7G100。现象是"点了没反应"，
 > 实际是**四层独立故障叠加**：容器内图形栈不可用、32 位进程拿不到厂商驱动、
 > PopCap 启动器参数被本体拒收、new WoW64 的高地址显存映射接不住（黑屏）。
+
+## 最终结论：默认关闭 3D Acceleration（2026-10-26）
+
+**本机卡顿的根因是 wined3d GL 的硬件渲染路径本身，不是安全模式，也不是帧率限制。**
+在已经能正常出画面的 GL 路径上实测：OPTIONS 里一关掉 `3D Acceleration`，游戏立即
+流畅；重新打开则恢复卡顿。因此本目录现在把 `Is3D=0`（软件渲染）作为默认配置，
+不再把“开启硬件加速”当作修复目标。
+
+| 实测项 | 结果 |
+|---|---|
+| 硬件 GL（`Is3D=1`） | 能出画面，但卡顿；一次运行 25.17 秒消耗 CPU 47.57 秒，约 **189%** |
+| 软件渲染（`Is3D=0`） | 同一台机器、同一版本，**关闭后立即流畅** |
+| `--reset-3d-test` 复位安全模式 | 不解决硬件 GL 路径的卡顿 |
+| OPTIONS 关闭全屏、窗口化 | 不解决硬件 GL 路径的卡顿 |
+| 关闭 `3D Acceleration` | 唯一立即生效的解法 |
+
+PvZ 是 800×600 的 2D 游戏，软件渲染完全够用。保留 new WoW64 + wined3d GL 的启动
+环境，是因为它已验证能出画面、不黑屏；软件渲染下 `WINE_D3D_CONFIG` 实际不再决定
+游戏的软/硬路径，游戏的 `Is3D` 才是开关。
+
+### 日常使用
+
+```bash
+./fix-plants-vs-zombies.sh --launch             # 默认写 Is3D=0 后启动（推荐）
+./fix-plants-vs-zombies.sh --software           # 只固化软件渲染，不启动
+./fix-plants-vs-zombies.sh --status             # 查看当前软件/硬件渲染模式
+./fix-plants-vs-zombies.sh --launch --hardware  # 仅复测硬件路径；本机实测会卡
+./fix-plants-vs-zombies.sh --hardware           # 只写 Is3D=1，供以后对照
+```
+
+安装脚本和 `--launch` 都会默认固化软件渲染；桌面项与 Steam 入口沿用同一份配置。
+切换时会备份 `user.reg.render-mode.bak`，不会移动或删除存档。
+
+### 对旧结论的更正
+
+* 旧文档把“画面正常但非常卡”主要归因于 PopCap 安全模式，并建议必须开启 3D 加速。
+  那只适用于已废弃的 Vulkan/shim 黑屏路径和 llvmpipe 背景；**不适用于本次 GL 硬件
+  路径卡顿**。现在不要再凭 `FailureReason=""` 推断游戏流畅或硬件加速一定开启。
+* 已排除、不再继续叠加的方向：安全模式复位、窗口化、`vblank_mode`/限帧、GL↔Vulkan
+  切换、低 4GB shim。它们都没有解决“开 3D 才卡”这一现象。
+* 两条无害日志：`amdxcffx64.dll ... No such file or directory` 是 Proton 复制可选
+  AMD 文件失败；`KeyboardInterrupt` 是终端里手动 `Ctrl+C` 的正常堆栈。二者都不是
+  卡顿原因。
 
 ---
 
@@ -183,9 +226,12 @@ renderer=gl     → FailureReason = ""                            ← 通过
 ## 部署
 
 ```bash
-./fix-plants-vs-zombies.sh                 # 安装/修复（前缀迁移 + 抽本体 + 部署）
-./fix-plants-vs-zombies.sh --status        # 状态
-./fix-plants-vs-zombies.sh --launch        # 立即宿主直跑一次
+./fix-plants-vs-zombies.sh                 # 安装/修复（前缀迁移 + 抽本体 + 部署 + 默认软件渲染）
+./fix-plants-vs-zombies.sh --status        # 状态（含当前软件/硬件渲染模式）
+./fix-plants-vs-zombies.sh --launch        # 默认关闭 3D 加速后宿主直跑（推荐）
+./fix-plants-vs-zombies.sh --software      # 只固化软件渲染（Is3D=0）
+./fix-plants-vs-zombies.sh --launch --hardware  # 开启 3D 加速复测（本机实测会卡）
+./fix-plants-vs-zombies.sh --hardware      # 只固化硬件渲染（Is3D=1）
 ./fix-plants-vs-zombies.sh --force         # 游戏更新后重抽本体
 ./fix-plants-vs-zombies.sh --reset-prefix   # 强制把前缀移走重建为 wow64
 ./fix-plants-vs-zombies.sh --set-launch-options   # 写入 Steam 启动选项（需先退出 Steam）
@@ -198,7 +244,7 @@ renderer=gl     → FailureReason = ""                            ← 通过
 ```text
 ~/.local/share/lisuan-fix/plants-vs-zombies/
 ├── pvz-game.exe                     # 从启动器抽出的本体（3.55 MB）
-├── plants-vs-zombies-host-run.sh    # 宿主启动器（new WoW64 + wined3d Vulkan）
+├── plants-vs-zombies-host-run.sh    # 宿主启动器（new WoW64 + wined3d GL；默认 Is3D=0 软件渲染）
 └── plants-vs-zombies-steam.sh       # Steam 入口（容器内委托宿主）
 ~/.local/share/applications/plants-vs-zombies-lisuan.desktop
 ```
@@ -228,7 +274,9 @@ Steam 启动选项（也可直接在 Steam 属性里粘贴）：
 | 画面 | **已人眼确认正常**（2026-10-25，Steam 里点"开始游戏"后标题画面正常显示） |
 | 退出回传 | 游戏结束后单元 `inactive`、包装进程退出、Steam 状态回到 `Fully Installed`（时长统计有效） |
 | 前缀迁移 | `--reset-prefix` 移走旧前缀 → Proton 重建 → 仍是硬件渲染 |
-| 离线测试 | `tests/test-plants-vs-zombies.sh` 19/19；全量 `tests/run-tests.sh` 9/9 |
+| **卡顿最终结论（2026-10-26）** | 同一 GL 启动环境下，开 `3D Acceleration` 卡顿、关掉立即流畅；安全模式复位与窗口化均无效 |
+| 本机默认配置 | 已写入 `Is3D=dword:00000000`；`--status` 显示“软件渲染” |
+| 离线测试 | `tests/test-plants-vs-zombies.sh` 42/42；全量 `tests/run-tests.sh` 9/9 |
 
 > **验证方法的教训**：本轮一度把“窗口存在 + 持有 `/dev/dri/renderD128` + CPU 占用”
 > 当作渲染正常的证据，实际是黑屏。现在改用 `_NET_WM_PING` 活性 + 映射失败计数
@@ -245,9 +293,9 @@ Steam 启动选项（也可直接在 Steam 属性里粘贴）：
   它内部把伪造的 `/etc/os-release` 路径写死为仓库内绝对路径，所以仓库移动位置后需
   重跑 `minion-masters/gf-compat/deploy.sh` 重编；本目录的 `find_shim()` 只校
   验存在与“是 64 位”，可用 `PVZ_SHIM=<路径>` 改指。
-* **CPU 占用仍偏高**（GL 后端 1080p 实测 ~190–200%）：PvZ 的 `WaitForVSync`
-  默认关（注册表里写 1 会被游戏自己改回去），游戏不限帧运行。若风扇转得厉害，
-  在游戏内 OPTIONS 关掉全屏（800×600 窗口化，像素量降一个量级）最有效。
+* **硬件 GL 路径仍会卡**：若手动开了 `3D Acceleration`，本机会回到约 190–200% CPU
+  的卡顿状态；执行 `--software` 或在 OPTIONS 里关掉即可。不要再为此调
+  `WaitForVSync`/`vblank_mode`——2026-10-26 已确认它们不是这次卡顿的解法。
 * **首次安装要重建前缀**（约 30–60 秒）：wow64 布局与旧前缀不兼容；旧前缀会保留为
   `compatdata/3590/pfx.pre-wow64-<时间>`，其中的本地存档/PopCap userdata 不自动迁移
   （Steam 云存档不受影响）。
@@ -273,7 +321,9 @@ Steam 启动选项（也可直接在 Steam 属性里粘贴）：
 
 | 现象 | 先看哪里 |
 |---|---|
-| **画面正常但非常卡** | 十有八九是游戏进了安全模式（3D 加速被自动关掉）：跑 `--check-3d`，非空就先 `--reset-3d-test`，并确认后端是 gl |
+| **画面正常但非常卡** | 先看 `--status`：若是“硬件渲染”，执行 `--software` 或在 OPTIONS 关掉 `3D Acceleration`；这是 2026-10-26 验证有效的解法 |
+| 日志 `amdxcffx64.dll ... No such file or directory` | Proton 可选 AMD 文件缺失，可忽略，与卡顿无关 |
+| 日志 `KeyboardInterrupt` | 终端里手动 `Ctrl+C` 的正常堆栈，不是游戏崩溃 |
 | **全屏黑屏 + “无响应”** | 只在 `PVZ_RENDERER=vulkan` 下会发生（低 4GB 重映射池没生效）；用默认 gl 后端不涉及此路径 |
 | Steam 里点了仍没反应 | `~/.local/share/Steam/logs/console_log.txt` 里该 AppID 的命令行是否已变成 `plants-vs-zombies-steam.sh`；没变 = 启动选项未生效 |
 | 启动了但秒退 | `/tmp/plants-vs-zombies-hostrun.log`（含 `in_container` / `hostpfx` / `bus` / 退出码） |

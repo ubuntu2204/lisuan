@@ -42,6 +42,10 @@ t_assert_grep "$FIX" 'osrelease_redirect\.so' "low-4GB remap pool is available f
 t_assert_grep "$FIX" 'PVZ_SHIM' "shim path is overridable"
 t_assert_grep "$FIX" 'ELF 64-bit' "shim is validated as a 64-bit object"
 t_assert_grep "$FIX" 'popcapgame1\.exe' "fix script extracts the PopCap body"
+t_assert_grep "$FIX" 'set_render_mode software' "fix script defaults to smooth software rendering"
+t_assert_grep "$FIX" 'set_render_mode hardware' "fix script keeps an opt-in hardware path for diagnostics"
+t_assert_grep "$FIX" 'Is3D' "rendering mode is stored as the game's Is3D registry value"
+t_assert_grep "$FIX" 'read_render_mode' "--status can report the current rendering mode"
 
 # --- 1. set writes a single LaunchOptions line inside the 3590 block --------
 cfg="${WORKDIR}/localconfig.vdf"
@@ -101,5 +105,37 @@ t_assert_eq 0 $? "--clear keeps the VDF balanced"
 cp "${FIXTURES_DIR}/localconfig.vdf.sample" "${WORKDIR}/other.vdf"
 python3 "$PATCHER" "${WORKDIR}/other.vdf" 999999 --set 'x' >/dev/null 2>&1
 t_assert_eq 2 $? "missing appid exits 2"
+
+# --- 6. rendering mode is persisted in user.reg ----------------------------
+COMPAT_FIX="${WORKDIR}/compat"
+mkdir -p "$COMPAT_FIX/pfx"
+cat > "$COMPAT_FIX/pfx/user.reg" <<'EOF'
+WINE REGISTRY Version 2
+
+[Software\\SteamPopCap\\PlantsVsZombies] 1761470000
+"Is3D"=dword:00000001
+"ScreenMode"=dword:00000001
+
+[Software\\SteamPopCap\\PlantsVsZombies\\Test3D] 1761470000
+"FailureReason"=""
+EOF
+
+PVZ_COMPAT_DATA="$COMPAT_FIX" bash "$FIX" --software >/dev/null 2>&1
+t_assert_eq 0 $? "--software exits 0"
+t_assert_grep "$COMPAT_FIX/pfx/user.reg" '"Is3D"=dword:00000000' "--software disables 3D acceleration"
+
+PVZ_COMPAT_DATA="$COMPAT_FIX" bash "$FIX" --hardware >/dev/null 2>&1
+t_assert_eq 0 $? "--hardware exits 0"
+t_assert_grep "$COMPAT_FIX/pfx/user.reg" '"Is3D"=dword:00000001' "--hardware re-enables 3D acceleration"
+
+PVZ_COMPAT_DATA="$COMPAT_FIX" bash "$FIX" --software >/dev/null 2>&1
+t_assert_eq 0 $? "switching back to software exits 0"
+t_assert_eq 1 "$(grep -c '"Is3D"=' "$COMPAT_FIX/pfx/user.reg")" "exactly one Is3D value after repeated switches"
+t_assert_grep "$COMPAT_FIX/pfx/user.reg" '"FailureReason"=""' "render-mode switch leaves the Test3D verdict untouched"
+
+status_out="$(PVZ_COMPAT_DATA="$COMPAT_FIX" PVZ_GAME_DIR="$WORKDIR" bash "$FIX" --status 2>/dev/null)"
+t_assert_eq 0 $? "--status exits 0 on a fixture prefix"
+printf '%s' "$status_out" | grep -q '软件渲染'
+t_assert_eq 0 $? "--status reports software rendering mode"
 
 t_finish "test-plants-vs-zombies.sh"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # fix-plants-vs-zombies.sh — 《植物大战僵尸 GOTY》(AppID 3590) 在砺算 7G100 上的
-#                            硬件渲染修复（幂等）
+#                            启动与渲染修复（幂等；2026-10-26 起默认软件渲染）
 #
 # 症状：Steam 点"开始游戏"后没有任何画面；或在宿主直跑时弹 PopCap 的
 #         "FATAL ERROR: Invalid command line parameter: -changedir"
@@ -14,17 +14,23 @@
 #      随后 Wine 的 explorer.exe 崩溃，游戏进程根本起不来（日志刷到 1.7 GB）。
 #   2) **32 位进程拿不到厂商驱动**：厂商只发布 x86_64（gf_icd.x86_64.json、
 #      gf_dri.so），传统 wow64 下 32 位进程只能走 32 位 GL/Vulkan → 不存在 →
-#      退化成 llvmpipe **软件渲染**（CPU 450–510%）。本方案不接受软渲染。
+#      退化成 llvmpipe **软件渲染**（CPU 450–510%）。当时为避开 llvmpipe 而
+#      追求硬件渲染；后续实机结论见下。
 #   3) **PopCap 启动器参数不兼容**：PlantsVsZombies.exe 先把本体解到
 #      %ProgramData%\PopCap Games\PlantsVsZombies\popcapgame1.exe，再用
 #      -changedir="<游戏目录>" 拉起本体；本体对该参数任何形式都判非法 →
 #      FATAL ERROR 弹窗退出。
 #
-# 修复（沿用 minion-masters 的 32 位硬件渲染路线）：
+# 2026-10-26 补充结论：用户感知的“卡顿”来自 wined3d GL 的硬件路径本身；
+# 在游戏内关闭 3D Acceleration（Is3D=0，软件渲染）立即流畅。PvZ 是 800x600
+# 的 2D 游戏，软件渲染足够，所以本脚本现在默认固化软件渲染；new WoW64 + GL
+# 仍保留，用于保证能启动、不黑屏，并供 --hardware 复测。
+#
+# 修复（启动链路与 minion-masters 的 32 位路线一致）：
 #   * **Proton new WoW64**（PROTON_USE_WOW64=1）：32 位 PE 经 wow64 thunk 调
-#     **64 位** gf Vulkan —— 不需要厂商提供 i386 驱动；
+#     **64 位** gf 驱动 —— 不需要厂商提供 i386 驱动；
 #   * 前缀必须是 wow64 布局（旧的经典前缀移走重建，见 ensure_wow64_prefix）；
-#   * 渲染用 **wined3d + Vulkan 后端**（WINE_D3D_CONFIG=renderer=vulkan）：
+#   * 渲染后端用 **wined3d GL**（WINE_D3D_CONFIG=renderer=gl；软/硬由 Is3D 决定）：
 #     DXVK 在此不可用 —— DXVK 2.3 没有 d3d8（PvZ 是 D3D8/DirectDraw 游戏），
 #     DXVK ≥2.4 硬要求 VK_KHR_maintenance5，而 gf 的 Vulkan 只到 1.3 且缺该扩展；
 #   * 抽本体常驻 + **宿主直跑**（cwd=游戏目录，不带 -changedir）；
@@ -33,8 +39,11 @@
 #
 # Usage:
 #   ./fix-plants-vs-zombies.sh                  # 安装/修复（抽本体 + 部署 + 前缀迁移）
-#   ./fix-plants-vs-zombies.sh --status         # 状态
-#   ./fix-plants-vs-zombies.sh --launch         # 立即宿主直跑一次（排查用）
+#   ./fix-plants-vs-zombies.sh --status         # 状态（含当前软件/硬件渲染模式）
+#   ./fix-plants-vs-zombies.sh --launch         # 默认关闭 3D 加速（软件渲染）后宿主直跑
+#   ./fix-plants-vs-zombies.sh --launch --hardware  # 开启 3D 加速后直跑（仅排查用，本机实测卡）
+#   ./fix-plants-vs-zombies.sh --software       # 只固化软件渲染（Is3D=0，推荐）
+#   ./fix-plants-vs-zombies.sh --hardware       # 只固化硬件渲染（Is3D=1，供复测）
 #   ./fix-plants-vs-zombies.sh --force          # 游戏更新后重抽本体
 #   ./fix-plants-vs-zombies.sh --reset-prefix    # 强制把前缀移走重建（wow64 布局）
 #   ./fix-plants-vs-zombies.sh --set-launch-options    # 写入 Steam 启动选项（需先退出 Steam）
@@ -100,10 +109,15 @@ status() {
   else
     echo "  [--] 无低 4GB 重映射池 shim（只有改用 PVZ_RENDERER=vulkan 时才需要）"
   fi
+  case "$(read_render_mode)" in
+    software) echo "  [OK] 渲染模式：软件渲染（3D Acceleration 关闭，本机推荐，实测流畅）" ;;
+    hardware) echo "  [!!] 渲染模式：硬件渲染（3D Acceleration 开启，本机实测卡顿；--software 切回）" ;;
+    *)        echo "  [--] 渲染模式：未知（游戏还没生成配置）" ;;
+  esac
   case "$(read_3d_verdict)" in
-    PASS)   echo "  [OK] 游戏自己的 3D 检测：通过（硬件加速开着）" ;;
+    PASS)   echo "  [OK] 游戏 3D 能力检测：通过（FailureReason 为空）" ;;
     NOKEY)  echo "  [--] 游戏还没跑过 3D 检测" ;;
-    *)      echo "  [!!] 游戏 3D 检测不通过：$(read_3d_verdict) —— 已进安全模式（软件渲染）" ;;
+    *)      echo "  [!!] 游戏 3D 检测不通过：$(read_3d_verdict) —— 会进 PopCap 安全模式" ;;
   esac
   [[ -f "$DESK" ]]      && echo "  [OK] 桌面项已安装"   || echo "  [--] 桌面项未安装"
   [[ -f "$WOW64_MARKER" ]] && echo "  [OK] 前缀已标记为 new WoW64 布局" \
@@ -210,7 +224,9 @@ install_hostrun() {
   shim="$(find_shim || true)"
   cat > "$HOSTRUN" <<EOF
 #!/bin/bash
-# Lisuan 7G100: 在【宿主】用硬件渲染运行《植物大战僵尸 GOTY》。
+# Lisuan 7G100: 在【宿主】运行《植物大战僵尸 GOTY》。
+# 默认由 fix-plants-vs-zombies.sh 把 Is3D 写为 0（关闭 3D Acceleration，软件渲染），
+# 这是 2026-10-26 实测流畅的配置；wined3d GL 的硬件路径在本机会卡顿。
 #
 # 为什么必须在宿主跑：Steam 的 pressure-vessel 容器里 Mesa 找不到 lisuan→gf
 # 映射、也没有厂商 glvnd GLX vendor，winex11.drv 连 GL 都加载不了 → Wine 起不来。
@@ -402,7 +418,7 @@ install_desktop() {
   cat > "$DESK" <<EOF
 [Desktop Entry]
 Name=Plants vs. Zombies (Lisuan 7G100)
-Comment=绕开 Steam 容器与 PopCap 启动器，在宿主用 new WoW64 + 7G100 硬件渲染直跑
+Comment=绕开 Steam 容器与 PopCap 启动器；默认软件渲染（关闭 3D 加速），本机实测流畅
 Exec="$STEAMWRAP"
 Path="$GAME_DIR"
 Type=Application
@@ -472,10 +488,10 @@ PY
 check_3d() {
   local v; v="$(read_3d_verdict)"
   case "$v" in
-    PASS)   log "游戏自己的 3D 检测：通过（FailureReason 为空，硬件加速确实开着）" ;;
+    PASS)   log "游戏 3D 能力检测：通过（FailureReason 为空；不代表硬件加速一定开启，模式看 --status）" ;;
     NOKEY)  warn "游戏还没跑过 3D 检测（先启动一次游戏）" ;;
     NOPVAL) warn "Test3D 键里没有 FailureReason 字段" ;;
-    *)      warn "游戏 3D 检测不通过：$v —— 已进安全模式（软件渲染），先跑 --reset-3d-test 并确认后端是 gl" ;;
+    *)      warn "游戏 3D 检测不通过：$v —— 会进 PopCap 安全模式；软件渲染模式下不影响流畅度" ;;
   esac
 }
 
@@ -501,13 +517,85 @@ PY
   log "已复位 3D 检测；下次启动会重测（后端为 gl 时 FailureReason 应为空）"
 }
 
+# ---- 渲染模式：软件（默认，流畅）/ 硬件（仅复测） --------------------------
+# 2026-10-26 实机结论：本机 gf 上 wined3d GL 的硬件路径卡顿；游戏内关掉
+# "3D Acceleration" 立即流畅。PvZ 是 800x600 的 2D 游戏，软件渲染足够，
+# 因此默认把 HKCU\Software\SteamPopCap\PlantsVsZombies\Is3D 写为 0。
+read_render_mode() {
+  local reg="$COMPAT_DATA/pfx/user.reg"
+  [[ -f "$reg" ]] || { echo "unknown"; return 0; }
+  python3 - "$reg" <<'PY'
+import re, sys
+s = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+m = re.search(r'\[Software\\\\SteamPopCap\\\\PlantsVsZombies\][^\n]*\n(.*?)(?=\n\[|\Z)', s, re.S)
+if not m:
+    print("unknown"); raise SystemExit
+r = re.search(r'^"Is3D"=dword:([0-9a-fA-F]+)', m.group(1), re.M)
+if not r:
+    print("unknown")
+else:
+    print("hardware" if int(r.group(1), 16) else "software")
+PY
+}
+
+set_render_mode() {
+  local mode="${1:-software}" reg="$COMPAT_DATA/pfx/user.reg" value
+  case "$mode" in
+    software) value=0 ;;
+    hardware) value=1 ;;
+    *) die "未知渲染模式：$mode（software/hardware）" ;;
+  esac
+  pgrep -f 'pvz-game\.exe' >/dev/null 2>&1 && die "游戏正在运行：先退出游戏再切换渲染模式"
+  if [[ ! -f "$reg" ]]; then
+    warn "没有前缀注册表：$reg（首次启动游戏后再执行 --software 即可固化）"
+    return 0
+  fi
+  cp -a "$reg" "$reg.render-mode.bak"
+  python3 - "$reg" "$value" <<'PY'
+import re, sys
+p, value = sys.argv[1], sys.argv[2]
+s = open(p, encoding="utf-8", errors="surrogateescape").read()
+header = "[Software\\\\SteamPopCap\\\\PlantsVsZombies]"
+line = '"Is3D"=dword:0000000' + value
+m = re.search(r'^\[Software\\\\SteamPopCap\\\\PlantsVsZombies\][^\n]*\n', s, re.M)
+if not m:
+    if not s.endswith("\n"):
+        s += "\n"
+    s += "\n" + header + "\n" + line + "\n"
+else:
+    start = m.end()
+    end = s.find("\n[", start)
+    if end < 0:
+        end = len(s)
+    body = s[start:end]
+    if re.search(r'^"Is3D"=dword:[0-9a-fA-F]+', body, re.M):
+        body = re.sub(r'^"Is3D"=dword:[0-9a-fA-F]+.*$', line, body, count=1, flags=re.M)
+    else:
+        body = line + "\n" + body
+    s = s[:start] + body + s[end:]
+open(p, "w", encoding="utf-8", errors="surrogateescape").write(s)
+PY
+  if [[ "$mode" == software ]]; then
+    log "已关闭 3D Acceleration（Is3D=0，软件渲染）——本机实测此模式流畅"
+  else
+    log "已开启 3D Acceleration（Is3D=1，硬件渲染）——仅用于复测，本机实测会卡顿"
+  fi
+}
+
 # ---- 参数分发 --------------------------------------------------------------
 case "${1:-}" in
   --status)   status; exit 0 ;;
   --check-3d) check_3d; exit 0 ;;
   --reset-3d-test) reset_3d_test; exit 0 ;;
+  --software) set_render_mode software; exit 0 ;;
+  --hardware) set_render_mode hardware; exit 0 ;;
   --launch)
     [[ -x "$HOSTRUN" ]] || die "尚未安装，先运行：$0"
+    if [[ "${2:-}" == "--hardware" ]]; then
+      set_render_mode hardware
+    else
+      set_render_mode software
+    fi
     exec "$HOSTRUN" ;;
   --set-launch-options) set_launch_options; exit 0 ;;
   --clear-launch-options) clear_launch_options; exit 0 ;;
@@ -520,7 +608,7 @@ case "${1:-}" in
   --force)    ;;   # 与安装同时使用：--force 重抽本体
   --reset-prefix) ;;   # 与安装同时使用：强制前缀重建
   "")         ;;
-  *)          die "未知参数：$1（--status / --check-3d / --reset-3d-test / --launch / --force / --reset-prefix / --set-launch-options / --clear-launch-options / --uninstall）" ;;
+  *)          die "未知参数：$1（--status / --check-3d / --reset-3d-test / --software / --hardware / --launch [--hardware] / --force / --reset-prefix / --set-launch-options / --clear-launch-options / --uninstall）" ;;
 esac
 
 # ---- 安装流程 --------------------------------------------------------------
@@ -539,11 +627,13 @@ extract_body "${1:-}"
 install_hostrun
 install_steamwrap
 install_desktop
+set_render_mode software
 
-log "全部完成（硬件渲染：new WoW64 + wined3d GL 后端 → 7G100）。"
+log "全部完成。默认关闭 3D Acceleration（软件渲染），这是本机实测流畅的配置。"
 log "  直接玩（推荐）：桌面菜单里的 \"Plants vs. Zombies (Lisuan 7G100)\"，或 $STEAMWRAP"
+log "  终端直跑：./fix-plants-vs-zombies.sh --launch（默认软件渲染）"
 log "  Steam 里点开始游戏：先关 Steam 执行 ./fix-plants-vs-zombies.sh --set-launch-options，"
 log "    或在 属性 → 通用 → 启动选项 粘贴： $STEAM_LAUNCH"
 log "  首次启动会重建 wow64 前缀（约 30–60 秒），之后正常。"
-log "  查硬件加速是否真开着（不用看画面）：./fix-plants-vs-zombies.sh --check-3d"
-log "  状态检查：./fix-plants-vs-zombies.sh --status"
+log "  想复测硬件路径：./fix-plants-vs-zombies.sh --launch --hardware（本机实测会卡）"
+log "  状态检查（含渲染模式）：./fix-plants-vs-zombies.sh --status"
