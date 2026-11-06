@@ -17,6 +17,11 @@
     packaging/lisuan_fix_gui.py    Tkinter 桌面界面
     packaging/lisuan_fix_md.py     Markdown 渲染器（说明弹窗）
 
+驱动要求：
+    本项目要求厂商驱动 `lisuangpu-dkms` / `lisuangpu-lib` **v262.2.0.56**；
+    该版本是全部补丁、偏移量和兼容性结论的验证基准。运行 `--detect`
+    会检查实际安装版本，其它版本会明确告警，不在本工具保证范围内。
+
 依赖：仅标准库；GUI 需系统包 python3-tk。
 """
 

@@ -5,6 +5,8 @@
 包含：基础工具、环境检测、菜单定义、修复执行、命令行入口 main()。
 界面在 lisuan_fix_gui.py（Tkinter），入口壳在 install.py。
 
+驱动要求：厂商包 lisuangpu-dkms / lisuangpu-lib v262.2.0.56 是本项目的验证基准。
+
 依赖：仅标准库。
 """
 
@@ -42,6 +44,19 @@ def _find_base() -> Path:
 
 REPO_ROOT = _find_base()
 S = REPO_ROOT
+
+# 本项目所有驱动补丁、二进制偏移和兼容性结论均基于这一厂商包版本。
+REQUIRED_LISUAN_DRIVER_VERSION = "262.2.0.56"
+
+
+def _is_required_driver_version(version: str) -> bool:
+    """判断 dpkg 版本是否属于要求的 262.2.0.56 基准（允许发行版后缀）。"""
+    candidate = version.strip().rsplit(":", 1)[-1]
+    if candidate == REQUIRED_LISUAN_DRIVER_VERSION:
+        return True
+    return any(candidate.startswith(REQUIRED_LISUAN_DRIVER_VERSION + sep)
+               for sep in ("-", "+", "~", "."))
+
 
 STEAM_DESKTOP = Path.home() / ".local/share/applications/steam.desktop"
 STEAM_WRAP = Path.home() / ".local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh"
@@ -206,12 +221,24 @@ def detect() -> Env:
         env.add("GPU", "bad", "未检测到砺算 GPU（PCI 厂商号 4c54）——本工具不适用")
 
     env.add("内核", "info", f"运行内核：{env.kernel}")
+    env.add(
+        "驱动要求", "info",
+        f"本项目要求 lisuangpu-dkms / lisuangpu-lib v{REQUIRED_LISUAN_DRIVER_VERSION}；"
+        "其它版本未经本项目验证",
+    )
 
-    if ok_cmd(["dpkg-query", "-W", "lisuangpu-dkms"]):
-        ver = out(["dpkg-query", "-W", "-f=${Version}", "lisuangpu-dkms"])
-        env.add("驱动包", "ok", f"lisuangpu-dkms 已安装：{ver}")
-    else:
-        env.add("驱动包", "bad", "lisuangpu-dkms 未安装（请先向厂商/OEM 获取驱动包）")
+    for pkg, category in (("lisuangpu-dkms", "驱动包"),
+                          ("lisuangpu-lib", "用户态库")):
+        if ok_cmd(["dpkg-query", "-W", pkg]):
+            ver = out(["dpkg-query", "-W", "-f=${Version}", pkg])
+            matches = _is_required_driver_version(ver)
+            level = "ok" if matches else "warn"
+            status = ("与验证基准一致" if matches else
+                      f"与要求 v{REQUIRED_LISUAN_DRIVER_VERSION} 不一致，兼容性未验证")
+            env.add(category, level, f"{pkg} 已安装：{ver}（{status}）")
+        else:
+            env.add(category, "bad",
+                    f"{pkg} 未安装（请先向厂商/OEM 获取 v{REQUIRED_LISUAN_DRIVER_VERSION} 驱动包）")
 
     if shutil.which("dkms"):
         dkst = out(["dkms", "status"])

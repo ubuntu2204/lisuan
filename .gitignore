@@ -35,9 +35,11 @@ _work/
 
 # ---- CodeBuddy 本地数据 ----
 # settings.json 是本机插件启用列表，属个人配置，不入库。
-# rules/ 存放项目约定（如「仓库组织约定」），需随仓库分发，故单独放行。
+# rules/ 与 skills/ 存放项目约定和项目技能，需随仓库分发，故单独放行。
 .codebuddy/*
 !.codebuddy/rules/
+!.codebuddy/skills/
+!.codebuddy/skills/**
 
 # ---- 构建产物噪音 ----
 *.mod

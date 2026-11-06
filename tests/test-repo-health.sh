@@ -103,4 +103,29 @@ assert "--uninstall" in core.UNDO[24]["cmd"]
 PY
 t_assert_eq 0 $? "L4D2 menu 22/23 and undo registration"
 
+# --- 8. Driver baseline and project skill -----------------------------------
+t_assert_grep "${REPO_TOP}/install.py" \
+  'v262\.2\.0\.56' "install.py declares required driver baseline"
+python3 - "$REPO_TOP" <<'PY'
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "packaging"))
+import lisuan_fix_core as core
+assert core.REQUIRED_LISUAN_DRIVER_VERSION == "262.2.0.56"
+assert "v262.2.0.56" in core.__doc__
+assert core._is_required_driver_version("262.2.0.56")
+assert core._is_required_driver_version("262.2.0.56-1")
+assert not core._is_required_driver_version("262.2.0.57")
+PY
+t_assert_eq 0 $? "core declares and validates driver baseline"
+SKILL_REL=".codebuddy/skills/lisuan-7g100-compat/SKILL.md"
+SKILL_FILE="${REPO_TOP}/${SKILL_REL}"
+[[ -f "$SKILL_FILE" ]]
+t_assert_eq 0 $? "project skill SKILL.md present"
+t_assert_grep "$SKILL_FILE" \
+  'v262\.2\.0\.56' "project skill declares driver baseline"
+git -C "$REPO_TOP" check-ignore -q -- "$SKILL_REL" >/dev/null 2>&1
+t_assert_eq 1 $? "project skill is not gitignored"
+
 t_finish "test-repo-health.sh"
