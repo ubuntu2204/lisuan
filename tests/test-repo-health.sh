@@ -20,7 +20,10 @@ done
 # --- 2. Vendor artifacts must NOT be tracked (open-source hygiene) ----------
 # 直接用 git ls-files 检查“是否被跟踪”，比扫磁盘更精确：本地留存但未跟踪
 # 的厂商文件（.gitignore 已排除）不算违规。
-for pat in '*.deb' '*.ko' '*.ko.zst' '*.o' '*.o.hex' 'lisuan_proprietary*'; do
+# 豆包官方在线安装器（约 7MB PE）也属厂商专有产物，2026-11-07 曾误入库，
+# 现由 .gitignore 的 doubao/doubao_client_*.exe 排除，这里做回归拦截。
+for pat in '*.deb' '*.ko' '*.ko.zst' '*.o' '*.o.hex' 'lisuan_proprietary*' \
+           'doubao/doubao_client_*.exe'; do
   if git -C "$REPO_TOP" ls-files -z -- "$pat" 2>/dev/null | grep -qz .; then
     t_fail "vendor artifact must not be tracked: $pat"
   else

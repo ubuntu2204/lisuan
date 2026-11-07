@@ -35,11 +35,15 @@
 
 ### 2.1 目标版本（唯一目标）
 
-- 客户端：`2.32.6 / Chromium 147.0.7727.149`
+- 客户端：`2.32.6 / Chromium 147.0.7727.149`（2026-11-07 官方接口确认仍是最新）
 - 路径：`AppData/Local/Doubao/Application/app`（新版安装到用户目录，不覆盖 `Program Files`）
 - Wine 11 前缀：`~/.deepinwine/doubao-wine11`（Windows 用户名为 `steamuser`）
+- 安装入口：`doubao/install-doubao.sh`（2026-11-07 新增，已完整跑过两轮）
 - 启动器：`doubao/run-doubao-wine11.sh`
-- 状态：**进程已稳定存活，窗口未映射 / 内容纯黑**，未达到验收标准。
+- 状态：**未达到验收标准**。窗口 `1200x800` 始终 `IsUnMapped`；
+  且 2026-11-07 重测发现主进程 `CrBrowserMain` 在启动后 10 秒内退出（无 Crashpad 转储），
+  只剩 crashpad-handler / gpu-process / 2×renderer 成为孤儿进程。
+  早先「browser 全部存活」的结论需要重新验证，黑屏排查要先把主进程退出查掉。
 
 ### 2.2 旧版（仅作历史对照，不得作为方案）
 
@@ -50,18 +54,61 @@
 
 ### 2.3 用户提供的在线安装器
 
-文件：
+文件（仓库内副本已进 `.gitignore`，`doubao/doubao_client_*.exe`，不入库）：
 
-`/home/ubuntu/下载/doubao_client_77737216855802805777_ext.exe`
+- `doubao/doubao_client_77737216855800721777_ext.exe`
+- `~/下载/doubao_client_77737216855800721777_ext.exe`
+- `~/下载/doubao_client_77737216855802805777_ext.exe`（上一轮下载）
 
 信息：
 
-- 64 位 PE 安装器，安装器自身版本 `2.25.16`。
+- 64 位 PE 安装器（字节跳动 Saman 安装器），安装器自身版本 `2.25.16`，
+  内嵌 `chromium_version 147.0.7727.89`、`product_app_id 582478`。
 - SHA-256：`865d6bf9bd18e498957314194a6d837607df850d87f0f3ed13a88ff543cf23e9`
-- `/S` 可以静默安装，但会联网下载当前客户端，而不是安装安装器自身的版本号。
-- 安装日志证明其实际下载的是 `2.32.6 / Chromium 147.0.7727.149`。
+  —— 上面三个文件字节相同，文件名里那串数字只是下载地址编号，**不代表客户端版本**。
+- 真正的客户端包由接口下发，安装前可先用 curl 预查（无需 Wine、无需登录）：
 
-新版没有覆盖上述 `Program Files` 旧版，而是安装到了用户目录：
+  ```bash
+  curl -s 'https://www.doubao.com/service/settings/v3/?device_platform=pc&brand=doubao&aid=582478&os=windows&update_type=downloader&version_code=2.25.16&os_version=10.0.22000' \
+    | grep -oE 'doubao_pc/[0-9.]+/Doubao_win_X64_[0-9.]+-signed\.zip'
+  ```
+
+  2026-11-07 21:44 实测返回 `doubao_pc/2.32.6/Doubao_win_X64_2.32.6-signed.zip`，
+  即**官方 Windows x64 最新版仍是 2.32.6**，与本机已装版本一致。
+
+#### `/S` 不是静默安装（2026-11-07 实测推翻旧结论）
+
+早期记录写的「`/S` 可以静默安装」不成立。安装器日志明确显示：
+
+```
+[install] CmdLine:/S
+[install] saman command line install mode is      ← 空，/S 没被当成命令行安装模式
+[install] CBaseWindow::OnSize to 718x478           ← 弹出 GUI 后就此停住
+```
+
+窗口停在「立即安装」按钮上**空等人工点击**（实测空等 4 分钟无进展），
+不点击就什么都不会发生。因此安装入口已固定为 `doubao/install-doubao.sh`：
+它用 `_NET_WM_PID` 反查确认安装器窗口、抓窗口位图按按钮主题色 `#3370FF`
+定位「立即安装」实心块（不写死坐标，兼容 DPI 缩放），点下去后以安装日志
+本轮新增行里的 `_OnInstallSuccess` 为完成判据。
+
+#### 一次完整安装的实际行为（2026-11-07 21:46 日志）
+
+```
+21:46:04  _StartInstallThread → GET service/settings/v3/
+21:46:04  host: lf-flow-web-cdn.doubao.com, path: obj/flow-doubao/doubao_pc/2.32.6/Doubao_win_X64_2.32.6-signed.zip
+          下载到 %LOCALAPPDATA%\Temp\Doubao\2.32.6.zip，共 948,603,770 字节（≈904 MB）
+21:46:43  wait uninstall → WaitForExit done（先走旧实例卸载）
+21:47:00  Replace uninstaller / Replace launcher → launcher/uninstaller extracted successfully
+21:47:00  write version → create desktop icon → Add Install/Uninstall Reg
+21:47:00  _OnInstallSuccess → _LaunchAgent（自动拉起客户端）
+```
+
+两条 `ERRO` 是无害的：`GetHttpTotalSize::WinHttpQueryHeaders error: 12150`（HEAD 取长度失败，
+不影响 GET 下载）和 `UnzipDoctorApp not found Doctor.zip`（包里本来就没带 Doctor.zip）。
+临时包自删，`app` 目录 1.8 GB，`豆包.lnk` 重建。整个流程在本机约 60 秒。
+
+新版没有覆盖 `Program Files` 旧版，而是安装到了用户目录：
 
 `~/.deepinwine/doubao-wine/drive_c/users/ubuntu/AppData/Local/Doubao/Application/app`
 
@@ -283,7 +330,22 @@ export WINE_D3D_CONFIG='renderer=gl'
 
 脚本会自动 `find` 出实际落点的 `Doubao.exe`，不预设 Windows 用户名。
 
-安装时可使用用户提供的 `/S` 安装器。安装后要先用 `find` 确认实际落点：
+### 5.1 安装 / 升级入口
+
+```bash
+./doubao/install-doubao.sh                    # 自动找仓库 doubao/ 与 ~/下载 里最新的安装器
+./doubao/install-doubao.sh /路径/安装器.exe   # 显式指定
+DOUBAO_WINE11_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/install-doubao.sh
+```
+
+脚本做的事：先 curl 预查官方下发版本 → 只杀本前缀的 Wine 进程 → 拉起安装器并
+自动点「立即安装」（`/S` 不静默，必须点）→ 等安装日志 `_OnInstallSuccess` →
+收尾杀掉安装器自动拉起的黑屏实例 → 跑一次 `fix-doubao-wine.sh`。
+依赖 `xdotool` / `xprop` / `python3-xlib` / `Pillow`；缺依赖时会退成“请人工点按钮”，
+脚本继续等日志结果。安装器日志落在 `User Data/sdk_storage/log/Doubao-installer.log`，
+完成与否以它为准，不看版本号是否变化（同版本重装时版本号不变）。
+
+安装后要先用 `find` 确认实际落点：
 
 ```bash
 find "$WINEPREFIX/drive_c/users" -path '*/Doubao/Application/app/Doubao.exe' -print
@@ -366,6 +428,8 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 
 ## 9. 相关文件
 
+- `doubao/install-doubao.sh`：**官方在线安装器的安装/升级入口**；预查下发版本、
+  自动点「立即安装」、以 `_OnInstallSuccess` 为完成判据，装完自动跑前缀层修复。
 - `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的 Wine 11 启动器（主线）**。
 - `doubao/fix-doubao-wine.sh`：与版本无关的前缀层修复（WinSxS 软链接、LocalLow 目录）；
   不再做版本回退、不锁版本、不禁用更新器。

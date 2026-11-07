@@ -27,6 +27,11 @@ minion-masters/gf-compat/lib/libvulkan_gf.so
 # 驱动库副本），无自有源码，整体不入库；当前原生 Venus 部署在 ~/.local/share/l4d2-venus。
 left4dead2/gf-compat/
 
+# ---- 豆包官方在线安装器：厂商专有二进制，不入库 ----
+# 官网下载的 PE 安装器（约 7MB），每次换版本号都会改文件名，仓库只保留脚本与文档。
+# 实际安装器路径与 SHA 记录在 doubao/README.md；需要复现时由用户自行从官网下载。
+doubao/doubao_client_*.exe
+
 # ---- 本地诊断草稿区：构建日志、探针、解包的厂商源码等，整体不入库 ----
 _work/
 
