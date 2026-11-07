@@ -6,11 +6,12 @@
 # 所以装出来的版本取决于官方当前最新版，而不是文件名里那串数字。
 #
 # 本脚本不做任何版本回退、锁版本或禁用更新器（见 .codebuddy/rules/豆包客户端版本约定.md），
-# 只负责四件事：
+# 只负责五件事：
 #   1) 先向官方接口查一下服务器当前下发哪个版本，报给用户；
 #   2) 关掉该前缀内正在运行的豆包——安装器无法覆盖正在使用的文件；
 #   3) 跑起安装器并点掉界面上的「立即安装」，等安装日志出现 _OnInstallSuccess；
-#   4) 安装后跑一次与版本无关的前缀层修复（WinSxS 软链接 + LocalLow 目录）。
+#   4) 安装后跑一次与版本无关的前缀层修复（WinSxS 软链接 + LocalLow 目录）；
+#   5) 统一桌面入口，避免安装器重建的 .lnk 把双击又带回 Deepin Wine 8.16。
 #
 # 关键事实（2026-11-07 实测）：`/S` 对这个 Saman 在线安装器**不是静默安装**。
 # 日志会记 CmdLine:/S 但紧跟着“saman command line install mode is ”（空），
@@ -262,6 +263,15 @@ if [[ -x "$SCRIPT_DIR/fix-doubao-wine.sh" ]]; then
     echo "运行前缀层修复……"
     DOUBAO_WINE_PREFIX="$PREFIX" "$SCRIPT_DIR/fix-doubao-wine.sh" || \
         echo "警告：前缀层修复未完全通过，详见上方输出。" >&2
+fi
+
+# 安装器每次都可能在 ~/Desktop 重建 Windows 快捷方式 豆包.lnk，DING 会把它
+# 交给 spark-dwine-helper / deepin-wine8-stable（旧前缀），双击又撞 0x7F FATAL。
+# 装完顺手统一桌面入口，避免「刚装好又启动不了」的回归。
+if [[ -x "$SCRIPT_DIR/fix-doubao-desktop.sh" ]]; then
+    echo "运行桌面入口修复……"
+    "$SCRIPT_DIR/fix-doubao-desktop.sh" >/dev/null || \
+        echo "警告：桌面入口修复未完全通过，可执行 doubao/fix-doubao-desktop.sh --status 查看。" >&2
 fi
 
 echo

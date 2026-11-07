@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # 豆包官方新版 2.32.6 在 Proton 11 (Wine 11) 下的启动器。
 # 环境变量与 Proton 自带 proton 脚本保持一致；前缀独立于 Deepin 前缀。
+# 启动输出同时写 ~/.local/share/doubao-wine11/launch.log（可用
+# DOUBAO_WINE11_LOG 覆盖），便于排查桌面双击这类没有终端的启动。
 set -euo pipefail
 
 PROTON="${DOUBAO_PROTON:-$HOME/.local/share/Steam/steamapps/common/Proton 11.0}"
@@ -24,4 +26,12 @@ if [[ -z "$APP" ]]; then
     exit 1
 fi
 
+LOG_FILE="${DOUBAO_WINE11_LOG:-$HOME/.local/share/doubao-wine11/launch.log}"
+mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+if ! : >> "$LOG_FILE" 2>/dev/null; then
+    echo "错误：无法写入启动日志：$LOG_FILE" >&2
+    exit 1
+fi
+printf '=== %s | %s %s ===\n' "$(date '+%F %T')" "$APP" "$*" >> "$LOG_FILE"
+exec > >(tee -a "$LOG_FILE") 2>&1
 exec "$PROTON/files/bin/wine" "$APP" "$@"

@@ -45,6 +45,28 @@
   只剩 crashpad-handler / gpu-process / 2×renderer 成为孤儿进程。
   早先「browser 全部存活」的结论需要重新验证，黑屏排查要先把主进程退出查掉。
 
+2026-11-07 22:12–22:35 复测补充的根因证据（供后续继续攻坚，别重复排查）：
+
+- `WINEDEBUG=+win` 显示主窗口类 `Chrome_WidgetWin_1`（HWND `0x1009e`，1200x800）
+  以 `style=0x06cf0000` 创建，**不含 `WS_VISIBLE`**；此后**从未收到 `SW_SHOW`**，
+  仅有的两条 `show_window` 都是其它小窗口的 `cmd=0`（`SW_HIDE`）。
+  所以问题在「客户端自身没有调用显示窗口」，不是 X11 窗口没建出来。
+- 从 X11 侧 `XMapWindow` 强制映射后 `Map State: IsViewable`，但抓图只有
+  1 种颜色：`(0,0,0)` × 960000 像素（纯黑）。Wine 仍认为 HWND 隐藏，
+  不会派发 `WM_PAINT`；从 Wine 内部用 32 位 PE 调 `ShowWindow`/`SetWindowPos`
+  后 `IsWindowVisible` 仍为 0，跨进程强显不成立。
+- 以下开关单次 A/B 后**仍为纯黑**：`--disable-direct-composition`、
+  `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`、
+  `--in-process-gpu`、`--disable-gpu --enable-unsafe-swiftshader`、
+  `--disable-gpu-compositing --disable-gpu`、`--use-angle=gl`、
+  `--disable-features=CalculateNativeWinOcclusion`、
+  `--no-first-run --profile-directory=Default`。GPU 进程无 FATAL，日志里
+  只有云配置缺失（`saman_app_state` 不存在 / `frame_context is null` /
+  `user_id not ready`）这类非致命噪音。
+- 主进程以 `NtTerminateProcess ... exit_code 0` 主动退出，不是段错误；
+  残留孤儿进程用 `WINEPREFIX=~/.deepinwine/doubao-wine11 <Proton>/files/bin/wineserver -k`
+  清理，**不做自动重启**。
+
 ### 2.2 旧版（仅作历史对照，不得作为方案）
 
 - 客户端：`1.56.6 / Chromium 129.0.6668.79`
@@ -121,6 +143,45 @@
 
 安装器还创建了 `~/Desktop/豆包.lnk`。`run-doubao-wine.sh` 仍指向旧版，
 `run-doubao-wine11.sh` 才是新版启动器；桌面入口需切换到后者。
+
+### 2.4 桌面入口回归（2026-11-07 22:08 实测，已修）
+
+症状：双击桌面「豆包」没反应 / 秒退。`journalctl --user` 里的现场是：
+
+```
+DING: [DEBUG]: Run doubao-wine 1.56.6wine3 c:/Program Files/Doubao/Doubao.exe
+DING: wine version: 8.16
+DING: [424:580:FATAL:base\win\win_util.cc(544)] Check failed: . : 找不到过程。 (0x7F)
+```
+
+即点击的是安装器生成的 `~/Desktop/豆包.lnk`：DING 把它交给
+`spark-dwine-helper` → `/opt/apps/doubao-wine/files/run.sh` → **Deepin Wine 8.16
+旧前缀**，于是撞上坑 8 的 `RtlGetDeviceFamilyInfoEnum` 缺失。
+同时 `~/Desktop/doubao-wine.desktop` 没有 `metadata::trusted=true`，
+DING 会把它当成不可信启动器，双击不一定执行。
+
+本机共有 4 个同名「豆包」入口，修复前只有桌面 `.desktop` 指向 Wine 11：
+
+| 入口 | 修复前 Exec | 修复后 |
+|---|---|---|
+| `/usr/share/applications/doubao-wine.desktop` | deb 的 `run.sh --uri %F` | **不动**（由用户级同名入口覆盖） |
+| `~/.local/share/applications/doubao-wine.desktop` | 旧版 `run-doubao-wine.sh --uri %F` | 指向 `run-doubao-wine11.sh` |
+| `~/Desktop/doubao-wine.desktop` | `run-doubao-wine11.sh` | 保持并补 `trusted=true` |
+| `~/Desktop/豆包.lnk` | Windows 快捷方式（无默认处理器，DING 转交旧 Wine） | 移出桌面，可恢复 |
+
+修复入口：`doubao/fix-doubao-desktop.sh`（`--help` / `--status` / `--uninstall`）。
+它幂等地统一两个用户级 `.desktop` 的 `Exec`（去掉裸 `--uri`）、打
+`metadata::trusted=true`、把 `.lnk` 移到
+`~/.local/share/doubao-wine11/disabled-desktop-shortcuts/`；原 `.desktop`
+备份在 `~/.local/share/doubao-wine11/desktop-backups/`（不留在桌面产生多余图标），
+`--uninstall` 可完整还原。
+`install-doubao.sh` 安装成功后会自动跑一次，防止安装器重建 `.lnk` 后复发。
+`run-doubao-wine11.sh` 现在把启动输出同时写入
+`~/.local/share/doubao-wine11/launch.log`，方便排查没有终端的桌面双击。
+
+**边界**：这只修「点错运行时」这一层。Wine 11 下 2.32.6 窗口不映射 / 纯黑
+仍未解决（见 2.1），双击后仍可能看不到界面；按版本约定不会因此把默认入口
+改回 1.56.6，也不会加看门狗或自动重启。
 
 ## 3. Deepin Wine 8.16 已确认的坑
 
@@ -429,8 +490,11 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 ## 9. 相关文件
 
 - `doubao/install-doubao.sh`：**官方在线安装器的安装/升级入口**；预查下发版本、
-  自动点「立即安装」、以 `_OnInstallSuccess` 为完成判据，装完自动跑前缀层修复。
-- `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的 Wine 11 启动器（主线）**。
+  自动点「立即安装」、以 `_OnInstallSuccess` 为完成判据，装完自动跑前缀层修复与桌面入口修复。
+- `doubao/fix-doubao-desktop.sh`：**桌面入口修复**（幂等、`--status`、`--uninstall`）：
+  统一 Exec 到 Wine 11、打 trusted 标记、移走 `豆包.lnk`。
+- `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的 Wine 11 启动器（主线）**；
+  启动日志落在 `~/.local/share/doubao-wine11/launch.log`。
 - `doubao/fix-doubao-wine.sh`：与版本无关的前缀层修复（WinSxS 软链接、LocalLow 目录）；
   不再做版本回退、不锁版本、不禁用更新器。
 - `doubao/run-doubao-wine.sh`：旧版 1.56.6 的 Mesa 启动器和空 URI 过滤，仅作历史对照。
