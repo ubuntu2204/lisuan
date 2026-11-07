@@ -1,11 +1,25 @@
-# 豆包 Windows 客户端：Deepin Wine 排障记录与 Wine 11 / Electron 路线评估
+# 豆包 Windows 客户端：Wine 11 排障记录（目标：官方最新版 2.32.6）
 
-更新时间：2026-10-28  
+更新时间：2026-11-07  
 平台：Ubuntu 24.04、海光 C86-4G、砺算 7G100、XWayland
+
+> 约定：本文所有结论以**官方最新版 2.32.6** 为目标。旧版 1.56.6 只作为历史对照，
+> 不作为解决方案、回退方案或验收参照。详见 `.codebuddy/rules/豆包客户端版本约定.md`。
 
 ## 1. 结论先行
 
-**建议优先走「Proton 11 对应的原生 Wine 11 + 独立前缀」路线，保留 Deepin Wine 8.16 下的 1.56.6 作为可回退版本。**
+**主线是「Proton 11 对应的原生 Wine 11 + 独立前缀」跑官方 2.32.6。**
+
+当前实测（2026-11-07）：
+
+- 新版 2.32.6 在 **Wine 11（Proton 11.0）** 下已经**越过** Deepin Wine 8.16 的硬门槛
+  `RtlGetDeviceFamilyInfoEnum`（不再出现 `FATAL:base\win\win_util.cc ... 找不到过程 (0x7F)`）；
+- browser / crashpad / gpu-process / 2×renderer / network service / storage service
+  **全部存活**，无 FATAL、无 `CHECK failed`、无 GPU 进程崩溃退出；
+- **未解决问题**：窗口始终 `IsUnMapped`，强制 map 后内容纯黑（RGB 0,0,0）。
+  网络已排除（winsock 探针 IPv4/IPv6 全部 `CONNECT OK`），
+  渲染后端已排除（swiftshader / angle-gl / 禁用 GPU 合成 / gf 硬件 Vulkan 五种组合均为纯黑）。
+  下一步定位方向是 Chromium 的 Ozone/X11 后端选择与 viz 合成器首帧产出。
 
 不建议现在投入「把 Windows 豆包拆开后用 Electron 重新打包」。豆包不是只要替换 JavaScript 运行时就能迁移的普通 Electron 应用，主体是定制 Chromium 加大量闭源原生 DLL；完整重打包会持续碰到登录、推送、音视频、系统整合和自动更新等原生依赖。
 
@@ -13,22 +27,28 @@
 
 路线排序：
 
-1. **Wine 11 运行官方 2.32.6**：优先，已有明确证据能解决 Deepin Wine 8 缺失 API 的一道硬门槛。
+1. **Wine 11 运行官方 2.32.6**：主线，当前唯一目标。
 2. **Electron 外壳加载官方网页版**：可作为功能受限的备用客户端。
 3. **Windows 资源 + Electron 全量重打包**：不建议，投入大、维护性差，且无法绕开闭源原生模块。
 
 ## 2. 当前实际状态
 
-### 2.1 可回退的旧版
+### 2.1 目标版本（唯一目标）
 
-- 软件包：`doubao-wine 1.56.6wine3`
+- 客户端：`2.32.6 / Chromium 147.0.7727.149`
+- 路径：`AppData/Local/Doubao/Application/app`（新版安装到用户目录，不覆盖 `Program Files`）
+- Wine 11 前缀：`~/.deepinwine/doubao-wine11`（Windows 用户名为 `steamuser`）
+- 启动器：`doubao/run-doubao-wine11.sh`
+- 状态：**进程已稳定存活，窗口未映射 / 内容纯黑**，未达到验收标准。
+
+### 2.2 旧版（仅作历史对照，不得作为方案）
+
 - 客户端：`1.56.6 / Chromium 129.0.6668.79`
-- 路径：`~/.deepinwine/doubao-wine/drive_c/Program Files/Doubao/app`
-- 已实测可显示主窗口，主进程可持续运行。
-- 启动脚本：`doubao/run-doubao-wine.sh`
-- 前缀修复脚本：`doubao/fix-doubao-wine.sh`
+- 路径：`Program Files/Doubao/app`
+- 早期实测：在 Deepin Wine 8.16 + Mesa 软件渲染下能显示完整 `doubao.com/chat/` 界面。
+- 这条记录仅用于对比崩溃点差异；**不得**拿它当验收参照，也不得把修复脚本做成自动回退到它。
 
-### 2.2 用户提供的在线安装器
+### 2.3 用户提供的在线安装器
 
 文件：
 
@@ -49,10 +69,11 @@
 
 | 客户端 | 版本 | 当前状态 |
 |---|---|---|
-| `Program Files/Doubao/app` | 1.56.6 | Deepin Wine 8.16 + Mesa 下可用，作为回退 |
-| `AppData/Local/Doubao/Application/app` | 2.32.6 | 官方最新安装，Deepin Wine 8.16 下仍崩溃，等待 Wine 11 验证 |
+| `Program Files/Doubao/app` | 1.56.6 | 早期在 Deepin Wine 8.16 + Mesa 下可显示，**仅作历史对照** |
+| `AppData/Local/Doubao/Application/app` | 2.32.6 | 官方最新，**唯一目标版本**；Wine 11 下进程稳定，窗口待修 |
 
-安装器还创建了 `~/Desktop/豆包.lnk`。现有 `run-doubao-wine.sh` 仍指向旧版，不要把它误当成新版启动器。
+安装器还创建了 `~/Desktop/豆包.lnk`。`run-doubao-wine.sh` 仍指向旧版，
+`run-doubao-wine11.sh` 才是新版启动器；桌面入口需切换到后者。
 
 ## 3. Deepin Wine 8.16 已确认的坑
 
@@ -130,7 +151,7 @@ Wine 8.16 上游代码中，`open_cached_revocation_file()` 在 `SHGetKnownFolde
 
 当前 `run-doubao-wine.sh` 只过滤“单独一个 `--uri`”的情况，真实 URI 仍原样传递。
 
-### 坑 5：降级不只是替换 app 目录
+### 坑 5：降级不只是替换 app 目录（历史做法，已废弃）
 
 新版升级后再恢复旧版，直接复制旧程序仍可能崩溃或进入“豆包异常检测”。还需要处理：
 
@@ -141,7 +162,7 @@ Wine 8.16 上游代码中，`open_cached_revocation_file()` 在 `SHGetKnownFolde
 
 不能只删整个 `User Data`，否则会无谓丢失账号和聊天数据。
 
-### 坑 6：修复器会把“禁用 update.exe”当成文件缺失
+### 坑 6：修复器会把“禁用 update.exe”当成文件缺失（历史做法，已废弃）
 
 曾将 `update.exe` 改名以避免自动更新，结果：
 
@@ -149,7 +170,7 @@ Wine 8.16 上游代码中，`open_cached_revocation_file()` 在 `SHGetKnownFolde
 
 所以更新器文件本身必须保留。后来测试了保留有效 PE、将入口改成 `xor eax,eax; ret` 的方式，但这仍不是长期可靠的版本锁定方案，见坑 7。
 
-### 坑 7：版本屏蔽配置和 patch 更新器都不能保证永不升级
+### 坑 7：版本屏蔽配置和 patch 更新器都不能保证永不升级（历史做法，已废弃）
 
 实测以下配置不能阻止 2.32.6 再次安装：
 
@@ -163,7 +184,8 @@ Wine 8.16 上游代码中，`open_cached_revocation_file()` 在 `SHGetKnownFolde
 
 `Copy update.exe from ... update_data/Doubao_update ...`
 
-因此当前旧版方案应理解为**可回退的临时兼容方案**，不要把它当作长期更新管理方案。迁移到能运行新版的 Wine 才是根治方向。
+因此旧版方案只能理解为**临时兼容方案**。按现行约定，这些回退/锁版本手段**一律不再使用**，
+修复脚本已清理为纯前缀层修复。迁移到能运行新版的 Wine 才是根治方向。
 
 ### 坑 8：新版在 Deepin Wine 8.16 下缺少 ntdll API
 
@@ -209,21 +231,39 @@ Proton 自己的 `proton` 脚本使用：
 - `WINEDLLPATH=files/lib/vkd3d:files/lib/wine`
 - `LD_LIBRARY_PATH` 包含 `x86_64-linux-gnu`、`i386-linux-gnu` 等目录。
 
-### 4.3 当前尚未完成的部分
+### 4.3 实际进展（2026-11-07）
 
-早前在临时前缀中使用 Proton 11 + 完整运行库环境启动 2.32.6 时：
+在 `~/.deepinwine/doubao-wine11` 前缀中用 Proton 11.0 启动官方 2.32.6，实测：
 
-- GPU 和 renderer 子进程能初始化；
-- 但 `CrBrowserMain` 随后退出；
-- 没有形成可用主窗口，未达到验收标准。
+| 检查项 | 结果 |
+|---|---|
+| `RtlGetDeviceFamilyInfoEnum` | **通过**（日志出现 `fixme:ntdll:RtlGetDeviceFamilyInfoEnum ... stub`，不再是 FATAL） |
+| 进程存活 | browser / crashpad-handler / gpu-process / 2×renderer / network service / storage service 全部在跑 |
+| FATAL / `CHECK failed` | 无 |
+| GPU 进程异常退出 | 无（1.56.6 在 Deepin Wine 下会反复 `-2147483645` 退出） |
+| 网络 | winsock 探针对 `www.doubao.com` 的 IPv4/IPv6 **全部 `CONNECT OK`** |
+| 窗口 | 「豆包」1200x800 与一个无标题 1440x704 窗口均 `IsUnMapped`；强制 map 后内容纯黑 |
 
-那次测试发生在本轮 Windows 11 版本模式和详细 FATAL 定位之前。因此，**Wine 11 是有明确依据的下一步，不等于已经迁移成功。**
+结论：**Wine 11 路线已经走通 API 兼容段**，剩下的黑屏属于渲染/窗口映射问题，
+不是 Wine API 缺失，也不是网络问题。
 
-下一步应在新的 Wine 11 前缀中设置 `win11`，再启动官方 2.32.6，确认它是否越过 `RtlGetDeviceFamilyInfoEnum` 后继续运行。如果还有第二个错误，应继续按日志定位，而不是退回盲目换包。
+排查方法论沉淀（避免重走弯路）：
 
-## 5. 推荐的 Wine 11 验证环境
+- **运行时证据优先于静态符号表**。`objdump -T ntdll.so | grep RtlGetDeviceFamilyInfo`
+  在 Proton 的 `ntdll.so` 上查不到导出（该 so 只导出 11 个 Rtl 符号），
+  但运行时确实存在（stub 形式），只看符号表会得出「Wine 11 也没有该 API」的错误结论。
+- **进程类型识别不要用一次性的 `ps | grep -oE`**，容易漏掉 `--utility-sub-type=` 参数。
+  逐秒轮询 `/proc/<pid>/cmdline` 才看清 network service 与 storage service 实际存在。
+- **抓图用 `xwd -id <窗口ID>`**，Wayland 下 `ffmpeg x11grab` 抓 root 全黑；
+  `import`/`scrot`/`grim` 均不存在。未映射窗口 `xwd` 会报 `BadMatch`（X_GetImage 失败）。
+- **Wine 网络探针自己编译**：`wine cmd /c curl.exe`、`certutil -urlcache`、`powershell`
+  在 Wine 下都是 stub，不可用。用 `i686-w64-mingw32-gcc -lws2_32` 编译 32 位 PE，
+  `getaddrinfo` + `connect` 逐地址测试才有效。
+- `WSALookupServiceBegin failed with: 8` 在新旧版都出现，是 Chromium 在 Wine 下的正常现象，非根因。
 
-下面是环境模板，不是已经验证成功的最终启动器：
+## 5. Wine 11 启动环境（已落地为脚本）
+
+启动器：`doubao/run-doubao-wine11.sh`。其环境变量与 Proton 自带 `proton` 脚本保持一致：
 
 ```bash
 PROTON="$HOME/.local/share/Steam/steamapps/common/Proton 11.0"
@@ -239,17 +279,23 @@ export LIBGL_ALWAYS_SOFTWARE=1
 export GBM_BACKEND=dri
 export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
 export WINE_D3D_CONFIG='renderer=gl'
-
-"$PROTON/files/bin/wine" winecfg -v win11
 ```
 
-安装时可使用用户提供的 `/S` 安装器。安装后要先用 `find` 确认实际落点，不要预设 Windows 用户名：
+脚本会自动 `find` 出实际落点的 `Doubao.exe`，不预设 Windows 用户名。
+
+安装时可使用用户提供的 `/S` 安装器。安装后要先用 `find` 确认实际落点：
 
 ```bash
 find "$WINEPREFIX/drive_c/users" -path '*/Doubao/Application/app/Doubao.exe' -print
 ```
 
-首次启动建议带 `--enable-logging=stderr`，并单独记录日志。不要使用旧的 `fix-doubao-wine.sh` 去修新的 Wine 11 前缀，它包含针对旧版 Deepin 前缀的回退和更新器处理。
+首次启动建议带 `--enable-logging=stderr`，并单独记录日志。
+`fix-doubao-wine.sh` 已清理为**纯前缀层修复**（WinSxS 链接 + LocalLow 目录），
+不再包含回退、锁版本与更新器禁用逻辑，可以安全地在 Wine 11 前缀上跑：
+
+```bash
+DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
+```
 
 ## 6. Electron 路线评估
 
@@ -291,37 +337,39 @@ find "$WINEPREFIX/drive_c/users" -path '*/Doubao/Application/app/Doubao.exe' -pr
 
 ## 7. 建议实施顺序
 
-1. **冻结旧版回退路径**：保留 `Program Files` 的 1.56.6、原安装包和现有修复脚本。
-2. **建立独立 Wine 11 前缀**：不要覆盖 `doubao-wine`。
-3. **在 Wine 11 中安装并首次运行 2.32.6**：先 Mesa、Windows 11 模式、详细日志。
-4. **先空配置验证，再迁移数据**：避免把 Deepin 前缀中的版本状态、修复记录和 GPU 缓存一起带过去。
-5. **逐项验收**：窗口、登录、文字对话、文件上传、音频/RTC、重复启动。
-6. **稳定后再切换桌面入口**：旧入口保留到新版连续手动启动验证通过。
-7. **最后才评估 gf 加速**：Wine API 兼容与 gf 渲染是两个问题，不能混在一起排查。
+1. **修黑屏**：定位并解决 Wine 11 下窗口不映射 / 内容纯黑的问题。
+2. **确认页面真实内容**：窗口内渲染的必须是豆包真实界面，不是白屏或崩溃页。
+3. **逐项验收**：登录、文字对话、文件上传、音频/RTC、重复启动。
+4. **切换桌面入口**：新版连续手动启动验证通过后，把 `~/Desktop/doubao-wine.desktop`
+   从 `run-doubao-wine.sh`（旧版）改到 `run-doubao-wine11.sh`（新版）。
+5. **最后才评估 gf 加速**：Wine API 兼容与 gf 渲染是两个问题，不能混在一起排查。
 
 账号数据不要直接整目录覆盖。日志里已出现 `AppBoundEncryption` 错误，跨 Wine/前缀迁移后应有重新登录的心理准备。
 
-## 8. 验收与回退标准
+## 8. 验收标准（新版 2.32.6）
 
-新版至少满足以下条件，才替换旧启动器：
+新版至少满足以下条件，才算修完：
 
 - 60 秒内出现主窗口；
 - `CrBrowserMain` 连续存活 10 分钟以上；
 - 没有新的 browser 主进程 Crashpad 转储；
 - 登录和文字对话可用；
 - 连续进行 3 次手动启动均正常；
-- 版本保持官方 2.32.6，不需要禁用更新器才能运行。
+- 版本保持官方 2.32.6，不需要禁用更新器或屏蔽版本号才能运行。
 
-如果 Wine 11 仍失败：
+若 Wine 11 仍失败：
 
-- 保留 `Program Files` 旧版和 `run-doubao-wine.sh`；
 - 用对应 Proton 的 `wineserver -k` 只关闭 Wine 11 测试前缀；
 - 不做崩溃后自动重启，不用 supervisor 掩盖主进程退出；
-- 再决定是继续修下一个 Wine API，还是退到功能明确的网页版 Electron 外壳。
+- 继续按日志定位下一个 Wine API 或渲染问题，
+  **不退到旧版客户端**；若要换方向，只能整体转向功能明确的网页版 Electron 外壳。
 
 ## 9. 相关文件
 
-- `doubao/fix-doubao-wine.sh`：Deepin 前缀链接、LocalLow、旧版回退及更新处理。
-- `doubao/run-doubao-wine.sh`：旧版的 Mesa 启动器和空 URI 过滤。
+- `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的 Wine 11 启动器（主线）**。
+- `doubao/fix-doubao-wine.sh`：与版本无关的前缀层修复（WinSxS 软链接、LocalLow 目录）；
+  不再做版本回退、不锁版本、不禁用更新器。
+- `doubao/run-doubao-wine.sh`：旧版 1.56.6 的 Mesa 启动器和空 URI 过滤，仅作历史对照。
+- `.codebuddy/rules/豆包客户端版本约定.md`：只认官方最新版、不做旧版回退的项目约定。
 - `electron/README.md`、`electron/use-electron-gf.sh`：原生 Electron/Chromium 在 7G100 上的现有适配经验。
 - Proton 的 `proton` 脚本：官方运行库环境变量来源。
