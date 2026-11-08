@@ -121,6 +121,8 @@ for f in doubao/install-doubao.sh \
          doubao/run-doubao-wine11.sh \
          doubao/README.md \
          dreamina/install-dreamina.sh \
+         dreamina/extract-icon.py \
+         dreamina/dreamina-wine.desktop \
          dreamina/run-dreamina.sh \
          dreamina/powershell-stub.c \
          dreamina/README.md; do
@@ -129,6 +131,19 @@ for f in doubao/install-doubao.sh \
 done
 t_assert_grep "${REPO_TOP}/packaging/build-deb.sh" \
   'for d in doubao dreamina' "deb includes Wine 11 app scripts"
+# 即梦桌面图标回归：模板不能借用豆包图标，安装脚本必须提供体检/桌面修复/回滚入口。
+t_assert_grep "${REPO_TOP}/dreamina/dreamina-wine.desktop" \
+  '^Icon=dreamina$' "dreamina desktop uses themed icon"
+t_assert_not_grep "${REPO_TOP}/dreamina/dreamina-wine.desktop" \
+  'doubao' "dreamina desktop no longer borrows doubao icon"
+for flag in --desktop-only --status --uninstall --help; do
+  t_assert_grep "${REPO_TOP}/dreamina/install-dreamina.sh" \
+    "$flag" "dreamina installer supports $flag"
+done
+t_assert_grep "${REPO_TOP}/dreamina/powershell-stub.c" \
+  'DREAMINA_PS_STUB_V1' "powershell stub has unique marker"
+t_assert_grep "${REPO_TOP}/dreamina/run-dreamina.sh" \
+  'AppData/Local/Programs/dreamina-desktop' "launcher locates install dir"
 # 官方安装器属厂商专有产物，不得入库
 for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.exe'; do
   if git -C "$REPO_TOP" ls-files -z -- "$pat" 2>/dev/null | grep -qz .; then
@@ -137,6 +152,37 @@ for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.e
     t_ok "no vendor installer tracked: $pat"
   fi
 done
+
+# --- 7c. Steam 系统信息闪退修复 ---------------------------------------------
+t_assert_grep "${REPO_TOP}/packaging/lisuan_fix_core.py" \
+  'LIBGL_ALWAYS_SOFTWARE=1' "Steam fix forces software GL"
+t_assert_grep "${REPO_TOP}/steam/steam-on-lisuan.md" \
+  '系统信息' "Steam docs cover system information crash"
+python3 - "$REPO_TOP" <<'PY'
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "packaging"))
+import lisuan_fix_core as core
+
+bad = ("[Desktop Entry]\n"
+       "Exec=env MESA_LOADER_DRIVER_OVERRIDE=gf /usr/bin/steam "
+       "-no-cef-sandbox -cef-force-64bit %U\n")
+assert not core.steam_desktop_fixed(bad)
+new, changed = core._build_fixed_exec(bad)
+assert changed
+assert "GBM_BACKEND=dri" in new and "LIBGL_ALWAYS_SOFTWARE=1" in new
+assert "MESA_LOADER_DRIVER_OVERRIDE=gf" not in new
+assert "-no-cef-sandbox" not in new and "-cef-force-64bit" not in new
+fixed = "[Desktop Entry]\nExec=" + new + "\n"
+assert core.steam_desktop_fixed(fixed)
+plain = core._strip_fixed_exec(fixed)
+assert "GBM_BACKEND=dri" not in plain and "LIBGL_ALWAYS_SOFTWARE=1" not in plain
+assert "GBM_BACKEND=dri" in core.STEAM_DESKTOP_BODY_FIXED
+assert "LIBGL_ALWAYS_SOFTWARE=1" in core.STEAM_DESKTOP_BODY_FIXED
+assert core.STEAM_DESKTOP in core.steam_desktop_files()
+PY
+t_assert_eq 0 $? "Steam desktop fix helpers reject old gf injection and are reversible"
 
 # --- 8. Driver baseline and project skill -----------------------------------
 t_assert_grep "${REPO_TOP}/install.py" \

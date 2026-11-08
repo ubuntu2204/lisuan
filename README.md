@@ -223,7 +223,7 @@ lisuan-fix --detect                                     # PATH 直达，资源�
  4-5)   DKMS        安装/修复 · 说明（卸载走 4 的"卸载"按钮，见操作列）
  6)     Mesa        说明（软链方案已整体退出菜单，脚本留作手动工具）
  7-11)  Electron    ZCode / CodeBuddy / Qoder / Trae（各一项：装桌面项）· 说明
-12-13)  Steam       安装/修复 · 说明（卸载走 12 的"卸载"按钮）
+12-13)  Steam       安装/修复（界面/系统信息闪退）· 说明（卸载走 12 的"卸载"按钮）
 14-15)  随从大师     安装/修复 · 说明
 16-17)  刀塔霸业     安装/修复 · 说明（启动走 Steam"开始游戏"或补丁自带的桌面项）
 18-19)  王国保卫战   安装/修复 · 说明
@@ -232,6 +232,13 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 24-25)  植物大战僵尸  安装/修复 · 说明
 26-29)  Windows 应用 豆包 · 说明 · 即梦 AI · 说明（Wine 11 官方 Windows 客户端）
 ```
+
+> **Steam 菜单 [12]** 现在统一修用户级菜单项、XDG 桌面图标与历史 `~/Desktop` 入口：
+> 写入 `GBM_BACKEND=dri`（绕开 `gf_gbm.so` 段错误）和
+> `LIBGL_ALWAYS_SOFTWARE=1`（绕开「帮助→系统信息」弹窗加载 `gf_dri.so` 后的
+> double free），并清掉 `MESA_LOADER_DRIVER_OVERRIDE=gf` 等旧注入。只改 `.desktop`
+> 的 Exec 行，不动 Steam 自身文件；游戏容器内 gf Vulkan ICD 不受影响。
+> 细节见 [`steam/steam-on-lisuan.md`](./steam/steam-on-lisuan.md) §3 / §3.1。
 
 > 注意：编号已按新分组**重新编排**。
 > 本文件及项目各处引用的"菜单 [N]"均已同步为新编号。
@@ -246,8 +253,16 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 ```bash
 # 手动执行（与菜单 [26] / [28] 等价）
 ./doubao/install-doubao.sh [安装器.exe]        # 也可放 ~/下载/ 自动查找
-./dreamina/install-dreamina.sh [安装器.exe]
+./dreamina/install-dreamina.sh [安装器.exe]    # 按版本号自动查找多个安装器
+
+# 只修即梦 AI 的桌面图标/入口，不重装 100 MB 客户端
+./dreamina/install-dreamina.sh --desktop-only
+./dreamina/install-dreamina.sh --status
 ```
+
+即梦的官方图标由 `dreamina/extract-icon.py` 从本机官方 exe 的 PE 资源提取到
+`~/.local/share/icons/hicolor/`，桌面项写 `Icon=dreamina` 并标记 trusted；
+不再借用豆包图标，也不把厂商图标资源提交进仓库。细节见 [`dreamina/README.md`](./dreamina/README.md) §1.1。
 
 **GUI 依赖**（Ubuntu 24.04 默认未装 tkinter 运行时）：
 

@@ -3,6 +3,67 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.11.09 — 即梦 AI 桌面图标修复与安装脚本健壮化
+
+### 根因
+
+- 桌面没有即梦图标不是渲染问题：旧 `dreamina-wine.desktop` 的 `Icon` 指向
+  **豆包**的 `/opt/apps/doubao-wine/.../doubao-wine.png`；官方图标从未装进
+  hicolor 主题；入口只放在 `~/Desktop/`，而 DING 监听 `xdg-user-dir DESKTOP`
+  （本机 `~/桌面/`），且没有 `metadata::trusted`。
+- 安装脚本另有一处会让**全新前缀装不上**：powershell 替身的判断写反了
+  （目标含 `Get-CimInstance` 才替换，而 Wine 原 stub 不含），于是跳过替换，
+  electron-builder 安装器把「无进程」误判成「有进程」，`/S` 返回 2 直接 Abort。
+
+### 修复与验证
+
+- 新增 `dreamina/extract-icon.py`：纯标准库解析 PE 的 `RT_GROUP_ICON` / `RT_ICON`，
+  从本机官方安装器或已装主程序提取 16–256 共 7 个 PNG 尺寸，写入
+  `~/.local/share/icons/hicolor/*/apps/dreamina.png`；兼容 DIB、支持 PNG 兜底扫描，
+  不入库厂商图标、不依赖 `icoutils` / `pefile` / `Pillow`。
+- `dreamina/install-dreamina.sh` 重写：`set -euo pipefail`；按版本号自动查找安装器；
+  wine 环境只注入 wine 进程树；严格校验返回码、主程序 PE 头与 `app.asar`；
+  区分超时/Abort；按 `/proc/<pid>/environ` 精确关闭本前缀进程（不做自动拉起）；
+  新增 `--desktop-only` / `--status` / `--uninstall` / `--help` 与备份还原。
+- `dreamina/run-dreamina.sh` 不再写死主程序名，按安装目录定位非卸载器 exe。
+- `packaging/lisuan_fix_core.py` 菜单 28 增加图标/桌面入口的实际生效检查；
+  测试套件新增 `tests/test-dreamina-install.sh`（临时 HOME 下验证图标提取、入口生成与卸载）。
+- 本机实测 `--desktop-only` 后三个 `.desktop` 均通过 `desktop-file-validate`、
+  `trusted=true`，`--status` 全项 `[OK]`，256x256 图标为官方蓝/橙即梦图形。
+- 另在全新临时前缀里实跑一遍完整安装：`/S` 返回 0、两个 `powershell.exe` 都带上
+  新替身标记、主程序与 `app.asar` 完整、隔离体检全项 `[OK]`；验证了旧脚本
+  「全新前缀反而跳过替身替换」的回归已消除。
+
+## 2026.11.09 — Steam「帮助 → 系统信息」闪退修复
+
+### 根因
+
+- `GBM_BACKEND=dri` 只绕开了 `gf_gbm.so` 与系统 libgbm 的 ABI 不兼容（CEF 启动
+  `exit_code=139`）。点系统信息弹窗时，Mesa 仍按
+  `/usr/share/drirc.d/01-gf_drv.conf` 的 `kernel_driver=gf → dri_driver=gf` 映射
+  加载 `gf_dri.so` → `libglapi_gf.so.0`；这套 22.0.4 fork 与系统 Mesa 25.2 在
+  pressure-vessel 容器里混用，触发 `double free or corruption (!prev)` 或
+  `xcb_io.c:626 _XAllocID` 断言，Steam 主进程 `Aborted (core dumped)`。
+- 另有独立的入口回归：DING 真正监听的 `~/桌面/steam.desktop` 还带
+  `MESA_LOADER_DRIVER_OVERRIDE=gf -no-cef-sandbox -cef-force-64bit`，而
+  `~/.local/share/applications/steam.desktop` 只修了 GBM，两处不一致。
+
+### 修复与验证
+
+- 菜单 12 的 Steam 桌面启动器 Exec 改为
+  `env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam %U`；只影响
+  Steam 客户端 GL，实测游戏容器内 `VK_ICD_FILENAMES` 仍是 gf ICD。
+- `steam_desktop_files()` 统一修用户级菜单项、XDG 桌面图标与历史 `~/Desktop`
+  入口；`steam_desktop_fixed()` 要求两个变量齐全且不含旧 gf 注入；安装时只改
+  Exec 行、备份原文件、补 `metadata::trusted`，卸载可逐项摘除。
+- 受控 A/B（启动 7 秒后 `steam steam://open/systeminfo`）：基线 `GBM_BACKEND=dri`
+  5 次里 4 次崩溃；加 `LIBGL_ALWAYS_SOFTWARE=1` 后 5 次全存活，
+  `PopupHTMLWindow` 正常且无 `failed to load driver`。单独用
+  `-cef-disable-gpu` 仍会崩，未采用。
+- 文档 `steam/steam-on-lisuan.md` 新增 §3.1；测试新增
+  `tests/test-steam-desktop.sh`（临时 HOME 验证三处入口的修复/幂等/回滚），
+  并在 `tests/test-repo-health.sh` 加入旧 gf 注入清理的断言。
+
 ## 2026.11.08 — 豆包 2.32.6 主窗口跑通（Steam Runtime 容器为稳健默认）
 
 ### 根因（按图形会话区分）

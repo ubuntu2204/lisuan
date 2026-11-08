@@ -24,14 +24,23 @@
  * 不影响安装器后续用 powershell 做别的事）。
  *
  * 用法（32 位 PE，装进前缀的 system32 / syswow64）：
- *   i686-w64-mingw32-gcc -O2 -o powershell.exe powershell-stub.c
+ *   i686-w64-mingw32-gcc -O2 -m32 -o powershell.exe powershell-stub.c
+ *
+ * 识别标记：安装脚本用 grep 查找 DREAMINA_PS_STUB_V1 判断「替身是否已就位」。
+ * 旧脚本错误地用 Get-CimInstance 判断，导致全新前缀上反而跳过了替换、安装 Abort。
  ******************************************************************/
-#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+#define STUB_MARKER "DREAMINA_PS_STUB_V1"
 
 int main(int argc, char **argv)
 {
     int i;
+
+    /* 只为把标记字符串保留在 PE 里，供安装脚本识别；不改变正常行为。 */
+    if (getenv(STUB_MARKER))
+        return 0;
 
     for (i = 1; i < argc; i++) {
         if (argv[i] && strstr(argv[i], "Get-CimInstance")) {

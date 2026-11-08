@@ -61,6 +61,14 @@ def _is_required_driver_version(version: str) -> bool:
 STEAM_DESKTOP = Path.home() / ".local/share/applications/steam.desktop"
 STEAM_WRAP = Path.home() / ".local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh"
 
+# GBM_BACKEND=dri 绕开 gf_gbm.so 的 CEF 启动段错误；LIBGL_ALWAYS_SOFTWARE=1
+# 阻止「帮助→系统信息」等新 GL 上下文按 drirc 映射加载 gf_dri.so /
+# libglapi_gf.so.0（容器内会 double free / Xlib _XAllocID 断言）。
+STEAM_FIX_ENV = ("GBM_BACKEND=dri", "LIBGL_ALWAYS_SOFTWARE=1")
+STEAM_HARMFUL_PREFIXES = ("MESA_LOADER_DRIVER_OVERRIDE=gf",
+                          "__GLX_VENDOR_LIBRARY_NAME=gf")
+STEAM_HARMFUL_FLAGS = ("-no-cef-sandbox", "-cef-force-64bit")
+
 _STEAM_DESKTOP_COMMON = """[Desktop Entry]
 Name=Steam
 Comment=Application for managing and playing games on Steam
@@ -74,13 +82,61 @@ StartupWMClass=Steam
 """
 
 STEAM_DESKTOP_BODY_FIXED = _STEAM_DESKTOP_COMMON.format(exec_line=(
-    "# GBM_BACKEND=dri 是砺算 7G100 上的必需项：厂商 gf_gbm.so 与系统 libgbm 25.x\n"
-    "# ABI 不兼容，会让 CEF GPU 进程 SIGSEGV (exit_code=139)。设为 dri 可让 libgbm\n"
-    "# 加载 Mesa 的 dri_gbm.so，绕开崩溃。详见 steam/steam-on-lisuan.md §3\n"
-    "Exec=env GBM_BACKEND=dri /usr/bin/steam %U"
+    "# GBM_BACKEND=dri：绕开厂商 gf_gbm.so 与系统 libgbm 的 ABI 不兼容（CEF exit_code=139）。\n"
+    "# LIBGL_ALWAYS_SOFTWARE=1：绕开系统信息弹窗加载 gf_dri.so/libglapi_gf.so.0 后的\n"
+    "# double free / Xlib 断言。仅作用于 Steam 客户端 GL，不影响游戏容器里的 gf Vulkan ICD。\n"
+    "# 详见 steam/steam-on-lisuan.md §3 / §3.1\n"
+    "Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam %U"
 ))
 
 STEAM_DESKTOP_BODY_PLAIN = _STEAM_DESKTOP_COMMON.format(exec_line="Exec=/usr/bin/steam %U")
+
+
+def _steam_harmful(tok: str) -> bool:
+    """Steam 客户端启动参数里已知会让 CEF/系统信息弹窗崩溃的旧 gf 注入。"""
+    return (tok.startswith(STEAM_HARMFUL_PREFIXES)
+            or tok in STEAM_HARMFUL_FLAGS)
+
+
+def _steam_xdg_desktop_dir(home: Path) -> Path | None:
+    """返回 DING 真正监听的 XDG 桌面目录（本机是 ~/桌面，不是 ~/Desktop）。"""
+    cfg = home / ".config/user-dirs.dirs"
+    if cfg.is_file():
+        try:
+            for line in cfg.read_text(errors="replace").splitlines():
+                line = line.strip()
+                if not line.startswith("XDG_DESKTOP_DIR="):
+                    continue
+                val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                val = val.replace("$HOME", str(home))
+                p = Path(val)
+                if p.is_dir():
+                    return p
+        except OSError:
+            pass
+    for name in ("桌面", "Desktop"):
+        p = home / name
+        if p.is_dir():
+            return p
+    return None
+
+
+def steam_desktop_files() -> list[Path]:
+    """需要统一修复的 Steam 启动入口。
+
+    用户级菜单项 + XDG 桌面图标（DING 用）+ 历史 ~/Desktop 残留入口。
+    """
+    home = Path.home()
+    paths = [home / ".local/share/applications/steam.desktop"]
+    desk = _steam_xdg_desktop_dir(home)
+    if desk and desk.is_dir():
+        p = desk / "steam.desktop"
+        if p not in paths:
+            paths.append(p)
+    legacy = home / "Desktop/steam.desktop"
+    if legacy not in paths and legacy.is_file():
+        paths.append(legacy)
+    return paths
 
 
 def _steam_exec_value(content: str) -> str:
@@ -109,39 +165,44 @@ def _steam_exe_index(toks: list[str]) -> int | None:
 
 
 def steam_desktop_fixed(content: str) -> bool:
-    """桌面启动器是否已把 GBM_BACKEND=dri 注入 steam 启动命令。
+    """Steam 启动器是否已具备完整修复且不含旧 gf 注入。
 
-    判定"Exec 行里、steam 可执行文件之前是否存在 GBM_BACKEND=dri 环境
-    赋值"，不做整行精确匹配——用户完全可以按自己的需要在 env 段叠加
-    其它变量（如 `LC_ALL=en_US.UTF-8`），那是合法定制，检测必须容忍，
-    否则会把"能正常打开的 Steam"误报成"需修复"。
+    只要求两个修复变量位于 steam 可执行文件之前，容忍用户叠加的
+    `LC_ALL=...` 等合法 env 定制；但旧 gf 覆盖 / CEF flag 必须清掉。
     """
     toks = _steam_exec_tokens(content)
     exe_idx = _steam_exe_index(toks)
     if exe_idx is None:
         return False
-    return "GBM_BACKEND=dri" in toks[:exe_idx]
+    prefix = toks[:exe_idx]
+    if not all(e in prefix for e in STEAM_FIX_ENV):
+        return False
+    return not any(_steam_harmful(t) for t in toks)
 
 
 def _build_fixed_exec(content: str) -> tuple[str, bool]:
-    """在原 Exec 行基础上注入 GBM_BACKEND=dri，保留用户其它 env 定制。
+    """注入两个修复变量、剔除旧 gf 注入，保留用户其它 env/参数定制。
 
     返回 (新 Exec 行值, 是否发生变化)。无 Exec 行时返回 ("", False)。
     """
+    original = _steam_exec_value(content)
     toks = _steam_exec_tokens(content)
     if not toks:
         return "", False
-    if "GBM_BACKEND=dri" in toks:
-        return _steam_exec_value(content), False
-    if toks[0] == "env":
-        new = ["env", "GBM_BACKEND=dri", *toks[1:]]
+    cleaned = [t for t in toks if not _steam_harmful(t)]
+    cleaned = [t for t in cleaned if t not in STEAM_FIX_ENV]
+    if not cleaned:
+        return "", False
+    if cleaned[0] == "env":
+        new = ["env", *STEAM_FIX_ENV, *cleaned[1:]]
     else:
-        new = ["env", "GBM_BACKEND=dri", *toks]
-    return " ".join(new), True
+        new = ["env", *STEAM_FIX_ENV, *cleaned]
+    new_exec = " ".join(new)
+    return new_exec, new_exec != original
 
 
 def _strip_fixed_exec(content: str) -> str | None:
-    """从 Exec 行摘除 GBM_BACKEND=dri（_build_fixed_exec 的逆操作）。
+    """从 Exec 行摘除两个修复变量（_build_fixed_exec 的逆操作）。
 
     无 Exec 行返回 None。摘除后若 env 前缀下已无其它赋值，连 env 一起去掉，
     避免残留空的 `env`。
@@ -149,7 +210,7 @@ def _strip_fixed_exec(content: str) -> str | None:
     toks = _steam_exec_tokens(content)
     if not toks:
         return None
-    rest = [t for t in toks if t != "GBM_BACKEND=dri"]
+    rest = [t for t in toks if t not in STEAM_FIX_ENV]
     exe_idx = _steam_exe_index(rest)
     if (rest and rest[0] == "env" and exe_idx is not None
             and not any("=" in t for t in rest[1:exe_idx])):
@@ -296,16 +357,28 @@ def detect() -> Env:
     if shutil.which("steam"):
         env.add("Steam", "ok", "Steam 已安装")
 
-        if STEAM_DESKTOP.is_file():
+        desk_files = steam_desktop_files()
+        missing = [p for p in desk_files if not p.is_file()]
+        stale = []
+        for p in desk_files:
+            if not p.is_file():
+                continue
             try:
-                dcontent = STEAM_DESKTOP.read_text(errors="replace")
+                dcontent = p.read_text(errors="replace")
             except OSError:
                 dcontent = ""
-            if steam_desktop_fixed(dcontent):
-                env.add("Steam", "ok", "桌面启动器已配置 GBM_BACKEND=dri（CEF 崩溃已修复）")
-            else:
-                env.add("Steam", "bad",
-                        "桌面启动器缺 GBM_BACKEND=dri —— Steam 界面会崩溃，菜单 [12]", "12")
+            if not steam_desktop_fixed(dcontent):
+                stale.append(p)
+        if missing or stale:
+            first = (stale or missing)[0]
+            env.add("Steam", "bad",
+                    f"{len(missing)} 个 Steam 入口缺失、{len(stale)} 个入口缺 "
+                    "GBM_BACKEND=dri / LIBGL_ALWAYS_SOFTWARE=1 或仍含旧 gf 注入 —— "
+                    f"点系统信息会闪退（例如 {first}），菜单 [12]", "12")
+        else:
+            env.add("Steam", "ok",
+                    "全部 Steam 桌面入口已配置 GBM_BACKEND=dri + "
+                    "LIBGL_ALWAYS_SOFTWARE=1（CEF/系统信息闪退已修复）")
 
         if STEAM_WRAP.is_file():
             try:
@@ -464,7 +537,7 @@ ITEMS: list[Item] = [
      "root": False, "cmd": None, "doc": _doc("electron/README.md")},
 
     # ---- Steam ----
-    {"id": 12, "title": "安装/修复：Steam 界面崩溃（桌面启动器写入 GBM_BACKEND=dri）",
+    {"id": 12, "title": "安装/修复：Steam 界面/系统信息闪退（GBM_BACKEND=dri + 软件 GL）",
      "group": "Steam", "root": False, "cmd": None, "doc": ""},  # install_steam_fix
     {"id": 13, "title": "说明：Steam 在砺算上的适配细节（容器/CEF/Proton）", "group": "Steam",
      "root": False, "cmd": None, "doc": _doc("steam/steam-on-lisuan.md")},
@@ -613,112 +686,143 @@ def _replace_exec_line(content: str, new_exec: str) -> str:
     return "".join(lines)
 
 
+def _mark_steam_desktop_trusted(path: Path) -> None:
+    """DING 桌面图标需要 trusted 标记 + 可执行位才会按应用启动器显示。"""
+    if not os.access(path, os.X_OK):
+        try:
+            path.chmod(0o755)
+        except OSError:
+            pass
+    if shutil.which("gio"):
+        subprocess.run(["gio", "set", str(path), "metadata::trusted", "true"],
+                       stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, check=False)
+        try:
+            os.utime(path, None)
+        except OSError:
+            pass
+
+
 def install_steam_fix() -> int:
-    """把 GBM_BACKEND=dri 写入 Steam 桌面启动器（新方案，不修改 Steam 文件）。
+    """统一修复所有 Steam 桌面入口（用户级菜单、XDG 桌面图标、历史 ~/Desktop）。
 
-    只改 Exec 行并保留用户其它定制（如 LC_ALL=en_US.UTF-8）；文件不存在时
-    才写完整模板。重复执行幂等。
+    只改 Exec 行并保留用户其它定制（如 LC_ALL=en_US.UTF-8）；同时剔除会让
+    Steam 客户端崩溃的旧 gf 注入。重复执行幂等，不修改 Steam 自身文件。
     """
-    STEAM_DESKTOP.parent.mkdir(parents=True, exist_ok=True)
-    if not STEAM_DESKTOP.is_file():
+    rc = 0
+    desk_dir = _steam_xdg_desktop_dir(Path.home())
+    for path in steam_desktop_files():
+        if not path.parent.is_dir():
+            if path == STEAM_DESKTOP:
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                except OSError as e:
+                    print(f"  创建目录失败：{e}")
+                    rc = 1
+                    continue
+            else:
+                continue
+
+        if not path.is_file():
+            # 只补用户级菜单项与当前 XDG 桌面目录下的图标；不凭空造 ~/Desktop 入口。
+            if path == STEAM_DESKTOP or path.parent == desk_dir:
+                try:
+                    path.write_text(STEAM_DESKTOP_BODY_FIXED, encoding="utf-8")
+                except OSError as e:
+                    print(f"  写入失败：{e}")
+                    rc = 1
+                    continue
+                _mark_steam_desktop_trusted(path)
+                print(f"  已创建 {path}")
+            continue
+
         try:
-            STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_FIXED, encoding="utf-8")
+            content = path.read_text(errors="replace")
+        except OSError as e:
+            print(f"  读取失败：{e}")
+            rc = 1
+            continue
+        if steam_desktop_fixed(content):
+            print(f"  {path} 已修复，无需改动。")
+            continue
+
+        new_exec, changed = _build_fixed_exec(content)
+        bak = Path(str(path) + ".bak")
+        try:
+            if not bak.is_file():
+                shutil.copy2(path, bak)
+                print(f"  已备份原启动器 -> {bak}")
+            if changed:
+                path.write_text(_replace_exec_line(content, new_exec),
+                                encoding="utf-8")
+                print(f"  已更新 {path} 的 Exec 行（保留其它启动参数）：")
+                print(f"    Exec={new_exec}")
+            else:
+                path.write_text(STEAM_DESKTOP_BODY_FIXED, encoding="utf-8")
+                print(f"  原文件无有效 Exec 行，已重写为完整模板：{path}")
         except OSError as e:
             print(f"  写入失败：{e}")
-            return 1
-        print(f"  已创建 {STEAM_DESKTOP}")
-        print("  Steam 界面崩溃修复完成（下次从菜单启动 Steam 生效）。")
-        return 0
+            rc = 1
+            continue
+        _mark_steam_desktop_trusted(path)
 
-    try:
-        content = STEAM_DESKTOP.read_text(errors="replace")
-    except OSError as e:
-        print(f"  读取失败：{e}")
-        return 1
-    if steam_desktop_fixed(content):
-        print(f"  {STEAM_DESKTOP} 已含 GBM_BACKEND=dri，无需改动。")
-        return 0
-
-    new_exec, changed = _build_fixed_exec(content)
-    if not changed:
-        # 无 Exec 行的异常文件：退回完整模板
-        try:
-            shutil.copy2(STEAM_DESKTOP, str(STEAM_DESKTOP) + ".bak")
-            print(f"  已备份原启动器 -> {STEAM_DESKTOP}.bak")
-            STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_FIXED, encoding="utf-8")
-        except OSError as e:
-            print(f"  写入失败：{e}")
-            return 1
-        print(f"  原文件无 Exec 行，已重写为完整模板：{STEAM_DESKTOP}")
-        print("  Steam 界面崩溃修复完成（下次从菜单启动 Steam 生效）。")
-        return 0
-
-    try:
-        shutil.copy2(STEAM_DESKTOP, str(STEAM_DESKTOP) + ".bak")
-        print(f"  已备份原启动器 -> {STEAM_DESKTOP}.bak")
-        STEAM_DESKTOP.write_text(_replace_exec_line(content, new_exec),
-                                 encoding="utf-8")
-    except OSError as e:
-        print(f"  写入失败：{e}")
-        return 1
-    print(f"  已更新 {STEAM_DESKTOP} 的 Exec 行（保留你的其它启动参数）：")
-    print(f"    Exec={new_exec}")
-    print("  Steam 界面崩溃修复完成（下次从菜单启动 Steam 生效）。")
-    return 0
+    print("  Steam 客户端修复完成：GBM_BACKEND=dri + LIBGL_ALWAYS_SOFTWARE=1")
+    print("  （下次从桌面/菜单启动 Steam 生效；不修改 Steam 自身文件）")
+    return rc
 
 
 def remove_steam_fix() -> int:
-    """移除 Steam 修复：从 Exec 行摘除 GBM_BACKEND=dri，解锁残留 chattr +i。
+    """从所有 Steam 桌面入口摘除两个修复变量，解锁残留 chattr +i。
 
-    只动 Exec 行，保留用户其它 env 定制（如 LC_ALL=en_US.UTF-8）；
-    Exec 行缺失/无法解析时才回退到备份还原或纯净模板。
+    只动 Exec 行，保留用户其它 env 定制；Exec 行缺失时才回退备份/纯净模板。
     """
     if STEAM_WRAP.is_file():
         pre = [] if os.geteuid() == 0 else ["sudo"]
         r = run([*pre, "chattr", "-i", str(STEAM_WRAP)])
         print(f"  解锁：{'完成' if r[0] == 0 else '跳过（未锁定/文件系统不支持）'}")
 
-    if not STEAM_DESKTOP.is_file():
-        print("  未找到桌面启动器，无需还原。")
-        return 0
-    try:
-        content = STEAM_DESKTOP.read_text(errors="replace")
-    except OSError as e:
-        print(f"  读取失败：{e}")
-        return 1
-    if not steam_desktop_fixed(content):
-        print("  启动器未含 GBM_BACKEND=dri，无需还原。")
-        return 0
-
-    new_exec = _strip_fixed_exec(content)
-    if new_exec is not None:
+    rc = 0
+    for path in steam_desktop_files():
+        if not path.is_file():
+            continue
         try:
-            STEAM_DESKTOP.write_text(_replace_exec_line(content, new_exec),
-                                     encoding="utf-8")
+            content = path.read_text(errors="replace")
         except OSError as e:
-            print(f"  写入失败：{e}")
-            return 1
-        print(f"  已从 Exec 行摘除 GBM_BACKEND=dri：{STEAM_DESKTOP}")
-        print(f"    Exec={new_exec}")
-        return 0
+            print(f"  读取失败：{e}")
+            rc = 1
+            continue
+        if not any(e in content for e in STEAM_FIX_ENV):
+            print(f"  {path} 未含修复变量，无需还原。")
+            continue
 
-    # 无 Exec 行（异常文件）：回退历史行为——干净备份还原，否则纯净模板
-    bak = Path(str(STEAM_DESKTOP) + ".bak")
-    restored = False
-    if bak.is_file():
-        try:
-            bcontent = bak.read_text(errors="replace")
-        except OSError:
-            bcontent = ""
-        # 仅当备份"干净"（不含修复）时才还原，否则重写纯净模板
-        if bcontent and "GBM_BACKEND=dri" not in bcontent:
-            shutil.copy2(bak, STEAM_DESKTOP)
-            print(f"  已从干净备份还原启动器：{STEAM_DESKTOP}")
-            restored = True
-    if not restored:
-        STEAM_DESKTOP.write_text(STEAM_DESKTOP_BODY_PLAIN, encoding="utf-8")
-        print(f"  已重写为纯净启动器：{STEAM_DESKTOP}")
-    return 0
+        new_exec = _strip_fixed_exec(content)
+        if new_exec is not None:
+            try:
+                path.write_text(_replace_exec_line(content, new_exec),
+                                encoding="utf-8")
+            except OSError as e:
+                print(f"  写入失败：{e}")
+                rc = 1
+                continue
+            print(f"  已从 Exec 行摘除修复变量：{path}")
+            print(f"    Exec={new_exec}")
+            continue
+
+        bak = Path(str(path) + ".bak")
+        restored = False
+        if bak.is_file():
+            try:
+                bcontent = bak.read_text(errors="replace")
+            except OSError:
+                bcontent = ""
+            if bcontent and not any(e in bcontent for e in STEAM_FIX_ENV):
+                shutil.copy2(bak, path)
+                print(f"  已从干净备份还原启动器：{path}")
+                restored = True
+        if not restored:
+            path.write_text(STEAM_DESKTOP_BODY_PLAIN, encoding="utf-8")
+            print(f"  已重写为纯净启动器：{path}")
+    return rc
 
 
 # ---------------------------------------------------------------- 执行
@@ -907,6 +1011,38 @@ def _wine11_app_state(prefix: Path, rel_exe: str, installer: Path,
     return ("! 前缀存在但无客户端", "warn")
 
 
+def _dreamina_desktop_state(home: Path) -> tuple[str, str]:
+    """即梦 AI 的桌面图标/入口状态：只看实际生效文件，不看脚本是否跑过。
+
+    2026-11-09 前桌面模板指向豆包图标、图标又没装进 hicolor 主题，
+    客户端虽然已安装，桌面却没有即梦图标。单独检查这一层，菜单 28 才会提示修复。
+    """
+    xdg = os.environ.get("XDG_DATA_HOME")
+    data_home = Path(xdg) if xdg and Path(xdg).is_absolute() \
+        else home / ".local/share"
+    icon = data_home / "icons/hicolor/256x256/apps/dreamina.png"
+    try:
+        with icon.open("rb") as fh:
+            sig = fh.read(8)
+    except OSError:
+        sig = b""
+    if sig != b"\x89PNG\r\n\x1a\n":
+        return ("! 桌面图标缺失", "warn")
+
+    desktop_dirs = [d for d in (home / "Desktop", home / "桌面") if d.is_dir()]
+    entries = [d / "dreamina-wine.desktop" for d in desktop_dirs]
+    entries.append(data_home / "applications/dreamina-wine.desktop")
+    for entry in entries:
+        try:
+            text = entry.read_text(encoding="utf-8")
+        except OSError:
+            return ("! 桌面入口缺失", "warn")
+        if ("Icon=dreamina" not in text or "run-dreamina.sh" not in text
+                or "doubao" in text.lower()):
+            return ("! 桌面入口/图标待修", "warn")
+    return ("✓ 已安装", "ok")
+
+
 def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
@@ -995,9 +1131,10 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
         st[12] = ("! 文件被锁定", "bad")
     else:
         try:
-            fixed = (STEAM_DESKTOP.is_file()
-                     and steam_desktop_fixed(
-                         STEAM_DESKTOP.read_text(errors="replace")))
+            fixed = all(
+                p.is_file() and steam_desktop_fixed(
+                    p.read_text(errors="replace"))
+                for p in steam_desktop_files())
         except OSError:
             fixed = False
         st[12] = ("✓ 已修复", "ok") if fixed else ("✗ 需修复", "bad")
@@ -1075,6 +1212,8 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
         home / ".deepinwine/dreamina-wine11",
         "drive_c/users/*/AppData/Local/Programs/dreamina-desktop/*.exe",
         S / "dreamina", "Dreamina-Desktop-*-x64-setup.exe")
+    if st[28][1] == "ok":
+        st[28] = _dreamina_desktop_state(home)
     st[29] = ("按需", "dim")
 
     return st

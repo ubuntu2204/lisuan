@@ -48,9 +48,25 @@ export GBM_BACKEND=dri
 export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
 export WINE_D3D_CONFIG='renderer=gl'
 
-APP=$(find "$PREFIX/drive_c/users" -maxdepth 8 -name '即梦 AI.exe' -print -quit 2>/dev/null || true)
+[[ -x "$PROTON/files/bin/wine" ]] || {
+    echo "错误：找不到 Proton 的 wine：$PROTON/files/bin/wine" >&2
+    exit 1
+}
+
+# 不把主程序名写死：优先「即梦 AI.exe」，版本改名后回退到安装目录里
+# 任意一个非卸载器 exe（排除 resources/ 下的 elevate.exe）。
+INSTDIR=$(find "$PREFIX/drive_c/users" -maxdepth 8 -type d \
+          -path '*/AppData/Local/Programs/dreamina-desktop' \
+          -print -quit 2>/dev/null || true)
+APP=""
+if [[ -n "$INSTDIR" && -f "$INSTDIR/即梦 AI.exe" ]]; then
+    APP="$INSTDIR/即梦 AI.exe"
+elif [[ -n "$INSTDIR" ]]; then
+    APP=$(find "$INSTDIR" -maxdepth 1 -type f -name '*.exe' \
+          ! -name 'Uninstall*' -print -quit 2>/dev/null || true)
+fi
 if [[ -z "$APP" ]]; then
-    echo "错误：未在 $PREFIX 中找到「即梦 AI.exe」。" >&2
+    echo "错误：未在 $PREFIX 的 AppData/Local/Programs/dreamina-desktop 里找到主程序。" >&2
     echo "先执行 ./dreamina/install-dreamina.sh 安装。" >&2
     exit 1
 fi

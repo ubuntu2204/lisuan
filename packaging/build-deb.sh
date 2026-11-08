@@ -6,6 +6,7 @@
 #   /usr/bin/lisuan-fix                     可执行入口（install.py 副本，无扩展名）
 #   /usr/share/lisuan-fix/{install.py,lisuan_fix_core.py,lisuan_fix_gui.py}  模块
 #   /usr/share/lisuan-fix/{dkms,mesa,steam,underlords,electron,kingdom-rush,audio,left4dead2,doubao,dreamina}/ 修复脚本
+#     （dreamina/ 含 extract-icon.py：安装时从本机官方 exe 提取图标，不打包厂商资源）
 #   /usr/share/applications/lisuan-fix.desktop                     终端菜单项
 #
 # 用法：

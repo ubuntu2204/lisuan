@@ -33,9 +33,9 @@ python3 install.py -h
 
 ## 菜单与状态
 
-- `ITEMS`：25 项，编号 1–25；`GROUP_ORDER`：11 组。
+- `ITEMS`：29 项，编号 1–29；`GROUP_ORDER`：12 组。
 - `ITEMS_BY_ID` 从 `ITEMS` 自动构建；`UNDO` 有 14 个可卸载项。
-- 分组顺序：环境检测 → DKMS → Mesa → Electron → Steam → 随从大师 → 刀塔霸业 → 王国保卫战 → 植物大战僵尸 → 音频 → 求生之路 2。实际末组以 `GROUP_ORDER[-1]` 为准，测试断言为“求生之路 2”。
+- 分组顺序：环境检测 → DKMS → Mesa → Electron → Steam → 随从大师 → 刀塔霸业 → 王国保卫战 → 植物大战僵尸 → 音频 → 求生之路 2 → Windows 应用。实际末组以 `GROUP_ORDER[-1]` 为准，测试断言为“Windows 应用”。
 - `detect()` 覆盖 GPU、内核、驱动包、DKMS、`gf` 模块及 vermagic、`/dev/dri`、有害 DRI 软链、Steam 桌面项与旧注入残留、自愈服务、游戏注入标记；`hint` 可指向菜单编号。
 - `collect_statuses()` 用实际生效标志着色 GUI；不得用脚本文件是否存在替代。
 
@@ -53,7 +53,8 @@ python3 install.py -h
 | `kingdom-rush/` | 王国保卫战启动修复 |
 | `left4dead2/` | 原生 L4D2 + Venus 转发、locale shim、历史归档 |
 | `Plants-vs-Zombies/` | 32 位 PVZ、wined3d GL、Steam 启动选项修复 |
-| `doubao/` | 豆包 2.32.6 的 Steam Runtime 容器启动器、桌面入口修复、安装器与排障记录；当前无菜单项 |
+| `doubao/` | 豆包 2.32.6 的 Steam Runtime 容器启动器、桌面入口修复、安装器与排障记录；菜单 26/27 |
+| `dreamina/` | 即梦 AI 1.0.59 的 NSIS 安装/升级、powershell 替身、PE 图标提取、桌面入口与渲染记录；菜单 28/29 |
 | `packaging/` | 核心模块、GUI、deb 构建脚本 |
 | `tests/` | 离线回归套件与 fixtures |
 | `.codebuddy/rules/` | 仓库组织约定、崩溃处理约定 |
@@ -68,7 +69,7 @@ python3 install.py -h
 
 ## 测试与构建
 
-`tests/run-tests.sh` 收集 9 个 `test-*.sh`：
+`tests/run-tests.sh` 收集 11 个 `test-*.sh`：
 
 1. `test-patch.sh`
 2. `test-makefile-logic.sh`
@@ -79,8 +80,10 @@ python3 install.py -h
 7. `test-repo-health.sh`
 8. `test-vendor-src.sh`
 9. `test-plants-vs-zombies.sh`
+10. `test-dreamina-install.sh`（临时 HOME + 合成 PE 验证图标/桌面入口/回滚）
+11. `test-steam-desktop.sh`（临时 HOME 验证菜单 12 统一修复/回滚全部桌面入口）
 
-`test-repo-health.sh` 断言 25 个菜单项、L4D2/PVZ 注册、UNDO、驱动基线常量、项目技能存在且未被 `.gitignore` 排除。
+`test-repo-health.sh` 断言 29 个菜单项、L4D2/PVZ/Windows 应用注册、UNDO、驱动基线常量、项目技能存在且未被 `.gitignore` 排除。
 
 deb 构建：`packaging/build-deb.sh <VER>`，输出 `packaging/dist/lisuan-fix_<VER>_all.deb`。CI 是 `.workflow/gitee-go-build-deb.yml`，Gitee Go 原生 schema，固定产物 `lisuan-fix.deb`，Tag `deb-latest`。
 
@@ -88,10 +91,10 @@ deb 构建：`packaging/build-deb.sh <VER>`，输出 `packaging/dist/lisuan-fix_
 
 | 项 | README/注释旧描述 | 代码实际 |
 |---|---|---|
-| 菜单 | 10 组 23 项 | 25 项 11 组，`tests/test-repo-health.sh` 断言 25 |
-| 主题目录 | 9 个 | 11 个，`kingdom-rush/`、`doubao/` 未列入旧表 |
-| 测试套件 | 6 / 7 个 | 9 个 |
-| deb 覆盖 | core 注释称不含 `minion-masters/` | `build-deb.sh` 已精简打包；真正未打包的是 `Plants-vs-Zombies/` 与 `doubao/` |
+| 菜单 | 10 组 23 项 | 29 项 12 组，`tests/test-repo-health.sh` 断言 29 |
+| 主题目录 | 9 个 | 12 个，`kingdom-rush/`、`doubao/`、`dreamina/` 未列入旧表 |
+| 测试套件 | 6 / 7 个 | 11 个 |
+| deb 覆盖 | core 注释称不含 `minion-masters/` | `build-deb.sh` 已精简打包 `doubao/` 与 `dreamina/`（不含厂商 exe）；真正未打包的是 `Plants-vs-Zombies/` |
 | Steam 方案 | 旧脚本头仍描述注入和 `chattr +i` | 当前只改桌面 `Exec` 注入 `GBM_BACKEND=dri`；旧脚本仅用于清理残留 |
 
 ## 关键文档

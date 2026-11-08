@@ -12,9 +12,12 @@
 
 1. **修复 gf_gbm.so 与系统 libgbm 的 ABI 兼容**（最高优先）：gf_gbm.so 与 Mesa
    libgbm ≥ 25.x 的 `gbm_device` vtable 不兼容，Steam 客户端 CEF GPU 进程
-   （steamwebhelper）加载即 SIGSEGV（exit_code=139，见 §3）。要么按当前 libgbm
-   头文件重编厂商 gbm 后端，要么随驱动自带完整 libgbm 并做好 soname 隔离。
-   → 退役：steam.desktop 的 `GBM_BACKEND=dri` 注入（install.py 菜单 15）。
+   （steamwebhelper）加载即 SIGSEGV（exit_code=139，见 §3）。另外 `gf_dri.so` /
+   `libglapi_gf.so.0` 这套 22.0.4 fork 不能与系统 Mesa 25.2 在容器里混用，
+   新建 GL 上下文会 double free（见 §3.1）。要么按当前 libgbm / Mesa ABI
+   重编厂商 GBM 与 DRI 驱动，要么随驱动自带完整 libgbm 并做好 soname 隔离。
+   → 退役：steam.desktop 的 `GBM_BACKEND=dri` + `LIBGL_ALWAYS_SOFTWARE=1` 注入
+   （install.py 菜单 12）。
 2. **GLVND 标准集成**：把 GLX vendor ICD 装到 `/usr/share/glx/vendors/`、EGL ICD
    装到 `/usr/share/egl/egl_vendor.d/`，并保证设备认领**不依赖 `/sys/bus/pci`**
    （pressure-vessel 容器会隐藏它；参考 Mesa 基于 `/dev/dri/renderD*` +
@@ -102,36 +105,42 @@ Steam UI 的 CEF/GPU 进程在 gf 驱动下有两个崩溃点：
 > 不受影响（不依赖这些软链）。故 `fix-steam-cef-lock.sh` 应**停止向 Steam 客户端 wrap 注入**
 > gf PRELOAD（保留为可选、仅供原生游戏排障用，且明确警告其会害 Steam 客户端）。
 
-### 最终解法（2026-09-01 实测确认）：`GBM_BACKEND=dri` 启动环境变量
+### 最终解法（2026-11-09 更新）：`GBM_BACKEND=dri` + `LIBGL_ALWAYS_SOFTWARE=1`
 
 ```bash
-GBM_BACKEND=dri steam          # 命令行
+GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam          # 命令行
 ```
 
-桌面启动器 `~/.local/share/applications/steam.desktop`（已配置，菜单启动同样生效）：
+桌面启动器（菜单 [12] 会统一写用户级菜单项、XDG 桌面图标与历史 `~/Desktop` 入口）：
 
 ```ini
-Exec=env GBM_BACKEND=dri /usr/bin/steam %U
+Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam %U
 ```
 
-> **允许叠加自己的环境变量**（2026-10-14）：Exec 行的 env 段可以按需加入其它
-> 变量而不影响修复判定，例如 `Exec=env LC_ALL=en_US.UTF-8 GBM_BACKEND=dri
-> /usr/bin/steam %U`。`install.py` 菜单 [12] 的检测与安装都按"GBM_BACKEND=dri
-> 是否位于 Exec 行 env 段"判定/注入，只改 Exec 行、保留其余内容，不做整行
-> 精确匹配（早期版本整行精确匹配，会把这类合法定制误报为"需修复"）。
+> **允许叠加自己的环境变量**：Exec 行的 env 段可以按需加入其它变量而不影响
+> 修复判定，例如 `Exec=env LC_ALL=en_US.UTF-8 GBM_BACKEND=dri
+> LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam %U`。菜单 [12] 按「两个变量是否都位于
+> Exec 行 env 段、且不含旧 gf 注入」判定/注入，只改 Exec 行、保留其余内容。
 
-**为什么这是正确解法**：
+**为什么需要两个变量**：
 
 - libgbm 支持 `GBM_BACKEND` / `GBM_BACKENDS_PATH` 两个环境变量（见 `strings libgbm.so.1`）。
   设 `GBM_BACKEND=dri` 后，libgbm 直接加载 Mesa 的 `dri_gbm.so`（56KB），
-  **不再扫描加载厂商 `gf_gbm.so`**（106KB），从源头消除段错误。
-- **不修改任何文件**（既不动系统库，也不动 Steam 的 wrap 脚本），因此：
-  - 不改变 `steamwebhelper_sniper_wrap.sh` 大小 → **不触发 Steam 校验回滚**；
+  **不再扫描加载厂商 `gf_gbm.so`**（106KB），从源头消除 CEF 启动段错误。
+- `LIBGL_ALWAYS_SOFTWARE=1` 让 Steam 客户端新建 GL 上下文时走 Mesa llvmpipe，
+  **不再按 `/usr/share/drirc.d/01-gf_drv.conf` 的 `kernel_driver=gf → dri_driver=gf`
+  映射加载 `gf_dri.so` / `libglapi_gf.so.0`**。后者是「帮助→系统信息」弹窗闪退的
+  根因，详见 §3.1。
+- **不修改任何 Steam 文件**（既不动系统库，也不动 `steamwebhelper_sniper_wrap.sh`），因此：
+  - 不改变 wrap 脚本大小 → **不触发 Steam 校验回滚**；
   - 无需 `chattr +i` 锁定 → **不会陷入更新回滚循环**（该循环会重置游戏下载状态，
     曾导致刀塔霸业被反复重新下载，见 §10）。
 - 不含 `LD_PRELOAD libglapi_gf.so.0` → 不让 Steam 客户端走 gf glapi → **不会 double free**（§2）。
+- `LIBGL_ALWAYS_SOFTWARE=1` 只影响 GL，不改 Vulkan：实测 pressure-vessel 游戏容器内
+  `VK_ICD_FILENAMES` 仍是 gf ICD，Proton/DXVK/Vulkan 游戏不受影响。
 
-**验证**：`grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt` → `0`。
+**验证**：`grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt` → `0`；
+`python3 install.py 12 --status` 之后菜单 12 应为「✓ 已修复」。
 
 > **重要纠正（推翻 2026-08-24 的结论）**：仅移除全局 `lisuan_dri.so` 软链和 wrap 里的
 > `LD_PRELOAD` **并不足以让 CEF 稳定**。实测在"干净"状态下 CEF 仍以 exit_code=139 崩溃，
@@ -141,6 +150,51 @@ Exec=env GBM_BACKEND=dri /usr/bin/steam %U
 > 此前把 `GBM_BACKEND=dri` 误判为"有害"，是因为它在旧脚本里与
 > `LD_PRELOAD libglapi_gf.so.0` **同时**被注入 wrap——有害的是 PRELOAD（导致 double free），
 > 不是 `GBM_BACKEND=dri` 本身。二者必须分开看待。
+
+### 3.1 帮助 → 系统信息闪退（2026-11-09 新增根因）
+
+现象：Steam 客户端能正常打开，但点「帮助 → 系统信息」（`steam://open/systeminfo`）
+时整个客户端闪退。现场证据：
+
+```text
+# 长会话（11-09 01:55）
+steamui_html.txt: PopupHTMLWindow / BrowserReady
+console-linux.txt: steam: ../../src/xcb_io.c:626: _XAllocID: Assertion `ret != inval_id' failed.
+steam.sh: line 995: ... Aborted (core dumped)
+
+# 启动后短时间内触发（11-09 02:28 等多次）
+console-linux.txt: double free or corruption (!prev)
+console-linux.txt: Aborted (core dumped)
+```
+
+minidump 里 `steamwebhelper` 映射了 `/run/host/usr/lib/x86_64-linux-gnu/libglapi_gf.so.0.0.0`；
+`ldd /usr/lib/x86_64-linux-gnu/dri/gf_dri.so` 证实这个厂商 glapi 只由 `gf_dri.so` 依赖。
+也就是说：`GBM_BACKEND=dri` 绕开了 `gf_gbm.so`，但**没有绕开 `dri_gbm.so` 继续按
+drirc 映射加载 `gf_dri.so`**。新建系统信息弹窗/GL 上下文时，这套 22.0.4 fork 在
+pressure-vessel 容器里与系统 Mesa 25.2 混用，触发 double free 或 Xlib 连接状态损坏。
+
+`steamsysinfo` 的 Vulkan 查询失败（`VK_ERROR_INCOMPATIBLE_DRIVER`，缺 WSI 扩展）是另一层
+独立噪音，不是闪退主因；不要为它把 `VK_ICD_FILENAMES` 改成 llvmpipe，那会连累游戏。
+
+**解法**：只给 Steam 客户端加 `LIBGL_ALWAYS_SOFTWARE=1`（见本节开头 Exec），不碰
+`VK_ICD_FILENAMES`、不改 Steam 文件、不加看门狗。`MESA_LOADER_DRIVER_OVERRIDE=llvmpipe`
+也能避开崩溃，但会打出 `failed to load driver: llvmpipe`，不如标准变量干净。
+
+受控 A/B（启动 7 秒后 `steam steam://open/systeminfo`）：
+
+| 启动环境 | 结果 |
+|---|---|
+| `GBM_BACKEND=dri` | 5 次里 4 次 `double free` / `Aborted` |
+| `GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1` | 5 次全存活，`PopupHTMLWindow` 正常，无 `failed to load driver` |
+| `GBM_BACKEND=dri -cef-disable-gpu` | 仍会崩，单独不够 |
+
+另有一处**独立的入口回归**：`~/桌面/steam.desktop`（DING 真正监听的目录）还停留在
+2026-08-24 的旧配置 `MESA_LOADER_DRIVER_OVERRIDE=gf /usr/bin/steam -no-cef-sandbox
+-cef-force-64bit`，而 `~/.local/share/applications/steam.desktop` 只修了 GBM。
+菜单 [12] 现在统一修**用户级菜单项 + XDG 桌面图标 + 历史 `~/Desktop` 入口**，
+剔除旧 gf 注入、补 `metadata::trusted`，并只改 Exec 行保留用户其它定制。
+`/usr/share/applications/steam.desktop` 属于系统包、保持不动；XDG 规范下
+`~/.local/share/applications/steam.desktop` 同名优先，菜单/概览启动会走修好的那份。
 
 ### 备用方案
 
@@ -292,6 +346,7 @@ user_settings = {
 | --- | --- |
 | Steam 客户端打不开 / 闪退 | 全局 gf env 污染（§2），去掉后恢复 |
 | Steam UI 花屏 / GPU 进程崩 (`exit_code=139`) | CEF gbm（§3），用 `GBM_BACKEND=dri steam` 启动 |
+| 点「帮助 → 系统信息」闪退 / `double free` / `_XAllocID` | 补 `LIBGL_ALWAYS_SOFTWARE=1` 并清掉旧 gf 注入（§3.1，菜单 [12]） |
 | `steamwebhelper` 无限重启（`startcount` 递增） | 同上（§3），`GBM_BACKEND=dri` |
 | **游戏反复自动重新下载** | Steam 更新回滚循环（§10），`lsattr` 查是否被 `chattr +i` 锁死 |
 | 游戏 e0434352 退出、无 Player.log | Steam 未登录（§4，缺 ssfn），图形界面登录一次 |

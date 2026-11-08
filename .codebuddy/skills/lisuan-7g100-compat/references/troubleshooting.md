@@ -44,10 +44,11 @@ dkms status
 
 ## 4. Steam CEF
 
-- 正确启动命令是 `GBM_BACKEND=dri steam`。
-- 检查 `~/.local/share/Steam/logs/cef_log.txt` 中 `exit_code=139` 或 `GPU process isn't usable`。
-- 当前唯一修复是用户级 `steam.desktop` 的 `Exec` 行注入 `GBM_BACKEND=dri`，由 `install_steam_fix()` 宽松解析并保留用户其它 env 定制。
-- 不要修改 `steamwebhelper_sniper_wrap.sh`；不要 `chattr +i`；不要注入 `--disable-gpu`；这些会触发 Steam 校验回滚甚至反复重下游戏。
+- 正确启动命令是 `GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam`。
+- 检查 `~/.local/share/Steam/logs/cef_log.txt` 中 `exit_code=139` 或 `GPU process isn't usable`；点系统信息崩溃查 `console-linux.txt` 的 `double free` / `_XAllocID`。
+- 当前唯一修复是**全部** `steam.desktop`（用户级菜单项 + XDG 桌面图标 + 历史 `~/Desktop`）的 `Exec` 行注入 `GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1`，由 `install_steam_fix()` 宽松解析并保留用户其它 env 定制。
+- 点「帮助→系统信息」闪退是第二层：`drirc` 把 gf 设备映射到 `gf_dri.so` / `libglapi_gf.so.0`，新 GL 上下文在容器里 double free 或 Xlib 断言。`GBM_BACKEND=dri` 单独不够；不要改 `VK_ICD_FILENAMES`（会连累游戏 Vulkan），单独 `-cef-disable-gpu` 也未通过 A/B。
+- 不要修改 `steamwebhelper_sniper_wrap.sh`；不要 `chattr +i`；不要注入 `--disable-gpu`；这些会触发 Steam 校验回滚甚至反复重下游戏。详见 `steam/steam-on-lisuan.md` §3 / §3.1。
 - Steam 的 `steamid=0` 陈旧态通常重启客户端即可，不需要图形登录界面；首次登录例外。
 
 ## 5. Electron / Chromium
@@ -137,6 +138,13 @@ dkms status
   Wine 11 前缀的计数一直是 0。详见 `doubao/README.md` §2.5。
 - 禁止把 `update.exe` 改名，豆包修复器会把它列入 `missing_files`；版本屏蔽配置也不能阻止 `update_data` 覆盖更新器。
 - Windows 客户端全量 Electron 重打包不推荐；网页版 Electron 外壳是功能受限的备用方案。
+
+### 即梦 AI Windows 客户端（1.0.59）
+
+- 安装器是 electron-builder NSIS；Wine 自带 `powershell.exe` 空壳一律 `exit 0`，安装器把「无进程」误判成「有进程」，`/S` 返回 2 直接 Abort。必须换成 `dreamina/powershell-stub.c` 的替身：凡命令行含 `Get-CimInstance` 返回 1。旧脚本把「是否已替换」判断写反（含字符串才替换），全新前缀反而跳过，2026-11-09 改用唯一标记 `DREAMINA_PS_STUB_V1`。
+- 渲染黑屏根因是 ANGLE 在 Wine 下要求 `WGL_NV_DX_interop2`；`--use-gl=desktop` 绕开 ANGLE 走 Mesa llvmpipe，登录界面可完整显示。与 gf 驱动无关，不要给这个应用注入 gf 环境。
+- 桌面没有图标是**独立的桌面集成问题**：旧模板 `Icon` 指向豆包图标、入口只在 `~/Desktop/`（DING 用 `xdg-user-dir DESKTOP`）、缺 `metadata::trusted`。`dreamina/extract-icon.py` 从本机官方 PE 的 `RT_ICON` 提取 7 个 PNG 尺寸写入 hicolor；`install-dreamina.sh --desktop-only` 重建 `Icon=dreamina` 的入口并打 trusted。厂商图标不入库。
+- 安装结果不能只看目录存在：`/S` 返回 0 也要校验主程序 PE 头与 `resources/app.asar`；超时(124)、Abort(2) 要分开报。安装前按 `/proc/<pid>/environ` 精确关闭本前缀进程，不做自动拉起。
 
 ## 9. 日志与验收
 
