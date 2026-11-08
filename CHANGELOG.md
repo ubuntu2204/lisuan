@@ -30,6 +30,21 @@
   `install-doubao.sh` 安装成功后自动跑一次。
 - 启动输出落盘到 `~/.local/share/doubao-wine11/launch.log`，便于排查桌面双击。
 
+### 补充修复：08:12「当前版本启动发生异常」弹窗
+
+- 弹窗来自**旧 Deepin Wine 8.16 前缀**（`repair_2026_11_08_08_12_27.exe`，
+  `C:\Program Files\Doubao\app`）；Wine 11 前缀 `running_exception` 一直是 0。
+  journalctl 链路「完成：修复 0 个软链接 → wine version: 8.16」证实点击落在旧
+  `run-doubao-wine.sh` / deb `run.sh` 链上。
+- 旧前缀 `running_exception` 累计 `{"1.56.6":1,"2.32.6":8}`，来自排查期间反复
+  `wineserver -k` / `timeout` 强杀，不是真实崩溃；旧前缀本就跑不了 2.32.6。
+- `doubao/fix-doubao-desktop.sh` 扩展为统一**四个** `.desktop`（桌面 / 用户级 /
+  系统级 / deb entries）的 Exec、去掉非标准 shebang、备份并清零旧前缀异常计数；
+  `doubao/run-doubao-wine.sh` 改为安全转发到 Wine 11 启动器。
+  不删账号数据、不禁用修复器、不锁版本、不自动重启。
+- 三条路径实证（旧启动器 `--uri` / 系统级 desktop / 桌面图标）都进 Steam Runtime
+  容器 / Wine 11：`map=2`、405 色真实界面、`main_browser=1`、无 8.16 旧链进程。
+
 ### 验证
 
 - 容器内 1200x800 主窗口 `IsViewable`，抓图 546 色真实界面（「有什么我能帮你的吗？」、

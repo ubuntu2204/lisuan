@@ -199,28 +199,63 @@ DING: [424:580:FATAL:base\win\win_util.cc(544)] Check failed: . : 找不到过�
 同时 `~/Desktop/doubao-wine.desktop` 没有 `metadata::trusted=true`，
 DING 会把它当成不可信启动器，双击不一定执行。
 
-本机共有 4 个同名「豆包」入口，修复前只有桌面 `.desktop` 指向 Wine 11：
+本机共有 5 个「豆包」入口（4 个 `.desktop` + 1 个 `.lnk`），修复前只有桌面
+`.desktop` 指向 Wine 11：
 
 | 入口 | 修复前 Exec | 修复后 |
 |---|---|---|
-| `/usr/share/applications/doubao-wine.desktop` | deb 的 `run.sh --uri %F` | **不动**（由用户级同名入口覆盖） |
+| `/usr/share/applications/doubao-wine.desktop` | deb 的 `run.sh --uri %F` | 指向 `run-doubao-wine11.sh`（08:12 补充） |
+| `/opt/apps/doubao-wine/entries/applications/doubao-wine.desktop` | deb 的 `run.sh --uri %F` | 指向 `run-doubao-wine11.sh`（08:12 补充） |
 | `~/.local/share/applications/doubao-wine.desktop` | 旧版 `run-doubao-wine.sh --uri %F` | 指向 `run-doubao-wine11.sh` |
-| `~/Desktop/doubao-wine.desktop` | `run-doubao-wine11.sh` | 保持并补 `trusted=true` |
+| `~/Desktop/doubao-wine.desktop` | `run-doubao-wine11.sh` | 去 shebang、补 `trusted=true` |
 | `~/Desktop/豆包.lnk` | Windows 快捷方式（无默认处理器，DING 转交旧 Wine） | 移出桌面，可恢复 |
 
 修复入口：`doubao/fix-doubao-desktop.sh`（`--help` / `--status` / `--uninstall`）。
-它幂等地统一两个用户级 `.desktop` 的 `Exec`（去掉裸 `--uri`）、打
-`metadata::trusted=true`、把 `.lnk` 移到
-`~/.local/share/doubao-wine11/disabled-desktop-shortcuts/`；原 `.desktop`
-备份在 `~/.local/share/doubao-wine11/desktop-backups/`（不留在桌面产生多余图标），
-`--uninstall` 可完整还原。
+它幂等地统一**四个** `.desktop`（桌面 / 用户级 / 系统级 / deb entries）的 `Exec`，
+去掉裸 `--uri` 与非标准 shebang、打 `metadata::trusted=true`、把 `.lnk` 移到
+`~/.local/share/doubao-wine11/disabled-desktop-shortcuts/`；原文件与旧前缀
+`repair/record.json` 备份在 `~/.local/share/doubao-wine11/desktop-backups/`
+（不留在桌面产生多余图标），`--uninstall` 可完整还原。
 `install-doubao.sh` 安装成功后会自动跑一次，防止安装器重建 `.lnk` 后复发。
-`run-doubao-wine11.sh` 现在把启动输出同时写入
+`run-doubao-wine11.sh` 把启动输出同时写入
 `~/.local/share/doubao-wine11/launch.log`，方便排查没有终端的桌面双击。
+系统级与 deb entries 文件属主是当前用户，可写；不可写时脚本明确提示而不静默跳过。
 
 **边界**：这只修「点错运行时」这一层，与旧会话里宿主图形栈导致的黑屏
 是两个独立问题（见 2.1.1）。当前桌面入口指向的 `run-doubao-wine11.sh`
 已默认套容器，双击可正常出界面；全程不改回 1.56.6、不加看门狗或自动重启。
+
+### 2.5 「当前版本启动发生异常」修复弹窗（2026-11-08 08:12，已修）
+
+现象：启动后弹出「豆包修复程序：当前版本启动发生异常，可能导致无法正常使用，
+是否进行修复？」（可勾选「该版本不再提醒」）。
+
+取证结论：
+
+- 弹窗进程是 `repair_2026_11_08_08_12_27.exe`，参数指向
+  `C:\Program Files\Doubao\app` 与 `C:\users\ubuntu\...\User Data`，
+  wineserver 是 `deepin-wine8-stable` —— **来自旧 Deepin Wine 8.16 前缀**，
+  不是 Wine 11 前缀（那边 `running_exception` 一直是 0）。
+- 08:12 的 journalctl 链路：`完成：修复 0 个软链接`（只出自
+  `doubao/fix-doubao-wine.sh`）→ `Run doubao-wine 1.56.6wine3` →
+  `wine version: 8.16`，说明点击落在旧 `run-doubao-wine.sh` / deb `run.sh` 链上。
+- 旧前缀 `repair/record.json` 的 `running_exception` 已累到
+  `{"1.56.6":1,"2.32.6":8}`，超过阈值触发修复提示。这些计数来自排查期间反复
+  `wineserver -k` / `timeout` 强杀进程，**不是真实崩溃**；但旧前缀本来就跑不了
+  2.32.6（缺 `RtlGetDeviceFamilyInfoEnum`），不应再被任何入口触发。
+
+修复（全部幂等、可还原）：
+
+1. 四个 `.desktop` 入口统一指向 `run-doubao-wine11.sh`，并去掉会让部分文件管理器
+   把 `.desktop` 当脚本执行的 `#!/usr/bin/env xdg-open` 首行。
+2. `doubao/run-doubao-wine.sh` 改为**安全转发**到 Wine 11 启动器：残留旧快捷方式
+   也不会再进 8.16；不再跑 `fix-doubao-wine.sh`、不再注入旧 Mesa 环境、不再调 deb `run.sh`。
+   需要 1.56.6 历史对照时直接用 `deepin-wine8-stable` 手动启动旧前缀。
+3. 备份后把旧前缀 `running_exception` 清零（不删账号数据、不禁用修复器、不锁版本）。
+
+验证：旧启动器 `--uri`、系统级 desktop、桌面图标三条路径实测都进 Steam Runtime
+容器 / Wine 11，`map=2`、405 色真实界面，`main_browser=1`，无 8.16 旧链进程；
+旧前缀异常计数保持为空。
 
 ## 3. Deepin Wine 8.16 已确认的坑
 
@@ -558,14 +593,16 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 
 - `doubao/install-doubao.sh`：**官方在线安装器的安装/升级入口**；预查下发版本、
   自动点「立即安装」、以 `_OnInstallSuccess` 为完成判据，装完自动跑前缀层修复与桌面入口修复。
-- `doubao/fix-doubao-desktop.sh`：**桌面入口修复**（幂等、`--status`、`--uninstall`）：
-  统一 Exec 到 Wine 11、打 trusted 标记、移走 `豆包.lnk`。
+- `doubao/fix-doubao-desktop.sh`：**入口与异常状态修复**（幂等、`--status`、`--uninstall`）：
+  统一四个 `.desktop` 的 Exec 到 Wine 11、去 shebang、打 trusted 标记、移走 `豆包.lnk`、
+  备份并清零旧前缀 `running_exception`。
 - `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的主线启动器**，自动套
   `SteamLinuxRuntime_sniper` 容器；启动日志落在 `~/.local/share/doubao-wine11/launch.log`。
   `DOUBAO_NO_STEAM_RUNTIME=1` 可回到裸 wine 做对照诊断。
 - `doubao/fix-doubao-wine.sh`：与版本无关的前缀层修复（WinSxS 软链接、LocalLow 目录）；
   不再做版本回退、不锁版本、不禁用更新器。
-- `doubao/run-doubao-wine.sh`：旧版 1.56.6 的 Mesa 启动器和空 URI 过滤，仅作历史对照。
+- `doubao/run-doubao-wine.sh`：**历史入口已停用**，过滤裸 `--uri` 后安全转发到
+  `run-doubao-wine11.sh`；1.56.6 历史对照改为直接用 `deepin-wine8-stable` 手动启动。
 - `.codebuddy/rules/豆包客户端版本约定.md`：只认官方最新版、不做旧版回退的项目约定。
 - `electron/README.md`、`electron/use-electron-gf.sh`：原生 Electron/Chromium 在 7G100 上的现有适配经验。
 - Proton 的 `proton` 脚本：官方运行库环境变量来源。

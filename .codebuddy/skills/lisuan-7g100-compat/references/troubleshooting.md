@@ -127,8 +127,14 @@ dkms status
   给 Wine 8.16 补 `RtlGetDeviceFamilyInfoEnum` 导出只消除 `win_util.cc(544)` FATAL，
   随后仍进修复流程且无主窗口，此路已证伪，不要重做。详见 `doubao/README.md` §2.1.1。
 - 桌面入口另有回归：`~/Desktop/豆包.lnk` 会被 DING 交给 deepin-wine8-stable 并撞 `0x7F` FATAL；
-  `doubao/fix-doubao-desktop.sh` 统一两个用户级 `.desktop` 的 Exec、打 `metadata::trusted`、
-  把 `.lnk` 移出桌面（可 `--uninstall` 还原）。
+  `doubao/fix-doubao-desktop.sh` 统一**四个** `.desktop`（桌面 / 用户级 / 系统级 /
+  deb entries）的 Exec、去掉非标准 shebang、打 `metadata::trusted`、把 `.lnk` 移出桌面；
+  `doubao/run-doubao-wine.sh` 已改为安全转发到 Wine 11（可 `--uninstall` 还原）。
+- 「当前版本启动发生异常，是否进行修复？」弹窗来自**旧 Deepin 前缀**的
+  `repair_*.exe`：`repair/record.json` 的 `running_exception` 被排查期间反复
+  `wineserver -k` / `timeout` 累到阈值（实测 `2.32.6: 8`）。修复是备份后清零该计数
+  **并堵死旧入口**，不是禁用修复器 / 改名 `update.exe` / 删账号数据；
+  Wine 11 前缀的计数一直是 0。详见 `doubao/README.md` §2.5。
 - 禁止把 `update.exe` 改名，豆包修复器会把它列入 `missing_files`；版本屏蔽配置也不能阻止 `update_data` 覆盖更新器。
 - Windows 客户端全量 Electron 重打包不推荐；网页版 Electron 外壳是功能受限的备用方案。
 
