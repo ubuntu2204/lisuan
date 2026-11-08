@@ -262,21 +262,18 @@ DING 会把它当成不可信启动器，双击不一定执行。
 
 ### 2.6 点右上角 X 关不掉豆包（2026-11-08 09:20，已给显式入口）
 
-现象：点主窗口右上角 X，窗口消失但豆包并没退出，也没有任何托盘图标可以
-再点回来或选「退出」，看起来就是「关不掉」。
+现象：点主窗口右上角 X，窗口消失但豆包并没退出；顶栏图标右键有时出菜单、
+有时没反应，看起来就是「关不掉」。
 
 取证（三条都可在本机复现）：
 
 1. **X 的语义是「隐入通知栏」，不是退出**。点 X 后主窗口 `WM_STATE` 变成
    `Withdrawn`、`Map State: IsUnMapped`，`User Data/saman_app_state` 写成
    `chat_app_state.visible=false`，而 17 个 `Doubao.exe` 进程照常存活。
-2. **通知栏图标在本机建不出来也看不见**。Wine 11 的 `winex11.so` 只实现 XEmbed
-   托盘（串里有 `_NET_SYSTEM_TRAY_S0` / `XEMBED_EMBEDDED_NOTIFY`，没有 SNI）；
-   XWayland 上这个 selection 被 mutter 拿走（owner `0x600009`，同族窗口就是
-   `mutter guard window`），GNOME Shell 不渲染 XEmbed 托盘，实测该 owner 的
-   **嵌入子窗口数 = 0**。豆包自己也在启动时打
-   `[Tray] BuildMainStatusIconContextMenu main_status_icon_ is null`。
-   于是「打开豆包窗口 / 退出豆包」这两条托盘菜单都不存在。
+2. **托盘菜单在本机建不出来**。豆包的托盘图标确实上了顶栏（见 2.6.1），但
+   客户端侧的 StatusIcon 对象是空的：每次启动都报
+   `[Tray] BuildMainStatusIconContextMenu main_status_icon_ is null`（11-08 累计 34 次），
+   于是「打开豆包窗口 / 退出豆包」这两条菜单项点不出来。
 3. **客户端没有「关闭主窗口时退出程序」这类开关**。`Doubao.dll` 里的
    `saman.general_settings.*` 只有 `double_click_close_tab`、`file_open_method`、
    `link_open_method`、`primary_browser` 四个键；桌面悬浮球右键菜单也只有
@@ -297,36 +294,61 @@ DING 会把它当成不可信启动器，双击不一定执行。
 此时再拉一次启动器并不会重建它（实测 60 秒不出窗口）。这种情况下用
 悬浮球右键「打开豆包窗口」，或 `--quit` 后重新启动即可。
 
-另外：托盘要真正可用需要有人渲染 XEmbed 图标（`xembedsniproxy` 之类桥到 SNI，
-或另起一个托盘宿主 —— 但 selection 已被 mutter 占用，第三方宿主抢不到）。
-本机 Ubuntu 24.04 仓库没有 `xembedsniproxy`，`stalonetray`/`trayer` 虽在 universe
-但也解决不了「mutter 已占用 selection」这一点，所以**不引入新依赖**，改用上面的
-显式入口；豆包在 Windows 上点 X 同样是隐入托盘，行为并不特殊。
+另外：托盘图标的**渲染不是障碍**（Ubuntu 的 appindicator 扩展自带 legacy XEmbed
+托盘支持，见 2.6.1），障碍在客户端侧的 StatusIcon 与云端配置链路；所以不需要
+`xembedsniproxy`、`stalonetray`、`trayer` 这类额外东西（本机仓库也没有 `xembedsniproxy`），
+**不引入新依赖**，改用上面的显式入口；豆包在 Windows 上点 X 同样是隐入托盘，行为并不特殊。
 
-#### 2.6.1 顶部状态栏的「退出」为什么时好时坏（2026-11-08 09:50 追加实测）
+#### 2.6.1 顶部状态栏的「退出」为什么时好时坏（2026-11-08 10:15 更正并补测）
 
-用户反馈：顶部状态栏图标的「退出」有时候好使、有时候不好使。实测结论是
-**这条路径从来没真正退出过豆包**，只是有时候看起来像退了：
+**先更正**：本小节上一版写「顶栏里根本没有豆包图标」是错的。当时只查了
+SNI 注册表和 `_NET_SYSTEM_TRAY_S0` owner 的子窗口数，漏了一个事实：
+Ubuntu 的 `ubuntu-appindicators` 扩展**自带 legacy XEmbed 托盘**：
 
-- **顶栏里根本没有豆包图标**。`StatusNotifierWatcher` 的 `RegisteredStatusNotifierItems`
-  实测只有 5 项：QQ（`:1.124`，`chrome_status_icon_1`）、EpicGamesLauncher
-  （`:1.140`）、微信（`org.kde.StatusNotifierItem-6446-1`）、Steam（`:1.169`）、
-  update-notifier（`:1.171`）。从头到尾重新拉起豆包并每 2 秒轮询 40 秒：
-  XEmbed 嵌入图标数**恒为 0**，SNI 里也没有豆包项 —— Proton 11 的 `*.so` 里
-  搜不到 `StatusNotifier` 串，Wine 不可能出现在顶栏。
-- **GNOME 对 X11 应用的「退出」就是给窗口发 `WM_DELETE_WINDOW`**（等价
-  `xdotool windowclose` / Alt+F4）。三种组合实测都不退进程（17 个进程一直存活）：
+```bash
+gsettings get org.gnome.shell.extensions.appindicator legacy-tray-enabled  # true
+gsettings get org.gnome.shell.extensions.appindicator tray-pos             # 'right'
+# trayIconsManager.js 里 new Shell.TrayManager() + connect('tray-icon-added')
+```
 
-  | 组合 | 结果 |
-  |---|---|
-  | 只关主窗口 | 17 进程存活，主窗口被**销毁**（不是隐入） |
-  | 悬浮球「隐藏直到下次重启豆包」后再关主窗口 | 17 进程存活 |
-  | 主窗口 + 悬浮球都关 | 17 进程存活（12 秒内无变化） |
+实测到的图标本体：
 
-- 所以「好使」的只是**窗口全消失了**，进程还在；「不好使」往往是还剩一个
-  悬浮球或对话浮窗。区分只有一句：`./doubao/quit-doubao.sh --status` 看进程数，
-  非 0 就是没退；要真退只有 `--quit`。
-- 想要一个不用打字的退出按钮，可以加个 GNOME 快捷键（可逆，不改客户端）：
+| 顶栏图标现场 | 实测值 |
+|---|---|
+| 图标窗口 | `0xe0000e`，16x16，绝对位置 1556,8（就在顶栏右侧） |
+| XEmbed 状态 | `_XEMBED_INFO = 0x0, 0x1`（XEMBED_MAPPED，已正常嵌入） |
+| 父窗口 | mutter 为 legacy tray 单独建的容器 `0x6000b8`（不在 owner `0x600009` 的子窗口里，这是之前漏判的原因） |
+| 窗口属主 | Wine 的 `explorer.exe /desktop`（pid 230927），不是豆包主进程 —— Wine 把 `Shell_NotifyIcon` 代理给了 shell |
+
+**为什么点了没反应**：图标只是「显示在那里」，客户端侧能接菜单的对象是空的。
+今天全部会话里 `[Tray] BuildMainStatusIconContextMenu main_status_icon_ is null`
+共 34 次，每次启动都刷；同一时间还有一堆云配置/账号链路失败：
+`Cloud config not exists or invalid` 300 次、`user_id not ready` 23 次、
+`frame_context is null` 31 次，本会话还有 `account_token_manager_initial_fetch_error`
+与 `auth_get_oauth_token_error`。托盘菜单的项与命令就靠这套云端配置，
+拉不到就建不出菜单。
+
+**输入侧试了 6 种，全部既无菜单也无 app 侧 tray 日志**：真实指针右键、左键、
+`xdotool click --window`（XSendEvent 直接投递）、`windowfocus` + Menu 键、
+`windowraise` 后再点、新鲜启动后点、以及销毁主窗口后点。
+
+**另外两个已证实的事实**（推翻上一版的两个说法）：
+
+- WM 级「退出」（顶栏应用菜单 / 任务栏 / Alt+F4 / `xdotool windowclose`）确实
+  只是 `WM_DELETE_WINDOW`：只关主窗口、隐藏悬浮球后再关、主窗口与悬浮球都关，
+  三种组合下 17 个进程全部存活 —— 这条路从来没退过进程。
+- 顶栏那个图标不是「抢不到」的 XEmbed 托盘：Ubuntu 已经 legacy-tray 把
+  Wine 的图标接住了，所以**不需要** `xembedsniproxy`/`stalonetray`/`trayer`。
+
+**结论**：顶部「退出」时好时坏的变量在**客户端自己的云配置/登录态**，
+不在图形栈，本机无法从外部修好。可用动作只有两个：
+
+1. 先登录豆包、等云端配置拉下来（看日志里 `Cloud config not exists or invalid`
+   不再刷），顶栏右键菜单才有内容；
+2. 不折腾托盘，直接 `./doubao/quit-doubao.sh --quit`（实测 1–2 秒清干净）。
+
+判据只看一个：`--status` 的「豆包进程」是不是 0；窗口消失不等于退出。
+想要一个不用打字的退出按钮，可以加个 GNOME 快捷键（可逆，不改客户端）：
 
   ```bash
   gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings \

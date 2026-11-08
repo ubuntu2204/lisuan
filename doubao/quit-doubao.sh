@@ -5,20 +5,24 @@
 #   1) 豆包右上角 X 的语义是「隐藏主窗口到通知栏」，不是退出进程。实测点 X 后
 #      主窗口 WM_STATE 变成 Withdrawn、User Data/saman_app_state 里
 #      chat_app_state.visible=false，而 17 个 Doubao.exe 进程照常在跑。
-#   2) 通知栏图标在本机建不出来也看不见：Wine 11 的 winex11 只实现 XEmbed
-#      托盘（_NET_SYSTEM_TRAY_S0），该 selection 由 mutter 持有但不渲染；
-#      豆包日志同时报「[Tray] BuildMainStatusIconContextMenu main_status_icon_
-#      is null」，托盘窗口里 0 个嵌入图标 —— 于是既没有「退出豆包」菜单，
-#      也点不回主窗口，看起来就是「关不掉」。
+#   2) 托盘图标确实上了顶栏（Ubuntu 的 ubuntu-appindicators 扩展自带 legacy
+#      XEmbed 托盘，legacy-tray-enabled=true），但只是个空壳：图标窗口由 Wine 的
+#      explorer.exe 代管（_XEMBED_INFO flags=1，16x16，顶栏右侧），而客户端侧
+#      能接菜单的对象是空的 —— 启动就报「[Tray] BuildMainStatusIconContextMenu
+#      main_status_icon_ is null」。同时云配置/登录链路一直失败（本机日志
+#      Cloud config not exists or invalid 300 次、user_id not ready 23 次、
+#      account_token_manager_initial_fetch_error），托盘菜单就建不出来，
+#      于是既没有「退出豆包」菜单，也不能靠托盘唤回窗口。
 #   3) 客户端没有「关闭主窗口时退出程序」这类设置项：Doubao.dll 里的
 #      saman.general_settings.* 只有 double_click_close_tab / file_open_method /
 #      link_open_method / primary_browser 四个键；桌面悬浮球右键菜单也只有
 #      「打开豆包窗口 / 停用豆包桌面悬浮球」等，没有退出项。
 #   4) 顶部状态栏（或任何 WM 级「退出」）发的也是 WM_DELETE_WINDOW，同样退不掉：
 #      只关主窗口 / 隐藏悬浮球后再关 / 主窗口与悬浮球都关，三种组合下 17 个进程
-#      都一直存活（顶栏里其实也没有豆包图标：SNI 只有 QQ/微信/Steam/Epic/
-#      update-notifier，启动后 40 秒轮询 XEmbed 嵌入图标数恒为 0）。所以「有时
-#      候好使」只是窗口全消失了看起来像退了 —— 用 --status 看进程数才能分辨。
+#      都一直存活。而顶栏图标右键：真实指针、XSendEvent、windowfocus+Menu 键、
+#      windowraise、新鲜启动、销毁主窗口后 —— 6 种输入全部既无菜单也无 app 侧
+#      tray 日志。所以「有时好使」取决于客户端自己那次云配置/登录态有没有拉到，
+#      不是图形栈问题；判「是否真退出」只看 --status 的进程数，窗口消失不算退。
 #
 # 因此这里只做三件事，全部显式、按需调用：
 #   --quit（默认） 彻底退出本前缀的豆包进程；
@@ -47,12 +51,13 @@ usage() {
   --show         唤回主窗口。客户端是单实例，再启动一次会自己把窗口显示出来
                  （点 X 隐入通知栏那种情况实测 5 秒内回来）；
                  没在跑时等同于正常启动（实测 6 秒出界面）。
-  --status       只读检查：进程数、主窗口 Map State、XEmbed 托盘是否可用。
+  --status       只读检查：进程数、主窗口 Map State、顶栏托盘图标与菜单可用性。
   --help         显示本说明。
 
-说明：豆包右上角 X 只「隐藏到通知栏」，不退出进程；本机通知栏图标不可用，
-所以 X 之后必须用 --show 唤回、用 --quit 真正退出。可用环境变量覆盖：
-DOUBAO_WINE11_PREFIX / DOUBAO_PROTON / DOUBAO_WINESERVER / DOUBAO_QUIT_WAIT。
+说明：豆包右上角 X 只「隐藏到通知栏」，不退出进程；本机托盘图标虽然显示在
+顶栏，但客户端侧建不出菜单，所以 X 之后要用 --show 唤回、用 --quit 真正退出。
+可用环境变量覆盖：DOUBAO_WINE11_PREFIX / DOUBAO_PROTON / DOUBAO_WINESERVER /
+DOUBAO_QUIT_WAIT。
 EOF
 }
 
@@ -107,20 +112,34 @@ window_state() {
     xwininfo -id "$w" 2>/dev/null | grep -o 'IsViewable\|IsUnMapped' | head -1 || printf '未知'
 }
 
-# XEmbed 托盘可用性：selection owner + 已嵌入图标数。
-# GNOME/mutter 会持有 _NET_SYSTEM_TRAY_S0 却不渲染，所以 owner 存在不等于图标可见。
+# 托盘现场：Ubuntu 的 appindicator 扩展有 legacy XEmbed 托盘（legacy-tray-enabled），
+# 图标窗口由 Wine 的 explorer.exe 代管，不在 _NET_SYSTEM_TRAY_S0 owner 的
+# 子窗口里（只查那里会漏判）。这里直接找 explorer.exe 的 16x16 可见窗口，
+# 再看日志里客户端侧能不能建出菜单。
 tray_report() {
     [[ -n "${DISPLAY:-}" ]] || export DISPLAY=:0
-    DISPLAY="$DISPLAY" python3 - <<'PY' 2>/dev/null || printf '未知（缺 python3-xlib 或无法连 X）'
-from Xlib import display
-d = display.Display()
-own = d.get_selection_owner(d.intern_atom('_NET_SYSTEM_TRAY_S0'))
-if own is None:
-    print('无宿主（_NET_SYSTEM_TRAY_S0 无人接管）')
-else:
-    n = len(own.query_tree().children)
-    print(f'owner={own.id:#x} 已嵌入图标={n} 个' + ('（mutter 接管但不渲染，图标不可见）' if n == 0 else ''))
-PY
+    local icon="" p w g
+    for p in $(pgrep -f 'explorer\.exe' 2>/dev/null); do
+        for w in $(xdotool search --pid "$p" 2>/dev/null); do
+            g=$(xwininfo -id "$w" 2>/dev/null | awk '/Width:/{a=$2} /Height:/{h=$2} END{print a"x"h}')
+            [[ "$(xwininfo -id "$w" 2>/dev/null | grep -o 'IsViewable')" == "IsViewable" && "$g" == "16x16" ]] && icon="$w"
+        done
+    done
+    if [[ -n "$icon" ]]; then
+        printf '图标窗口 %s（%s）在顶栏' "$icon" \
+            "$(xwininfo -id "$icon" 2>/dev/null | awk '/Absolute upper-left X/{x=$NF} /Absolute upper-left Y/{y=$NF} END{print x","y}')"
+    else
+        printf '顶栏未见 16x16 托盘图标窗口'
+    fi
+    if command -v gsettings >/dev/null 2>&1; then
+        printf '（appindicator legacy-tray=%s）' \
+            "$(gsettings get org.gnome.shell.extensions.appindicator legacy-tray-enabled 2>/dev/null | tr -d "'")"
+    fi
+    if [[ -r "$LAUNCH_LOG" ]] && grep -qa 'main_status_icon_ is null' "$LAUNCH_LOG"; then
+        printf '；但客户端侧 StatusIcon 为空（日志有 main_status_icon_ is null）→ 右键建不出菜单'
+    else
+        printf '；日志未见 main_status_icon_ is null → 托盘菜单应该可用'
+    fi
 }
 
 do_status() {
@@ -144,7 +163,7 @@ do_status() {
     else
         printf '主浏览器    : 未在运行\n'
     fi
-    printf 'XEmbed 托盘 : %s\n' "$(tray_report)"
+    printf '托盘现场    : %s\n' "$(tray_report)"
     if [[ -r "$LAUNCH_LOG" ]]; then
         local t
         t=$(grep -a 'main_status_icon_ is null' "$LAUNCH_LOG" 2>/dev/null | tail -1)

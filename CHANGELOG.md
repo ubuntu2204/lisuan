@@ -63,12 +63,24 @@
   「启动异常」修复弹窗）；`--show` 在隐入通知栏后 5 秒、重启后 6 秒出主窗口。
   边界：`WM_DELETE_WINDOW`（如 `xdotool windowclose`）会销毁主窗口而不是隐入，
   这时单实例再拉不重建窗口，需用悬浮球右键「打开豆包窗口」或 `--quit` 后重启。
-- 追加实测（09:50）：顶部状态栏的「退出」时好时坏 —— 实际上这条路径从来没退过
-  进程。WM 级退出就是 `WM_DELETE_WINDOW`，只关主窗口 / 隐藏悬浮球后再关 /
-  主窗口与悬浮球都关，三种组合下 17 个进程全部存活；顶栏里也没有豆包图标
-  （SNI 只有 QQ/微信/Steam/Epic/update-notifier，启动后 40 秒轮询 XEmbed 嵌入
-  图标数恒为 0）。「好使」只是窗口全消失了。判定统一用 `--status` 的进程数，
-  真要退只能 `--quit`（README 2.6.1 给了可选的 GNOME 快捷键做法）。
+- 追加实测（10:15，含对 09:50 结论的更正）：顶部状态栏的「退出」时好时坏。
+  **更正**：之前写「顶栏里没有豆包图标」是错的 —— Ubuntu 的
+  `ubuntu-appindicators` 扩展自带 legacy XEmbed 托盘（`legacy-tray-enabled=true`，
+  `trayIconsManager.js` 用 `Shell.TrayManager`），豆包图标确实显示在顶栏：
+  窗口 `0xe0000e` 16x16 在 1556,8，`_XEMBED_INFO` flags=1，父窗口是 mutter 为
+  legacy tray 建的容器 `0x6000b8`（不在 `_NET_SYSTEM_TRAY_S0` owner 的子窗口里，
+  所以只查那里会漏判），窗口属主是 Wine 的 `explorer.exe /desktop`。
+  图标是空壳：客户端侧 `main_status_icon_ is null`（11-08 累计 34 次），同时
+  `Cloud config not exists or invalid` 300 次、`user_id not ready` 23 次、
+  `account_token_manager_initial_fetch_error` / `auth_get_oauth_token_error` ——
+  托盘菜单依赖这套云端配置/登录链路，拉不到就建不出菜单。
+  输入侧试了 6 种（真实右键/左键、`click --window` XSendEvent、`windowfocus`+Menu、
+  `windowraise` 后点、新鲜启动后点、销毁主窗口后点）全部无菜单、无 app 侧 tray 日志。
+  另外 WM 级退出就是 `WM_DELETE_WINDOW`：只关主窗口 / 隐藏悬浮球后再关 /
+  主窗口与悬浮球都关，三种组合下 17 个进程全部存活 —— 这条路从来没退过进程。
+  所以「好使」只是窗口全消失了。判定统一用 `--status` 的进程数（现在会同时报
+  顶栏图标窗口与菜单可用性），真要退只能 `--quit`；README 2.6.1 给了可选的
+  GNOME 快捷键做法。不需要也不会引入 `xembedsniproxy`/`stalonetray`/`trayer`。
 
 ### 验证
 
