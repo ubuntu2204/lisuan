@@ -112,13 +112,22 @@ window_state() {
     xwininfo -id "$w" 2>/dev/null | grep -o 'IsViewable\|IsUnMapped' | head -1 || printf '未知'
 }
 
+# 只取「本次启动」的日志段：日志里每次启动都有一行「=== 时间 | exe ===」头。
+current_session_log() {
+    [[ -r "$LAUNCH_LOG" ]] || return 0
+    local hdr
+    hdr=$(grep -an '^=== ' "$LAUNCH_LOG" 2>/dev/null | tail -1)
+    [[ -n "$hdr" ]] || { cat "$LAUNCH_LOG"; return 0; }
+    tail -n +"${hdr%%:*}" "$LAUNCH_LOG"
+}
+
 # 托盘现场：Ubuntu 的 appindicator 扩展有 legacy XEmbed 托盘（legacy-tray-enabled），
 # 图标窗口由 Wine 的 explorer.exe 代管，不在 _NET_SYSTEM_TRAY_S0 owner 的
 # 子窗口里（只查那里会漏判）。这里直接找 explorer.exe 的 16x16 可见窗口，
 # 再看日志里客户端侧能不能建出菜单。
 tray_report() {
     [[ -n "${DISPLAY:-}" ]] || export DISPLAY=:0
-    local icon="" p w g
+    local last_err="${1:-}" icon="" p w g
     for p in $(pgrep -f 'explorer\.exe' 2>/dev/null); do
         for w in $(xdotool search --pid "$p" 2>/dev/null); do
             g=$(xwininfo -id "$w" 2>/dev/null | awk '/Width:/{a=$2} /Height:/{h=$2} END{print a"x"h}')
@@ -135,10 +144,10 @@ tray_report() {
         printf '（appindicator legacy-tray=%s）' \
             "$(gsettings get org.gnome.shell.extensions.appindicator legacy-tray-enabled 2>/dev/null | tr -d "'")"
     fi
-    if [[ -r "$LAUNCH_LOG" ]] && grep -qa 'main_status_icon_ is null' "$LAUNCH_LOG"; then
-        printf '；但客户端侧 StatusIcon 为空（日志有 main_status_icon_ is null）→ 右键建不出菜单'
+    if [[ -n "$last_err" ]]; then
+        printf '；但本次启动里客户端侧 StatusIcon 为空（main_status_icon_ is null）→ 右键建不出菜单'
     else
-        printf '；日志未见 main_status_icon_ is null → 托盘菜单应该可用'
+        printf '；本次启动未见 main_status_icon_ is null → 托盘菜单应该可用'
     fi
 }
 
@@ -163,12 +172,10 @@ do_status() {
     else
         printf '主浏览器    : 未在运行\n'
     fi
-    printf '托盘现场    : %s\n' "$(tray_report)"
-    if [[ -r "$LAUNCH_LOG" ]]; then
-        local t
-        t=$(grep -a 'main_status_icon_ is null' "$LAUNCH_LOG" 2>/dev/null | tail -1)
-        [[ -n "$t" ]] && printf '托盘日志    : %s\n' "${t:0:120}"
-    fi
+    local t
+    t=$(current_session_log | grep -a 'main_status_icon_ is null' | tail -1)
+    printf '托盘现场    : %s\n' "$(tray_report "$t")"
+    [[ -n "$t" ]] && printf '托盘日志    : %s\n' "${t:0:120}"
 }
 
 do_show() {

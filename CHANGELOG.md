@@ -81,6 +81,15 @@
   所以「好使」只是窗口全消失了。判定统一用 `--status` 的进程数（现在会同时报
   顶栏图标窗口与菜单可用性），真要退只能 `--quit`；README 2.6.1 给了可选的
   GNOME 快捷键做法。不需要也不会引入 `xembedsniproxy`/`stalonetray`/`trayer`。
+- 深挖（13:20，`WINEDEBUG=+systray` + 100ms 窗口轮询）：真实右键**确实到了豆包**
+  （`WM_RBUTTONDOWN/UP` → `notify_owner relaying`），但豆包不建任何菜单窗口、
+  也不打日志；它的托盘菜单只在启动阶段建一次，失败就是 `main_status_icon_ is null`
+  （容器约 15s / 裸 wine 约 60s），之后不自愈。新增探针 `doubao/probe-trayrefresh.c`：
+  广播 `TaskbarCreated` 能让客户端 `NIM_DELETE+NIM_ADD` 重注册（不再报 null），
+  但菜单只有第一次重建后弹出过一次，再重建也不重现 —— 只作诊断、不作修复。
+  另两条纪律：GNOME 面板是 Wayland actor，`xdotool` 的 XTEST 模拟点击**到不了面板**
+  （真实点击才行）；**不要杀 Wine 的 explorer.exe**，托盘图标会随之消失且应用不补注册。
+  `--status` 同步修正为只看本次启动的日志段，不再读历史会话。
 
 ### 验证
 

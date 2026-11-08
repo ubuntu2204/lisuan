@@ -361,6 +361,37 @@ gsettings get org.gnome.shell.extensions.appindicator tray-pos             # 'ri
     binding '<Super><Alt>q'
   ```
 
+#### 2.6.2 带 Wine systray 调试的深挖：菜单为什么「时有时无」（2026-11-08 13:20）
+
+方法：`WINEDEBUG=+systray` 重启客户端，Wine 会打印托盘图标的完整消息链
+（`add_icon` / `Shell_NotifyIconW` / `X11DRV_SystrayDockInsert` / `tray_icon_wndproc` /
+`notify_owner relaying`）。注意一个方法论：GNOME 面板是 Wayland actor，
+**`xdotool` 的 XTEST 模拟点击到不了面板** —— 只有真实鼠标点击有效，
+这就是之前 6 种「模拟点击」全部无效的原因，不是应用不理人。
+
+已证实：
+
+1. **真实右键确实到了豆包**。一次点击在 Wine 侧产生 `WM_MOUSEMOVE(0x200)` →
+   `WM_RBUTTONDOWN(0x204)` → `notify_owner relaying 0x204` → `WM_RBUTTONUP(0x205)`
+   → relaying（双击还有 `0x206`），另外每次点击前还会有 `WM_CONTEXTMENU(0x7b)`。
+2. **豆包收到后不建任何菜单窗口**。100ms 粒度的窗口轮询覆盖 3 次真实点击，
+   豆包进程 0 个新窗口，日志里也 0 条 `[Tray]`。
+3. **菜单只在启动阶段建一次**。每个会话 2–4 条
+   `[Tray] BuildMainStatusIconContextMenu main_status_icon_ is null`（容器启动约 15s、
+   裸 wine 约 60s 出现），之后既不重建也不报错 —— 这一会话里托盘菜单能不能用，
+   在启动那一刻就定了。
+4. **广播 `TaskbarCreated` 能让客户端重新注册**：应用先 `Shell_NotifyIconW(2)=NIM_DELETE`
+   再 `(0)=NIM_ADD`，Wine 重新 `add_icon` + `X11DRV_SystrayDockInsert`，这次**不再报 null**。
+   探针源码：`doubao/probe-trayrefresh.c`（`i686-w64-mingw32-gcc` 编成 PE32，
+   在容器内跑）。实测第一次重建后用户右键**弹出过一次菜单**，但之后又不响应；
+   再广播一次重建后第一次点击也不再弹。→ 只能算诊断手段，**不构成可靠修复**。
+5. **不要杀 Wine 的 explorer.exe**：托盘图标随它一起消失，应用不会自己补注册
+   （实测新 explorer 里 0 个 16x16 图标窗口），只能重启客户端恢复。
+
+结论：这是客户端托盘模块自己的状态问题（菜单构建一次性、失败后不自愈），
+本机只能诊断、不能从外部修好。可用动作仍是 `--quit` / `--show`；
+`--status` 已改为**只看本次启动**的日志段来判断托盘菜单能否用，不再读历史会话。
+
 ## 3. Deepin Wine 8.16 已确认的坑
 
 ### 坑 1：安装包把 WinSxS DLL 链接写死到打包者 home
