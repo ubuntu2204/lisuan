@@ -76,7 +76,7 @@ do_probe() {
         echo "客户端没在跑，无法探测。" >&2
         return 2
     fi
-    echo "探测中（会真的弹出托盘菜单，本脚本不会替你关闭）…"
+    echo "探测中（菜单没在屏幕上时会真的弹出，本脚本不会替你关闭）…"
     python3 "$PROBE" --button 3 --timeout "${PROBE_TIMEOUT:-6}"
     local rc=$?
     case $rc in

@@ -17,9 +17,14 @@ Wine systray 的托盘图标窗口（16x16，被 reparent 进 appindicator 宿�
 判定
 ----
 豆包托盘菜单是 Chromium 自绘的独立顶层窗口，类名 ``Chrome_WidgetWin_1``，
-尺寸固定 165x284（见 doubao/README.md 2.6.3）。本探针只做「点一次 + 看有没有
-165x284 窗口出现」，**绝不主动关闭它** —— 关闭菜单正是让托盘菜单进入不可恢复
-坏态的触发动作（关一次就再也不弹，重启客户端才恢复）。
+尺寸固定 165x284（见 doubao/README.md 2.6.3）。本探针只做「看菜单在不在 +
+不在则点一次 + 看有没有 165x284 窗口出现」，且只统计 IsViewable 的窗口，
+**绝不主动关闭它** —— 关闭菜单正是让托盘菜单进入不可恢复坏态的触发动作
+（关一次就再也不弹，重启客户端才恢复）。
+
+若菜单已经在屏幕上，直接判 GOOD 且不再点击：右键菜单开着时再右键不会新建窗口
+（窗口 id 不变），旧版只看「新建窗口集合差」会把这种正常状态误判成坏态，
+让 tray-doctor.sh --fix 白白重启客户端（2026-11-08 续查发现并修正）。
 
 用法:
     python3 tray-probe.py            # 右键一次并判定
@@ -65,7 +70,10 @@ def find_systray_icons(d, root):
 
 
 def menu_windows(d, root):
-    """当前存在的 165x284 托盘菜单窗口 id 集合。"""
+    """当前【可见】的 165x284 托盘菜单窗口 id 集合。
+
+    只看 IsViewable：客户端若把菜单窗口留成 UnMapped 空壳，不能算菜单正常。
+    """
     found = set()
 
     def walk(w):
@@ -74,7 +82,11 @@ def menu_windows(d, root):
         except Exception:
             return
         if geo.width == MENU_W and geo.height == MENU_H:
-            found.add(w.id)
+            try:
+                if w.get_attributes().map_state == X.IsViewable:
+                    found.add(w.id)
+            except Exception:
+                pass
         try:
             for child in w.query_tree().children:
                 walk(child)
@@ -142,6 +154,13 @@ def main():
 
     win, depth, clsname = cands[0]
     before = menu_windows(d, root)
+    if before:
+        # 菜单已经显示在屏幕上时，再右键不会「新建」窗口（窗口 id 不变）。
+        # 旧版探针只看 now-before，会把这种正常状态误判成坏态，进而让
+        # tray-doctor.sh --fix 白白重启客户端。这里直接判定为可用。
+        print("GOOD: 托盘菜单已在屏幕上 %s（未重复点击）"
+              % sorted(hex(i) for i in before))
+        return 0
 
     send_button(d, win, args.button, True)
     time.sleep(0.08)
@@ -151,8 +170,8 @@ def main():
     deadline = time.time() + args.timeout
     while time.time() < deadline:
         now = menu_windows(d, root)
-        if now - before:
-            print("GOOD: 托盘菜单窗口已创建 %s" % sorted(hex(i) for i in now - before))
+        if now:
+            print("GOOD: 托盘菜单窗口已创建 %s" % sorted(hex(i) for i in now))
             return 0
         time.sleep(0.15)
 
