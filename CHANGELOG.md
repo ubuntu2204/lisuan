@@ -45,6 +45,25 @@
 - 三条路径实证（旧启动器 `--uri` / 系统级 desktop / 桌面图标）都进 Steam Runtime
   容器 / Wine 11：`map=2`、405 色真实界面、`main_browser=1`、无 8.16 旧链进程。
 
+### 补充修复：点右上角 X 关不掉豆包（09:20）
+
+- 根因三条实证：① 点 X 后主窗口 `WM_STATE=Withdrawn`、`saman_app_state` 的
+  `chat_app_state.visible=false`，17 个 `Doubao.exe` 进程照常在跑 —— X 是「隐入
+  通知栏」而不是退出；② Wine 11 `winex11.so` 只实现 XEmbed 托盘，XWayland 上
+  `_NET_SYSTEM_TRAY_S0` 被 mutter 持有但不渲染（owner `0x600009`，嵌入图标 0 个），
+  豆包同时报 `[Tray] BuildMainStatusIconContextMenu main_status_icon_ is null`，
+  所以既没有「退出豆包」菜单也点不回窗口；③ 客户端没有关闭行为开关
+  （`saman.general_settings.*` 只有四个键，悬浮球右键菜单也无退出项）。
+- 新增 `doubao/quit-doubao.sh`：`--quit`（SIGTERM 主浏览器，必要时本前缀
+  `wineserver -k` 收尾）、`--show`（单实例再拉以唤回主窗口）、`--status`（只读
+  区分隐入通知栏 / 崩溃 / 托盘可用性）。进程按 `WINEPREFIX` 精确限定，
+  不加守护、不做自动重启、不引入新依赖（xembedsniproxy 仓库无包，且
+  selection 已被 mutter 占用，装 stalonetray/trayer 也抢不到）。
+- 实测：`--quit` 1 秒内 17 个进程全退且 `running_exception` 仍为 0（不引发
+  「启动异常」修复弹窗）；`--show` 在隐入通知栏后 5 秒、重启后 6 秒出主窗口。
+  边界：`WM_DELETE_WINDOW`（如 `xdotool windowclose`）会销毁主窗口而不是隐入，
+  这时单实例再拉不重建窗口，需用悬浮球右键「打开豆包窗口」或 `--quit` 后重启。
+
 ### 验证
 
 - 容器内 1200x800 主窗口 `IsViewable`，抓图 546 色真实界面（「有什么我能帮你的吗？」、

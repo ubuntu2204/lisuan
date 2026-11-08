@@ -26,6 +26,9 @@
   应用建窗失败」的经验一致：容器提供隔离的 Mesa/GL 栈，绕开宿主污染状态，因此
   **保留为稳健默认**；`DOUBAO_NO_STEAM_RUNTIME=1` 可在干净会话里走轻量裸 wine 路径。
 - `doubao/run-doubao-wine11.sh` 已默认用 `run-in-sniper` 包装自身，桌面入口无需改动。
+- **点右上角 X 不会退出豆包**：那是「隐入通知栏」，而 XWayland/GNOME 下通知栏
+  图标建不出来也看不见，于是看起来「关不掉」。已取证并给出显式入口
+  `doubao/quit-doubao.sh`（`--quit` / `--show` / `--status`，见 2.6）。
 - Deepin Wine 8.16 的 `RtlGetDeviceFamilyInfoEnum` 硬门槛仍在，主运行时必须是 Wine 11；
   旧版 1.56.6 不作方案、不作回退、不作验收参照。
 
@@ -256,6 +259,49 @@ DING 会把它当成不可信启动器，双击不一定执行。
 验证：旧启动器 `--uri`、系统级 desktop、桌面图标三条路径实测都进 Steam Runtime
 容器 / Wine 11，`map=2`、405 色真实界面，`main_browser=1`，无 8.16 旧链进程；
 旧前缀异常计数保持为空。
+
+### 2.6 点右上角 X 关不掉豆包（2026-11-08 09:20，已给显式入口）
+
+现象：点主窗口右上角 X，窗口消失但豆包并没退出，也没有任何托盘图标可以
+再点回来或选「退出」，看起来就是「关不掉」。
+
+取证（三条都可在本机复现）：
+
+1. **X 的语义是「隐入通知栏」，不是退出**。点 X 后主窗口 `WM_STATE` 变成
+   `Withdrawn`、`Map State: IsUnMapped`，`User Data/saman_app_state` 写成
+   `chat_app_state.visible=false`，而 17 个 `Doubao.exe` 进程照常存活。
+2. **通知栏图标在本机建不出来也看不见**。Wine 11 的 `winex11.so` 只实现 XEmbed
+   托盘（串里有 `_NET_SYSTEM_TRAY_S0` / `XEMBED_EMBEDDED_NOTIFY`，没有 SNI）；
+   XWayland 上这个 selection 被 mutter 拿走（owner `0x600009`，同族窗口就是
+   `mutter guard window`），GNOME Shell 不渲染 XEmbed 托盘，实测该 owner 的
+   **嵌入子窗口数 = 0**。豆包自己也在启动时打
+   `[Tray] BuildMainStatusIconContextMenu main_status_icon_ is null`。
+   于是「打开豆包窗口 / 退出豆包」这两条托盘菜单都不存在。
+3. **客户端没有「关闭主窗口时退出程序」这类开关**。`Doubao.dll` 里的
+   `saman.general_settings.*` 只有 `double_click_close_tab`、`file_open_method`、
+   `link_open_method`、`primary_browser` 四个键；桌面悬浮球右键菜单也只有
+   打开豆包窗口 / 打开对话浮窗 / 打开豆包浏览器 / 截图提问 / 开启录音转写 /
+   实时双语字幕 / 隐藏直到下次重启豆包 / 停用豆包桌面悬浮球，**没有退出项**。
+
+处理：`doubao/quit-doubao.sh` 提供三个显式动作（不做守护、不做自动重启、
+不改客户端版本，进程筛选按 `WINEPREFIX` 精确限定在本前缀）：
+
+| 动作 | 行为 | 2026-11-08 实测 |
+|---|---|---|
+| `--quit`（默认） | SIGTERM 主浏览器进程，必要时本前缀 `wineserver -k` 收尾 | 1 秒内 17 个进程全退，`repair/record.json` 的 `running_exception` 仍为 `{"2.32.6":0,"2.35.8":0}`，不会引出「启动异常」修复弹窗 |
+| `--show` | 再拉一次启动器；单实例会自己把窗口显示出来，没在跑时等于正常启动 | 隐入通知栏后 5 秒内 `IsViewable`；`--quit` 后重启 6 秒出界面 |
+| `--status` | 只读报告进程数、主窗口 Map State、XEmbed 托盘 owner 与嵌入图标数 | 能直接把「窗口已隐入通知栏、进程仍在」和崩溃区分开 |
+
+注意一个边界：用窗口管理器标题栏的关闭（`WM_DELETE_WINDOW`，例如
+`xdotool windowclose`）与点页面内 X 不完全等价 —— 前者会把主窗口**销毁**，
+此时再拉一次启动器并不会重建它（实测 60 秒不出窗口）。这种情况下用
+悬浮球右键「打开豆包窗口」，或 `--quit` 后重新启动即可。
+
+另外：托盘要真正可用需要有人渲染 XEmbed 图标（`xembedsniproxy` 之类桥到 SNI，
+或另起一个托盘宿主 —— 但 selection 已被 mutter 占用，第三方宿主抢不到）。
+本机 Ubuntu 24.04 仓库没有 `xembedsniproxy`，`stalonetray`/`trayer` 虽在 universe
+但也解决不了「mutter 已占用 selection」这一点，所以**不引入新依赖**，改用上面的
+显式入口；豆包在 Windows 上点 X 同样是隐入托盘，行为并不特殊。
 
 ## 3. Deepin Wine 8.16 已确认的坑
 
@@ -596,6 +642,9 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 - `doubao/fix-doubao-desktop.sh`：**入口与异常状态修复**（幂等、`--status`、`--uninstall`）：
   统一四个 `.desktop` 的 Exec 到 Wine 11、去 shebang、打 trusted 标记、移走 `豆包.lnk`、
   备份并清零旧前缀 `running_exception`。
+- `doubao/quit-doubao.sh`：**退出 / 唤回 / 状态**（见 2.6）。点 X 只是隐入通知栏，
+  而本机通知栏不可用，所以用 `--quit` 真正退出、`--show` 唤回主窗口、
+  `--status` 区分「隐入通知栏」与「崩溃」；只作用于 `doubao-wine11` 前缀，无守护。
 - `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的主线启动器**，自动套
   `SteamLinuxRuntime_sniper` 容器；启动日志落在 `~/.local/share/doubao-wine11/launch.log`。
   `DOUBAO_NO_STEAM_RUNTIME=1` 可回到裸 wine 做对照诊断。
