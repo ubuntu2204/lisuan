@@ -112,6 +112,37 @@ window_state() {
     xwininfo -id "$w" 2>/dev/null | grep -o 'IsViewable\|IsUnMapped' | head -1 || printf '未知'
 }
 
+# 豆包实际跑的 wine 来自哪个 Proton，以及该 Proton 是否被本地改过。
+# 判据：① 主进程 /proc/<pid>/exe 指向哪个 wine-preloader；
+#       ② Proton 根目录有没有 *.bak* / *modified* 备份痕迹；
+#       ③ files/ 下有多少文件晚于 version 文件 1 小时以上（安装当刻的秒差不算改动）。
+proton_info() {
+    local mp exe pr n marks
+    mp=$(main_pid || true)
+    if [[ -n "$mp" ]]; then
+        exe=$(readlink -f "/proc/$mp/exe" 2>/dev/null || true)
+        pr="${exe%%/files/*}"
+    fi
+    [[ -n "${pr:-}" && -d "$pr" ]] || pr="$PROTON"
+    marks=$(find "$pr" -maxdepth 1 \( -name '*.bak*' -o -name '*modified*' -o -name '*.orig' \) 2>/dev/null | head -3)
+    if [[ -n "$marks" ]]; then
+        printf '%s（有改动备份：%s）' "$(basename "$pr")" "$(basename "$(echo "$marks" | head -1)")"
+        return
+    fi
+    if [[ -f "$pr/version" ]]; then
+        local stamp
+        stamp=$(date -d "@$(( $(stat -c %Y "$pr/version") + 3600 ))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || true)
+        n=$(find "$pr/files" -newermt "$stamp" -type f 2>/dev/null | wc -l)
+        if [[ "${n:-0}" -eq 0 ]]; then
+            printf '%s（未见本地改动）' "$(basename "$pr")"
+        else
+            printf '%s（发现 %s 个晚于安装时间的文件，可能被替换过）' "$(basename "$pr")" "$n"
+        fi
+    else
+        printf '%s（无 version 文件，无法判定）' "$(basename "$pr")"
+    fi
+}
+
 # 只取「本次启动」的日志段：日志里每次启动都有一行「=== 时间 | exe ===」头。
 current_session_log() {
     [[ -r "$LAUNCH_LOG" ]] || return 0
@@ -163,6 +194,7 @@ do_status() {
         local st
         st=$(window_state "$w")
         printf '主浏览器    : pid %s\n' "$mp"
+        printf 'wine 来源   : %s\n' "$(proton_info)"
         printf '主窗口      : %s（%s）\n' "${w:-未发现}" "$st"
         case "$st" in
             IsUnMapped) printf '判定        : 窗口已隐入通知栏、进程仍在 —— 这就是点 X 的效果，不是崩溃\n' ;;
@@ -171,6 +203,7 @@ do_status() {
         esac
     else
         printf '主浏览器    : 未在运行\n'
+        printf 'wine 来源   : %s（默认值，未启动时无法核对）\n' "$(basename "$PROTON")"
     fi
     local t
     t=$(current_session_log | grep -a 'main_status_icon_ is null' | tail -1)

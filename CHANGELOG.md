@@ -90,6 +90,14 @@
   另两条纪律：GNOME 面板是 Wayland actor，`xdotool` 的 XTEST 模拟点击**到不了面板**
   （真实点击才行）；**不要杀 Wine 的 explorer.exe**，托盘图标会随之消失且应用不补注册。
   `--status` 同步修正为只看本次启动的日志段，不再读历史会话。
+- Wine 来源核对（13:50）：豆包跑的是 Valve 官方 `Proton 11.0`（`proton-11.0-2e-x86_64`，
+  `wine-11.0`），主进程 `exe → …/Proton 11.0/files/lib/wine/x86_64-unix/wine64-preloader`，
+  `WINEDLLPATH`/`LD_LIBRARY_PATH` 全指向 Proton 11.0，`LD_PRELOAD` 为空；该目录无
+  `.bak/.orig/.patch`、也无晚于安装日 1 小时的文件 → **未修改**。另有一套改过的
+  `Proton - MM GF`（Experimental 11.0-20260826 改名，改 `proton` 脚本 +
+  DXVK 降至 v2.3-21 + `ntdll.so`/`winex11.so`/`win32u.so` 替换），但豆包不引用它；
+  全盘无 wine 源码树（无 `dlls/winex11.drv`），故无需拷源码。
+  `quit-doubao.sh --status` 新增 `wine 来源` 一行（自动判定是否被本地改过）。
 
 ### 验证
 

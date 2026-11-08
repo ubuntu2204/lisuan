@@ -392,6 +392,34 @@ gsettings get org.gnome.shell.extensions.appindicator tray-pos             # 'ri
 本机只能诊断、不能从外部修好。可用动作仍是 `--quit` / `--show`；
 `--status` 已改为**只看本次启动**的日志段来判断托盘菜单能否用，不再读历史会话。
 
+## 2.7 豆包用的 Wine 来源与完整性（2026-11-08 核对）
+
+**结论：豆包用的是 Valve 官方 Proton 11.0 里的 wine-11.0，没有为本项目改过。**
+
+| 项 | 实测值 |
+|---|---|
+| Proton 目录 | `~/.local/share/Steam/steamapps/common/Proton 11.0` |
+| Steam 记录的构建 | `proton-11.0-2e-x86_64`；`wine --version` = `wine-11.0` |
+| 运行时本体 | 主进程 `/proc/<pid>/exe → …/Proton 11.0/files/lib/wine/x86_64-unix/wine64-preloader` |
+| 库搜索路径 | `WINEDLLPATH` / `LD_LIBRARY_PATH` 全部指向 `Proton 11.0/files/…` |
+| 注入 | `LD_PRELOAD` **为空**（豆包不加载任何 gf 兼容垫片）；只有 `WINEDLLOVERRIDES=mscoree,mshtml=` |
+| 完整性 | 根目录无 `*.bak*` / `*modified*` / `*.orig` / `*.patch`；`files/` 下无晚于安装时间（2026-10-18 09:14）1 小时以上的文件 |
+
+`--status` 现在会直接报这一行：`wine 来源 : Proton 11.0（未见本地改动）`。
+
+机器上确实另外存在一套**改过的 Proton**：`Proton - MM GF`（实际是 Proton
+Experimental `11.0-20260826` 改名），改动包括：
+
+- `proton` 脚本被改（94439B，旁边留有 `proton.mymodified.bak`）；
+- `user_settings.py` 多个变体（`.bak-wrongfmt` / `.bak` / `.disabled`）；
+- DXVK 从 v3.0.2 降到 v2.3-21（备份在 `files/lib/wine/dxvk.bak-v3`），vkd3d-proton 替换；
+- wine 核心 `.so` 动过：`ntdll.so` / `winex11.so` / `win32u.so`（x86_64 与 i386 各一套）。
+
+但它是给《随从大师》/gf 用的：**豆包不引用它**（`DOUBAO_PROTON` 未设置，启动器
+默认 Proton 11.0；也没有 `compatibilitytools.d` 覆盖）。另外全盘没有 wine 源码树
+（找不到 `dlls/winex11.drv`），MM GF 的改动也只有二进制与脚本层面的替换 ——
+**所以既不存在「豆包专用改版 wine」，也没有源码可拷到 `doubao/`**。
+
 ## 3. Deepin Wine 8.16 已确认的坑
 
 ### 坑 1：安装包把 WinSxS DLL 链接写死到打包者 home
