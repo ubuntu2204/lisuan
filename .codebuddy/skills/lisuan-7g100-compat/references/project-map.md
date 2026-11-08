@@ -53,7 +53,7 @@ python3 install.py -h
 | `kingdom-rush/` | 王国保卫战启动修复 |
 | `left4dead2/` | 原生 L4D2 + Venus 转发、locale shim、历史归档 |
 | `Plants-vs-Zombies/` | 32 位 PVZ、wined3d GL、Steam 启动选项修复 |
-| `doubao/` | Deepin Wine 排障、旧版启动器、Wine 11 / Electron 路线评估；当前无菜单项 |
+| `doubao/` | 豆包 2.32.6 的 Steam Runtime 容器启动器、桌面入口修复、安装器与排障记录；当前无菜单项 |
 | `packaging/` | 核心模块、GUI、deb 构建脚本 |
 | `tests/` | 离线回归套件与 fixtures |
 | `.codebuddy/rules/` | 仓库组织约定、崩溃处理约定 |
@@ -101,4 +101,5 @@ deb 构建：`packaging/build-deb.sh <VER>`，输出 `packaging/dist/lisuan-fix_
 - `.codebuddy/rules/仓库组织约定.md`、`.codebuddy/rules/崩溃处理约定.md`。
 - `dkms/vendor-src/README.md`、`dkms/vendor-bug-report-gf-gbm-crash.md`。
 - `mesa/system-mesa-analysis.md`、`steam/steam-on-lisuan.md`。
-- 各主题目录 README；`doubao/README.md` 是 Wine 11 / Electron 路线评估。
+- 各主题目录 README；`doubao/README.md` 记录 2.32.6 经 Steam Runtime 容器跑通的
+  根因、消融证据与桌面入口回归修复。

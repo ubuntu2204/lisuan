@@ -1,6 +1,7 @@
 # 豆包 Windows 客户端：Wine 11 排障记录（目标：官方最新版 2.32.6）
 
-更新时间：2026-11-07  
+更新时间：2026-11-08
+
 平台：Ubuntu 24.04、海光 C86-4G、砺算 7G100、XWayland
 
 > 约定：本文所有结论以**官方最新版 2.32.6** 为目标。旧版 1.56.6 只作为历史对照，
@@ -8,18 +9,25 @@
 
 ## 1. 结论先行
 
-**主线是「Proton 11 对应的原生 Wine 11 + 独立前缀」跑官方 2.32.6。**
+**主线是「Steam Runtime 容器 + Proton 11 对应的原生 Wine 11 + 独立前缀」跑官方 2.32.6。**
 
-当前实测（2026-11-07）：
+2026-11-08 实测结论（**已能启动并显示真实界面**，但根因要按会话区分）：
 
-- 新版 2.32.6 在 **Wine 11（Proton 11.0）** 下已经**越过** Deepin Wine 8.16 的硬门槛
-  `RtlGetDeviceFamilyInfoEnum`（不再出现 `FATAL:base\win\win_util.cc ... 找不到过程 (0x7F)`）；
-- browser / crashpad / gpu-process / 2×renderer / network service / storage service
-  **全部存活**，无 FATAL、无 `CHECK failed`、无 GPU 进程崩溃退出；
-- **未解决问题**：窗口始终 `IsUnMapped`，强制 map 后内容纯黑（RGB 0,0,0）。
-  网络已排除（winsock 探针 IPv4/IPv6 全部 `CONNECT OK`），
-  渲染后端已排除（swiftshader / angle-gl / 禁用 GPU 合成 / gf 硬件 Vulkan 五种组合均为纯黑）。
-  下一步定位方向是 Chromium 的 Ozone/X11 后端选择与 viz 合成器首帧产出。
+- **旧图形会话（11-07 22:00 – 11-08 02:53）**：裸跑宿主 `wine` 时主窗口一直
+  `IsUnMapped`（强制 XMap 仍纯黑 1 色）、主进程 `exit_code 0` 主动退出；
+  经 `SteamLinuxRuntime_sniper` 容器启动后 1200x800 窗口 `IsViewable`、抓图 546 色
+  （白/浅灰为主），日志出现 `chrome://doubao-chat/`、`chrome://doubao-launcher/`，
+  主进程存活 65 秒以上。**容器是那一会话里唯一验证成功的路径。**
+- **机器 07:50:20 重启后（新会话，GNOME/XWayland/Steam 07:51 起）**：裸 wine 与容器
+  **都能**出界面；甚至换成全新空 `User Data` 后两者也都成功（405 色）。
+  所以容器**不是唯一必要条件**，黑屏与**宿主图形会话状态**相关；具体是哪一项
+  （Steam 客户端 / CEF、gf GBM/Mesa、XWayland 累积状态、残留孤儿进程）尚未单独定论。
+- 结论与《随从大师》「图形环境只注入目标进程树、绝不污染全局」「宿主 GL 栈异常会让
+  应用建窗失败」的经验一致：容器提供隔离的 Mesa/GL 栈，绕开宿主污染状态，因此
+  **保留为稳健默认**；`DOUBAO_NO_STEAM_RUNTIME=1` 可在干净会话里走轻量裸 wine 路径。
+- `doubao/run-doubao-wine11.sh` 已默认用 `run-in-sniper` 包装自身，桌面入口无需改动。
+- Deepin Wine 8.16 的 `RtlGetDeviceFamilyInfoEnum` 硬门槛仍在，主运行时必须是 Wine 11；
+  旧版 1.56.6 不作方案、不作回退、不作验收参照。
 
 不建议现在投入「把 Windows 豆包拆开后用 Electron 重新打包」。豆包不是只要替换 JavaScript 运行时就能迁移的普通 Electron 应用，主体是定制 Chromium 加大量闭源原生 DLL；完整重打包会持续碰到登录、推送、音视频、系统整合和自动更新等原生依赖。
 
@@ -27,7 +35,7 @@
 
 路线排序：
 
-1. **Wine 11 运行官方 2.32.6**：主线，当前唯一目标。
+1. **Steam Runtime 容器 + Wine 11 运行官方 2.32.6**：主线，当前唯一目标，已出真实界面。
 2. **Electron 外壳加载官方网页版**：可作为功能受限的备用客户端。
 3. **Windows 资源 + Electron 全量重打包**：不建议，投入大、维护性差，且无法绕开闭源原生模块。
 
@@ -39,13 +47,44 @@
 - 路径：`AppData/Local/Doubao/Application/app`（新版安装到用户目录，不覆盖 `Program Files`）
 - Wine 11 前缀：`~/.deepinwine/doubao-wine11`（Windows 用户名为 `steamuser`）
 - 安装入口：`doubao/install-doubao.sh`（2026-11-07 新增，已完整跑过两轮）
-- 启动器：`doubao/run-doubao-wine11.sh`
-- 状态：**未达到验收标准**。窗口 `1200x800` 始终 `IsUnMapped`；
-  且 2026-11-07 重测发现主进程 `CrBrowserMain` 在启动后 10 秒内退出（无 Crashpad 转储），
-  只剩 crashpad-handler / gpu-process / 2×renderer 成为孤儿进程。
-  早先「browser 全部存活」的结论需要重新验证，黑屏排查要先把主进程退出查掉。
+- 启动器：`doubao/run-doubao-wine11.sh`（自动套 Steam Runtime 容器）
+- 状态：**窗口与主进程已通过验证**（2026-11-08）。`1200x800` 窗口
+  `Map State: IsViewable`、抓图 405–546 色（白/浅灰为主），`CrBrowserMain` 连续存活
+  65 秒以上，日志出现真实页面资源；桌面入口连续 3 次启动通过。
+  登录、文字对话、10 分钟长时存活仍按第 8 节待验收。
 
-2026-11-07 22:12–22:35 复测补充的根因证据（供后续继续攻坚，别重复排查）：
+#### 2.1.1 根因判定与消融（2026-11-08，含会话边界）
+
+**必须区分图形会话**：本机 `uptime -s` 为 `2026-11-08 07:50:20`，GNOME/XWayland/Steam
+均在 07:51 重新启动。此前全部黑屏实验在旧会话，此后全部实验在新会话。
+
+| 会话 | 启动方式 | 主窗口 | 抓图 | 主进程 |
+|---|---|---|---|---|
+| 旧（重启前） | 宿主裸跑 `Proton 11.0/files/bin/wine` | `IsUnMapped` | 强制 XMap 后只有 `(0,0,0)` 1 色 | 约 10–20 秒 `NtTerminateProcess exit_code 0` 主动退出 |
+| 旧（重启前） | `run-in-sniper -- bash run-doubao-wine11.sh` | `IsViewable` | 546 色，白/浅灰为主 | 稳定 65 秒以上 |
+| 新（重启后） | 裸 wine（`DOUBAO_NO_STEAM_RUNTIME=1`） | `IsViewable` | 544 色 | 存活 |
+| 新（重启后） | 桌面入口（容器） | `IsViewable` | 405–546 色 | 存活 |
+| 新（重启后） | **全新空 `User Data` + 裸 wine / 容器** | 两者均 `IsViewable` | 均 405 色 | 均存活 |
+
+消融结论（避免以后重复走弯路）：
+
+- **容器是稳健默认，但不是唯一必要条件**：旧会话里它是唯一成功路径；新会话里
+  裸 wine 也能跑。差异指向**宿主图形会话状态**（Steam 客户端 / CEF、gf GBM/Mesa、
+  XWayland 累积状态或残留孤儿进程），具体是哪一项未单独定论，不要写成「缺 API」。
+  容器提供隔离的 Mesa/GL 栈，能绕开宿主污染，因此保留为默认启动方式。
+- **User Data 不是变量**：把 `Local State` 还原成 `info_cache={}`、删掉
+  `Default/Preferences` / `Remote_State` / `saman_update_info`，甚至整体换成全新空
+  `User Data`，容器内仍映射渲染；客户端会自行写全 profile。
+- **网络已排除**：WinINet 探针在 Wine 8.16 与 Wine 11 前缀里访问
+  `https://www.doubao.com/` 都拿到 HTTP 200（宿主 curl 302）。
+- **Wine 8.16 补 API 不是解法**：按 `osrelease_redirect.so` 同款办法做
+  `LD_PRELOAD` 打开重定向 + 给 `ntdll.dll` 追加 `RtlGetDeviceFamilyInfoEnum` 导出，
+  严格对照下 `FATAL:base\win\win_util.cc(544) ... 0x7F` 确实消失（日志 75 → 369 行），
+  但启动链随后进「豆包修复程序」流程，仍无主窗口。此路已证伪，不要重做。
+- **渲染后端不是根因**：Wine 的 `DCompositionCreateDevice3` 两个版本都返回
+  `E_NOTIMPL`，Chromium 本就会回退；下列开关在旧会话裸 wine 下全部仍为纯黑。
+
+旧会话裸跑 wine 的历史证据（保留供以后对照）：
 
 - `WINEDEBUG=+win` 显示主窗口类 `Chrome_WidgetWin_1`（HWND `0x1009e`，1200x800）
   以 `style=0x06cf0000` 创建，**不含 `WS_VISIBLE`**；此后**从未收到 `SW_SHOW`**，
@@ -139,10 +178,10 @@
 | 客户端 | 版本 | 当前状态 |
 |---|---|---|
 | `Program Files/Doubao/app` | 1.56.6 | 早期在 Deepin Wine 8.16 + Mesa 下可显示，**仅作历史对照** |
-| `AppData/Local/Doubao/Application/app` | 2.32.6 | 官方最新，**唯一目标版本**；Wine 11 下进程稳定，窗口待修 |
+| `AppData/Local/Doubao/Application/app` | 2.32.6 | 官方最新，**唯一目标版本**；经 Steam Runtime 容器启动已显示真实界面（见 2.1.1） |
 
 安装器还创建了 `~/Desktop/豆包.lnk`。`run-doubao-wine.sh` 仍指向旧版，
-`run-doubao-wine11.sh` 才是新版启动器；桌面入口需切换到后者。
+`run-doubao-wine11.sh` 才是新版启动器；桌面入口已于 2026-11-07 切到后者。
 
 ### 2.4 桌面入口回归（2026-11-07 22:08 实测，已修）
 
@@ -179,9 +218,9 @@ DING 会把它当成不可信启动器，双击不一定执行。
 `run-doubao-wine11.sh` 现在把启动输出同时写入
 `~/.local/share/doubao-wine11/launch.log`，方便排查没有终端的桌面双击。
 
-**边界**：这只修「点错运行时」这一层。Wine 11 下 2.32.6 窗口不映射 / 纯黑
-仍未解决（见 2.1），双击后仍可能看不到界面；按版本约定不会因此把默认入口
-改回 1.56.6，也不会加看门狗或自动重启。
+**边界**：这只修「点错运行时」这一层，与旧会话里宿主图形栈导致的黑屏
+是两个独立问题（见 2.1.1）。当前桌面入口指向的 `run-doubao-wine11.sh`
+已默认套容器，双击可正常出界面；全程不改回 1.56.6、不加看门狗或自动重启。
 
 ## 3. Deepin Wine 8.16 已确认的坑
 
@@ -339,7 +378,7 @@ Proton 自己的 `proton` 脚本使用：
 - `WINEDLLPATH=files/lib/vkd3d:files/lib/wine`
 - `LD_LIBRARY_PATH` 包含 `x86_64-linux-gnu`、`i386-linux-gnu` 等目录。
 
-### 4.3 实际进展（2026-11-07）
+### 4.3 实际进展（2026-11-07 → 2026-11-08 已闭环）
 
 在 `~/.deepinwine/doubao-wine11` 前缀中用 Proton 11.0 启动官方 2.32.6，实测：
 
@@ -349,11 +388,15 @@ Proton 自己的 `proton` 脚本使用：
 | 进程存活 | browser / crashpad-handler / gpu-process / 2×renderer / network service / storage service 全部在跑 |
 | FATAL / `CHECK failed` | 无 |
 | GPU 进程异常退出 | 无（1.56.6 在 Deepin Wine 下会反复 `-2147483645` 退出） |
-| 网络 | winsock 探针对 `www.doubao.com` 的 IPv4/IPv6 **全部 `CONNECT OK`** |
-| 窗口 | 「豆包」1200x800 与一个无标题 1440x704 窗口均 `IsUnMapped`；强制 map 后内容纯黑 |
+| 网络 | winsock 探针对 `www.doubao.com` 的 IPv4/IPv6 **全部 `CONNECT OK`**；WinINet HTTPS 200 |
+| 窗口（旧会话裸 wine） | 「豆包」1200x800 与一个无标题 1440x704 窗口均 `IsUnMapped`；强制 map 后内容纯黑 |
+| 窗口（旧会话容器） | **`IsViewable`，546 色真实界面，主进程 65 秒以上存活** |
+| 窗口（07:50 重启后的新会话） | 裸 wine 与容器**都** `IsViewable`（405–546 色），全新空 `User Data` 亦如此 |
 
-结论：**Wine 11 路线已经走通 API 兼容段**，剩下的黑屏属于渲染/窗口映射问题，
-不是 Wine API 缺失，也不是网络问题。
+结论：Wine 11 早已走通 API 兼容段，黑屏既不是 Wine API 缺失、网络、profile 状态，
+也不是渲染后端，而是**旧宿主图形会话状态**（具体项未定论）让裸 wine 建不出可见窗口；
+Steam Runtime 容器提供隔离 Mesa/GL 栈，在旧会话里是唯一成功路径，故设为稳健默认。
+重启后裸 wine 也可运行，详见 2.1.1 的会话对照表。
 
 排查方法论沉淀（避免重走弯路）：
 
@@ -371,7 +414,20 @@ Proton 自己的 `proton` 脚本使用：
 
 ## 5. Wine 11 启动环境（已落地为脚本）
 
-启动器：`doubao/run-doubao-wine11.sh`。其环境变量与 Proton 自带 `proton` 脚本保持一致：
+启动器：`doubao/run-doubao-wine11.sh`。**第一件事是把自身包进 Steam Runtime 容器**
+（隔离宿主图形栈，避免旧会话状态下建窗失败；干净会话下裸 wine 也能跑，
+但容器是更稳健的默认）。容器里的环境变量才是与 Proton 自带 `proton` 脚本保持一致的那一套：
+
+```bash
+RT="$HOME/.local/share/Steam/steamapps/common/SteamLinuxRuntime_sniper/run-in-sniper"
+exec env DOUBAO_STEAM_RUNTIME_CHILD=1 "$RT" -- bash "$SELF" "$@"
+```
+
+`DOUBAO_STEAM_RUNTIME_CHILD` 防止容器内二次包装；找不到 sniper 时回退 soldier，
+两者都没有就明确报错退出，不静默改变启动路径。
+`DOUBAO_NO_STEAM_RUNTIME=1` 走轻量裸 wine 路径（干净图形会话下可用，旧污染会话下会黑屏）。
+
+容器内实际生效的变量：
 
 ```bash
 PROTON="$HOME/.local/share/Steam/steamapps/common/Proton 11.0"
@@ -401,7 +457,9 @@ DOUBAO_WINE11_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/install-doubao.s
 
 脚本做的事：先 curl 预查官方下发版本 → 只杀本前缀的 Wine 进程 → 拉起安装器并
 自动点「立即安装」（`/S` 不静默，必须点）→ 等安装日志 `_OnInstallSuccess` →
-收尾杀掉安装器自动拉起的黑屏实例 → 跑一次 `fix-doubao-wine.sh`。
+收尾杀掉安装器自动拉起的实例（安装器是裸 wine 拉起，会黑屏）→ 跑一次
+`fix-doubao-wine.sh` 与 `fix-doubao-desktop.sh`。正式启动一律走套了容器的
+`run-doubao-wine11.sh`。
 依赖 `xdotool` / `xprop` / `python3-xlib` / `Pillow`；缺依赖时会退成“请人工点按钮”，
 脚本继续等日志结果。安装器日志落在 `User Data/sdk_storage/log/Doubao-installer.log`，
 完成与否以它为准，不看版本号是否变化（同版本重装时版本号不变）。
@@ -458,34 +516,43 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 
 如果走这条路，默认先用软件渲染；稳定后再参考 `electron/use-electron-gf.sh` 评估 gf，不要第一天就叠加硬件加速变量。
 
-## 7. 建议实施顺序
+## 7. 实施顺序（1–2 已完成）
 
-1. **修黑屏**：定位并解决 Wine 11 下窗口不映射 / 内容纯黑的问题。
-2. **确认页面真实内容**：窗口内渲染的必须是豆包真实界面，不是白屏或崩溃页。
-3. **逐项验收**：登录、文字对话、文件上传、音频/RTC、重复启动。
-4. **切换桌面入口**：新版连续手动启动验证通过后，把 `~/Desktop/doubao-wine.desktop`
-   从 `run-doubao-wine.sh`（旧版）改到 `run-doubao-wine11.sh`（新版）。
-5. **最后才评估 gf 加速**：Wine API 兼容与 gf 渲染是两个问题，不能混在一起排查。
+1. ✅ **修黑屏**：旧宿主图形会话下裸 wine 不出窗口；启动器默认套 Steam Runtime
+   容器隔离 Mesa/GL 栈后稳定出界面（07:50 重启后的新会话里裸 wine 也能跑，见 2.1.1）。
+2. ✅ **确认页面真实内容**：窗口抓图 546 色（白/浅灰为主），日志出现
+   `chrome://doubao-chat/`、`chrome://doubao-launcher/`，不是白屏或纯黑。
+3. **逐项验收**：登录、文字对话、文件上传、音频/RTC（需用户交互）；重复启动已 3/3 通过。
+4. ✅ **桌面入口**：`~/Desktop/doubao-wine.desktop` 已指向
+   `run-doubao-wine11.sh` 并标记 trusted（见 2.4）。
+5. **最后才评估 gf 加速**：容器路线先用 Mesa 软件渲染稳定，再单独一轮评估 gf。
 
 账号数据不要直接整目录覆盖。日志里已出现 `AppBoundEncryption` 错误，跨 Wine/前缀迁移后应有重新登录的心理准备。
 
 ## 8. 验收标准（新版 2.32.6）
 
-新版至少满足以下条件，才算修完：
+新版至少满足以下条件，才算修完（2026-11-08 实测进度）：
 
-- 60 秒内出现主窗口；
-- `CrBrowserMain` 连续存活 10 分钟以上；
-- 没有新的 browser 主进程 Crashpad 转储；
-- 登录和文字对话可用；
-- 连续进行 3 次手动启动均正常；
-- 版本保持官方 2.32.6，不需要禁用更新器或屏蔽版本号才能运行。
+- ✅ 60 秒内出现主窗口（容器内约 20 秒内 `IsViewable`）；
+- ⬜ `CrBrowserMain` 连续存活 10 分钟以上（已验证 65 秒以上，长时验证待做）；
+- ✅ 没有新的 browser 主进程 Crashpad 转储；
+- ⬜ 登录和文字对话可用（需用户交互确认）；
+- ✅ 连续 3 次从 `~/Desktop/doubao-wine.desktop` 启动均正常：三次都
+  `map=2`、546–547 色、`main_browser=1`、`pressure_vessel` 在跑；
+- ✅ 版本保持官方 2.32.6，不需要禁用更新器或屏蔽版本号才能运行。
 
-若 Wine 11 仍失败：
+2026-11-08 抓图人工确认：窗口内是真实豆包主界面（「有什么我能帮你的吗？」、
+左侧「新工作任务 / 新对话 / API 服务 / 更多」、左下「登录」、底部输入框与
+对话 / 项目 / PPT 生成 / 图像生成 / 视频生成入口），不是白屏或崩溃页。
+
+若后续仍失败：
 
 - 用对应 Proton 的 `wineserver -k` 只关闭 Wine 11 测试前缀；
 - 不做崩溃后自动重启，不用 supervisor 掩盖主进程退出；
-- 继续按日志定位下一个 Wine API 或渲染问题，
-  **不退到旧版客户端**；若要换方向，只能整体转向功能明确的网页版 Electron 外壳。
+- 先查 Steam Runtime 容器是否还在（Steam 更新会替换 `sniper_platform_*` 目录，
+  顶层 `run-in-sniper` 会随之重生成），再按 `~/.local/share/doubao-wine11/launch.log`
+  定位下一层问题；
+- **不退到旧版客户端**；若要换方向，只能整体转向功能明确的网页版 Electron 外壳。
 
 ## 9. 相关文件
 
@@ -493,8 +560,9 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
   自动点「立即安装」、以 `_OnInstallSuccess` 为完成判据，装完自动跑前缀层修复与桌面入口修复。
 - `doubao/fix-doubao-desktop.sh`：**桌面入口修复**（幂等、`--status`、`--uninstall`）：
   统一 Exec 到 Wine 11、打 trusted 标记、移走 `豆包.lnk`。
-- `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的 Wine 11 启动器（主线）**；
-  启动日志落在 `~/.local/share/doubao-wine11/launch.log`。
+- `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的主线启动器**，自动套
+  `SteamLinuxRuntime_sniper` 容器；启动日志落在 `~/.local/share/doubao-wine11/launch.log`。
+  `DOUBAO_NO_STEAM_RUNTIME=1` 可回到裸 wine 做对照诊断。
 - `doubao/fix-doubao-wine.sh`：与版本无关的前缀层修复（WinSxS 软链接、LocalLow 目录）；
   不再做版本回退、不锁版本、不禁用更新器。
 - `doubao/run-doubao-wine.sh`：旧版 1.56.6 的 Mesa 启动器和空 URI 过滤，仅作历史对照。

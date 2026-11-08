@@ -3,6 +3,47 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+## 2026.11.08 — 豆包 2.32.6 主窗口跑通（Steam Runtime 容器为稳健默认）
+
+### 根因（按图形会话区分）
+
+- **旧会话（11-07 22:00 – 11-08 02:53）**：裸跑宿主 `Proton 11.0/files/bin/wine`
+  时 Chromium 147 主窗口以不含 `WS_VISIBLE` 的 style 创建、此后从未收到 `SW_SHOW`，
+  `Map State: IsUnMapped`；强制 XMap 后抓图仍只有 `(0,0,0)` 1 色，主进程以
+  `NtTerminateProcess ... exit_code 0` 主动退出。经 `SteamLinuxRuntime_sniper`
+  容器启动则窗口 `IsViewable`、546 色真实界面 —— 容器是旧会话里唯一成功路径。
+- **机器 07:50:20 重启后（GNOME/XWayland/Steam 07:51 起）**：裸 wine 与容器
+  **都能**出界面，换成全新空 `User Data` 后两者也都成功（405 色）。
+  所以容器**不是唯一必要条件**，黑屏指向**宿主图形会话状态**
+  （Steam 客户端 / CEF、gf GBM/Mesa、XWayland 累积状态或残留孤儿进程），
+  具体哪一项未单独定论；容器靠隔离 Mesa/GL 栈绕开污染，因此保留为稳健默认。
+- 已排除：Wine API 缺失、网络、profile 状态、渲染后端。与《随从大师》
+  「图形环境只注入目标进程树、绝不污染全局」的经验一致。
+
+### 修复
+
+- `doubao/run-doubao-wine11.sh` 默认用 `run-in-sniper` 包装自身
+  （`DOUBAO_STEAM_RUNTIME_CHILD` 防递归，sniper → soldier 回退，都没有则明确报错，
+  不静默降级）；`DOUBAO_NO_STEAM_RUNTIME=1` 走轻量裸 wine 路径，干净会话下可用。
+- `doubao/fix-doubao-desktop.sh` 统一桌面与用户级 `.desktop` 的 Exec、打
+  `metadata::trusted`、把会被 DING 交给 deepin-wine8-stable 的 `豆包.lnk` 移出桌面；
+  `install-doubao.sh` 安装成功后自动跑一次。
+- 启动输出落盘到 `~/.local/share/doubao-wine11/launch.log`，便于排查桌面双击。
+
+### 验证
+
+- 容器内 1200x800 主窗口 `IsViewable`，抓图 546 色真实界面（「有什么我能帮你的吗？」、
+  登录按钮、输入框与对话 / PPT 生成等入口），日志出现 `chrome://doubao-chat/`。
+- 桌面入口连续 3 次启动全部通过：`map=2`、546–547 色、`CrBrowserMain` 存活、容器在跑。
+- 会话对照与消融：还原实验前空 profile 状态、删除 `Preferences` / `Remote_State` /
+  `saman_update_info`，甚至整体换成全新空 `User Data`，容器内（新会话里裸 wine 亦然）
+  仍正常出界面；WinINet 在两个前缀访问 `https://www.doubao.com/` 均 HTTP 200，
+  排除网络；8 组渲染开关在旧会话裸 wine 下全部无效；给 Wine 8.16 补
+  `RtlGetDeviceFamilyInfoEnum` 只消除 `win_util.cc(544)` FATAL 却仍进修复流程且
+  无主窗口，此路已证伪。
+- `bash tests/run-tests.sh -v`：9/9 通过；厂商驱动基线 v262.2.0.56 一致。
+- 未做自动重启 / 看门狗；长时存活（10 分钟）、登录与文字对话仍列为待用户验收项。
+
 ## 2026.10.25 — 植物大战僵尸 GOTY（AppID 3590）四层根因与 7G100 硬件渲染修复
 
 ### 新增

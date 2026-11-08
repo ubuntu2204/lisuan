@@ -112,7 +112,23 @@ dkms status
 
 - Deepin Wine 8.16 的已知坑：WinSxS 绝对软链指向 `/home/zcr`、`AppData/LocalLow` 缺失触发 cryptnet `FILE* = -1`、gf 图形环境卡住、桌面裸 `--uri` 进入修复、降级后 Chromium 缓存和 `Last Version` 不兼容、自动更新到 2.32.6。
 - 旧版 1.56.6 / Chromium 129 在修复前缀 + Mesa 软件渲染下可用；新版 2.32.6 / Chromium 147 在 Deepin Wine 8.16 缺 `RtlGetDeviceFamilyInfoEnum`，Proton 11 已导出该函数。
-- Wine 11 独立前缀目前只越过缺失 API，尚未完成“窗口 + 主进程 + 重复启动”验收；详见 `doubao/README.md`。
+- 2026-11-08 已能启动真实界面，**结论要按图形会话区分**：旧会话
+  （11-07 22:00 – 11-08 02:53）里裸跑宿主 `wine` 主窗口 `IsUnMapped`（强制 XMap 仍纯黑
+  1 色）、约 10–20 秒 `exit_code 0` 主动退出；用
+  `SteamLinuxRuntime_sniper/run-in-sniper -- bash doubao/run-doubao-wine11.sh` 则
+  `IsViewable`、546 色（`chrome://doubao-chat/`）、主进程 65 秒以上存活，是当时唯一成功路径。
+  机器 07:50:20 重启后，裸 wine 与容器**都能**出界面，全新空 `User Data` 亦如此。
+  故容器是**稳健默认（隔离宿主 Mesa/GL 栈）而非唯一必要条件**，黑屏指向宿主图形会话
+  状态（具体项未定论）。启动器已默认包装容器，`DOUBAO_NO_STEAM_RUNTIME=1` 走轻量裸 wine，
+  找不到 `run-in-sniper` 时明确报错而非静默降级。
+- 消融已排除：profile 状态（`Local State` / `Preferences`）、云配置 `Remote_State`、
+  8 组渲染开关、网络（WinINet 在两个前缀访问 `https://www.doubao.com/` 均 HTTP 200）、
+  `DCompositionCreateDevice3` stub（两个 Wine 都返回 `E_NOTIMPL`，Chromium 本就回退）。
+  给 Wine 8.16 补 `RtlGetDeviceFamilyInfoEnum` 导出只消除 `win_util.cc(544)` FATAL，
+  随后仍进修复流程且无主窗口，此路已证伪，不要重做。详见 `doubao/README.md` §2.1.1。
+- 桌面入口另有回归：`~/Desktop/豆包.lnk` 会被 DING 交给 deepin-wine8-stable 并撞 `0x7F` FATAL；
+  `doubao/fix-doubao-desktop.sh` 统一两个用户级 `.desktop` 的 Exec、打 `metadata::trusted`、
+  把 `.lnk` 移出桌面（可 `--uninstall` 还原）。
 - 禁止把 `update.exe` 改名，豆包修复器会把它列入 `missing_files`；版本屏蔽配置也不能阻止 `update_data` 覆盖更新器。
 - Windows 客户端全量 Electron 重打包不推荐；网页版 Electron 外壳是功能受限的备用方案。
 

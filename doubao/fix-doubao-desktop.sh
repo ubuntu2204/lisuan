@@ -66,7 +66,7 @@ write_entry() {
 [Desktop Entry]
 Type=Application
 Name=豆包
-Comment=豆包官方 2.32.6（Wine 11 / Proton 11）
+Comment=豆包官方 2.32.6（Steam Runtime / Wine 11）
 Exec="$LAUNCHER" %F
 Terminal=false
 Categories=Utility;
