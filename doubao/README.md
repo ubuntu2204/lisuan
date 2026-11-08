@@ -303,6 +303,42 @@ DING 会把它当成不可信启动器，双击不一定执行。
 但也解决不了「mutter 已占用 selection」这一点，所以**不引入新依赖**，改用上面的
 显式入口；豆包在 Windows 上点 X 同样是隐入托盘，行为并不特殊。
 
+#### 2.6.1 顶部状态栏的「退出」为什么时好时坏（2026-11-08 09:50 追加实测）
+
+用户反馈：顶部状态栏图标的「退出」有时候好使、有时候不好使。实测结论是
+**这条路径从来没真正退出过豆包**，只是有时候看起来像退了：
+
+- **顶栏里根本没有豆包图标**。`StatusNotifierWatcher` 的 `RegisteredStatusNotifierItems`
+  实测只有 5 项：QQ（`:1.124`，`chrome_status_icon_1`）、EpicGamesLauncher
+  （`:1.140`）、微信（`org.kde.StatusNotifierItem-6446-1`）、Steam（`:1.169`）、
+  update-notifier（`:1.171`）。从头到尾重新拉起豆包并每 2 秒轮询 40 秒：
+  XEmbed 嵌入图标数**恒为 0**，SNI 里也没有豆包项 —— Proton 11 的 `*.so` 里
+  搜不到 `StatusNotifier` 串，Wine 不可能出现在顶栏。
+- **GNOME 对 X11 应用的「退出」就是给窗口发 `WM_DELETE_WINDOW`**（等价
+  `xdotool windowclose` / Alt+F4）。三种组合实测都不退进程（17 个进程一直存活）：
+
+  | 组合 | 结果 |
+  |---|---|
+  | 只关主窗口 | 17 进程存活，主窗口被**销毁**（不是隐入） |
+  | 悬浮球「隐藏直到下次重启豆包」后再关主窗口 | 17 进程存活 |
+  | 主窗口 + 悬浮球都关 | 17 进程存活（12 秒内无变化） |
+
+- 所以「好使」的只是**窗口全消失了**，进程还在；「不好使」往往是还剩一个
+  悬浮球或对话浮窗。区分只有一句：`./doubao/quit-doubao.sh --status` 看进程数，
+  非 0 就是没退；要真退只有 `--quit`。
+- 想要一个不用打字的退出按钮，可以加个 GNOME 快捷键（可逆，不改客户端）：
+
+  ```bash
+  gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings \
+    "['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/doubao-quit/']"
+  gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/doubao-quit/ \
+    name '彻底退出豆包'
+  gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/doubao-quit/ \
+    command '/home/ubuntu/project/lisuan/doubao/quit-doubao.sh --quit'
+  gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/doubao-quit/ \
+    binding '<Super><Alt>q'
+  ```
+
 ## 3. Deepin Wine 8.16 已确认的坑
 
 ### 坑 1：安装包把 WinSxS DLL 链接写死到打包者 home

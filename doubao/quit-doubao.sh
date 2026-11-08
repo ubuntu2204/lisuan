@@ -14,6 +14,11 @@
 #      saman.general_settings.* 只有 double_click_close_tab / file_open_method /
 #      link_open_method / primary_browser 四个键；桌面悬浮球右键菜单也只有
 #      「打开豆包窗口 / 停用豆包桌面悬浮球」等，没有退出项。
+#   4) 顶部状态栏（或任何 WM 级「退出」）发的也是 WM_DELETE_WINDOW，同样退不掉：
+#      只关主窗口 / 隐藏悬浮球后再关 / 主窗口与悬浮球都关，三种组合下 17 个进程
+#      都一直存活（顶栏里其实也没有豆包图标：SNI 只有 QQ/微信/Steam/Epic/
+#      update-notifier，启动后 40 秒轮询 XEmbed 嵌入图标数恒为 0）。所以「有时
+#      候好使」只是窗口全消失了看起来像退了 —— 用 --status 看进程数才能分辨。
 #
 # 因此这里只做三件事，全部显式、按需调用：
 #   --quit（默认） 彻底退出本前缀的豆包进程；
