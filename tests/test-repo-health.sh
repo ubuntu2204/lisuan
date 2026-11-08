@@ -89,8 +89,8 @@ from pathlib import Path
 root = Path(sys.argv[1])
 sys.path.insert(0, str(root / "packaging"))
 import lisuan_fix_core as core
-assert len(core.ITEMS_BY_ID) == 25
-assert core.GROUP_ORDER[-1] == "求生之路 2"
+assert len(core.ITEMS_BY_ID) == 29
+assert core.GROUP_ORDER[-1] == "Windows 应用"
 assert core.ITEMS_BY_ID[22]["root"] is False
 assert core.ITEMS_BY_ID[22]["cmd"]([])[1].endswith("left4dead2/fix-l4d2.sh")
 assert core.ITEMS_BY_ID[23]["root"] is False
@@ -103,8 +103,40 @@ assert core.ITEMS_BY_ID[24]["cmd"]([])[1].endswith("Plants-vs-Zombies/fix-plants
 assert core.ITEMS_BY_ID[25]["doc"] == "Plants-vs-Zombies/README.md"
 assert core.UNDO[24]["root"] is False
 assert "--uninstall" in core.UNDO[24]["cmd"]
+# Windows 应用（Wine 11）：豆包 / 即梦 AI 官方 Windows 客户端
+# 安装项 + 说明项各两个；都是当前用户操作，不需要 root。
+assert core.ITEMS_BY_ID[26]["root"] is False
+assert core.ITEMS_BY_ID[26]["cmd"]([])[1].endswith("doubao/install-doubao.sh")
+assert core.ITEMS_BY_ID[26]["group"] == "Windows 应用"
+assert core.ITEMS_BY_ID[27]["doc"] == "doubao/README.md"
+assert core.ITEMS_BY_ID[28]["root"] is False
+assert core.ITEMS_BY_ID[28]["cmd"]([])[1].endswith("dreamina/install-dreamina.sh")
+assert core.ITEMS_BY_ID[28]["group"] == "Windows 应用"
+assert core.ITEMS_BY_ID[29]["doc"] == "dreamina/README.md"
 PY
 t_assert_eq 0 $? "L4D2 menu 22/23 and undo registration"
+
+# --- 7b. Windows 应用（Wine 11）资源与打包 -----------------------------------
+for f in doubao/install-doubao.sh \
+         doubao/run-doubao-wine11.sh \
+         doubao/README.md \
+         dreamina/install-dreamina.sh \
+         dreamina/run-dreamina.sh \
+         dreamina/powershell-stub.c \
+         dreamina/README.md; do
+  [[ -f "${REPO_TOP}/$f" ]]
+  t_assert_eq 0 $? "Wine 11 app resource present: $f"
+done
+t_assert_grep "${REPO_TOP}/packaging/build-deb.sh" \
+  'for d in doubao dreamina' "deb includes Wine 11 app scripts"
+# 官方安装器属厂商专有产物，不得入库
+for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.exe'; do
+  if git -C "$REPO_TOP" ls-files -z -- "$pat" 2>/dev/null | grep -qz .; then
+    t_fail "vendor installer must not be tracked: $pat"
+  else
+    t_ok "no vendor installer tracked: $pat"
+  fi
+done
 
 # --- 8. Driver baseline and project skill -----------------------------------
 t_assert_grep "${REPO_TOP}/install.py" \

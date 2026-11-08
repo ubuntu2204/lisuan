@@ -1,0 +1,12 @@
+[Desktop Entry]
+Encoding=UTF-8
+Type=Application
+Categories=Utility;
+Icon=/opt/apps/doubao-wine/entries/icons/hicolor/scalable/apps/doubao-wine.png
+Exec="/home/ubuntu/project/lisuan/dreamina/run-dreamina.sh" %F
+Name=即梦 AI
+Comment=即梦 AI 桌面客户端 1.0.59（Steam Runtime / Wine 11）
+MimeType=
+GenericName=dreamina-wine
+Terminal=false
+StartupNotify=false

@@ -1,15 +1,22 @@
-# 豆包 Windows 客户端：Wine 11 排障记录（目标：官方最新版 2.32.6）
+# 豆包 Windows 客户端：Wine 11 排障记录（目标：官方最新版本）
 
 更新时间：2026-11-08
 
 平台：Ubuntu 24.04、海光 C86-4G、砺算 7G100、XWayland
 
-> 约定：本文所有结论以**官方最新版 2.32.6** 为目标。旧版 1.56.6 只作为历史对照，
+> 约定：本文所有结论以**官方最新版本**为目标。官方版本有**两个口径**：
+> 安装器渠道（2026-11-08 实测 2.32.6）与客户端运行版本（自更新后可更高，实测 2.35.8），
+> 区别见 **2.1.2**，不要混用。旧版 1.56.6 只作为历史对照，
 > 不作为解决方案、回退方案或验收参照。详见 `.codebuddy/rules/豆包客户端版本约定.md`。
+
+**统一菜单入口**（`install.py`）：**26** = 安装/修复（`doubao/install-doubao.sh`），
+**27** = 本说明文档。官方安装器需自行从官网下载后放入 `doubao/` 目录（或 `~/下载`），
+脚本会自动查找（`.exe` 不入库，见 `.gitignore`）。
 
 ## 1. 结论先行
 
-**主线是「Steam Runtime 容器 + Proton 11 对应的原生 Wine 11 + 独立前缀」跑官方 2.32.6。**
+**主线是「Steam Runtime 容器 + Proton 11 对应的原生 Wine 11 + 独立前缀」跑官方最新版本。**
+（安装器渠道当前给 2.32.6，客户端自更新后可以是更高版本，见 2.1.2。）
 
 2026-11-08 实测结论（**已能启动并显示真实界面**，但根因要按会话区分）：
 
@@ -42,11 +49,64 @@
 2. **Electron 外壳加载官方网页版**：可作为功能受限的备用客户端。
 3. **Windows 资源 + Electron 全量重打包**：不建议，投入大、维护性差，且无法绕开闭源原生模块。
 
+### 1.1 顶层定案：顶栏托盘菜单「关一次即永久失效」（2026-11-08 反编译 + 受控对照实验）
+
+这是目前所有图形栈排障里**唯一被彻底定案**的问题，完整证据链在 **2.6.3**，此处只放结论。
+
+**规律（可复现、可计数）**：
+
+> 客户端每次启动后，**第一次**右键托盘图标必弹菜单；
+> 菜单**一旦被关闭过一次**（按 ESC / 点菜单外 / 点菜单项，三者等价），
+> 之后**永久**不再弹出，直到重启客户端。
+> 反过来：菜单一直开着不关，连续右键都正常。
+
+**责任方：客户端自身，与 Wine / GNOME / appindicator 无关。** 依据：
+
+| 层次 | 证据 | 结论 |
+|---|---|---|
+| 事件投递 | Wine systray 日志：8 次右键 = 8 次 `WM_RBUTTONDOWN(0x204)` → `notify_owner relaying 0x204` → `send_inter_thread_message hwnd 0xc0184 msg 8001`，目标窗口始终是客户端的 `Doubao_StatusTrayWindow` | 右键**完整到达客户端**，不是图形栈吞掉 |
+| 客户端内部 | 日志门控实测开着（`[0x192c788f0]=0`、`[0x192a40990]=1`），但整个会话日志**从未出现** `OnStatusIconClicked`；`_work/watch_menu.py` 以 0.03s 粒度轮询，坏态下右键**一次也没有** 165x284 菜单窗口闪现 | 不是「建了又被毁」，而是**根本没进创建流程** |
+| 静态反编译 | `Doubao.dll`（ImageBase `0x180000000`）：`OnStatusIconClicked` @ `0x184856700`；`BuildMainStatusIconContextMenu` 引用点 `0x184855b86/0x184855c20/0x184855ce4`，`menu_ is null` 判断在 `0x184855c4a`；`main_status_icon_` 成员偏移 `this+0xb0` | 客户端自己的菜单对象状态机坏死 |
+| 坏态/好态对比 | 两种状态下 Wine 的 systray 日志**逐字相同** | 责任在客户端，不在 Wine |
+| 交叉验证 | 坏态下 Chromium 自己的气泡菜单（右上角 `⋯`）能正常弹出并关闭 → 全局 MenuController 健康 | 托盘是独立的一套状态 |
+| 外部复位 | 激活/最小化主窗口、重广播 `TaskbarCreated`、左键单击、单实例再拉、Wine 内部注入 `WM_APP+1`、开关另一个 Chromium 菜单 —— **六种全部无效** | 无法从外部复位 |
+
+同时**推翻了两个曾经的假设**：
+
+- 「强制更新守卫吞掉点击」—— 进程内存直读该守卫字节 = `0x00`（从未置位），作废；
+- 「`main_status_icon_ is null` 是根因」—— 精确串匹配后确认所有该日志**都在启动阶段**，与好坏态无关。
+
+**唯一有效的恢复手段：重启客户端**（没有别的）。已交付诊断/修复工具：
+
+```bash
+./doubao/tray-doctor.sh --status   # 只读：进程数、主窗口、托盘图标、提醒
+./doubao/tray-doctor.sh --probe    # 判定好坏态（会真弹菜单，不替你关）
+./doubao/tray-doctor.sh --fix      # 探测 → 坏则重启客户端 → 等托盘图标注册 → 复测
+```
+
+实测闭环（同一台机器、同一客户端）：
+
+```
+好态：--probe → GOOD（菜单窗口 0x5a0000e 出现）
+      → ESC 关闭菜单
+坏态：--probe → BAD（6 秒内 0 个菜单窗口）
+      → --fix 重启客户端 → 等托盘图标就位 → --probe → GOOD
+```
+
+**给使用者的结论**：托盘右键不弹时**不要折腾图形栈**，直接 `--fix`；
+并且记住**别随手把菜单关掉就期待它还能再弹** —— 想用的时候就开着，
+要关就等这一轮用完再重启客户端。
+
+> 注：这是**客户端的设计缺陷**，不是本项目引入的，也不是 Wine 的问题。
+> 豆包在 Windows 上的行为是否相同未验证（Windows 上托盘走 Win32 原生通知区，
+> 菜单生命周期由 Shell_NotifyIcon 与 Chromium 菜单系统共同管理，机制不同）。
+
 ## 2. 当前实际状态
 
 ### 2.1 目标版本（唯一目标）
 
-- 客户端：`2.32.6 / Chromium 147.0.7727.149`（2026-11-07 官方接口确认仍是最新）
+- 客户端：安装器渠道 `2.32.6 / Chromium 147.0.7727.149`；客户端自更新后可到更高版本
+  （2026-11-08 实测运行中为 `2.35.8`）。两个口径的区别见 **2.1.2**，不要混用。
 - 路径：`AppData/Local/Doubao/Application/app`（新版安装到用户目录，不覆盖 `Program Files`）
 - Wine 11 前缀：`~/.deepinwine/doubao-wine11`（Windows 用户名为 `steamuser`）
 - 安装入口：`doubao/install-doubao.sh`（2026-11-07 新增，已完整跑过两轮）
@@ -109,6 +169,47 @@
   残留孤儿进程用 `WINEPREFIX=~/.deepinwine/doubao-wine11 <Proton>/files/bin/wineserver -k`
   清理，**不做自动重启**。
 
+#### 2.1.2 两条版本通道：安装器渠道 ≠ 客户端运行版本（2026-11-08 21:08 实测）
+
+「官方最新版」在本项目里有**两个口径**，不写清楚就会得出互相矛盾的结论：
+
+| 通道 | 取证方式 | 2026-11-08 实测值 |
+|---|---|---|
+| **安装器渠道** | `settings/v3?update_type=downloader` 返回 `doubao_pc/<ver>/Doubao_win_X64_<ver>-signed.zip` | **2.32.6** |
+| **客户端运行版本** | 客户端 crashpad 记录里的 `app_version` 字段 | **2.35.8** |
+
+- 安装器自己请求的也是同一个接口、也是 2.32.6：
+
+  ```
+  21:07:45  [install] host: www.doubao.com, path: service/settings/v3/?...&update_type=downloader&...
+  21:07:45  [install] host: lf-flow-web-cdn.doubao.com, path: obj/flow-doubao/doubao_pc/2.32.6/Doubao_win_X64_2.32.6-signed.zip
+  ```
+
+- 但客户端进程自己报的是更高版本：
+
+  ```
+  [Parfait] Record crash {"aid":"7777","app_version":"2.35.8","channel":"webdaoliu_doudi_online_installer_win",...}
+  ```
+
+  （`saman_crashpad_handler_2026.1108.log`，`client_timestamp=1794098970771` ≈ 2026-11-08 08:49 CST）
+
+**由此产生的实测行为**（2026-11-08 21:07 走 `install.py` 菜单 26 实跑）：
+
+```
+安装前版本：2.35.8     ← 客户端已自更新到 2.35.8
+安装后版本：2.32.6     ← 安装器渠道的包把客户端拉回了 2.32.6
+```
+
+即**跑一次官方安装器 = 先把客户端落回安装器渠道版本**，之后客户端自己的更新器
+再决定最终跑到哪个版本。因此：
+
+- 「官方接口返回 2.32.6」**不能**用来断言「本机装的客户端就是 2.32.6」，
+  也不能断言「2.32.6 是客户端侧最新」；
+- 判断本机实际版本要看 `Application/app/manifest.json` 的 `version` 字段，
+  运行期看 crashpad 的 `app_version`；
+- 本项目**不做任何版本锁定或回退**（见 `.codebuddy/rules/豆包客户端版本约定.md`），
+  安装器给什么版本就装什么版本。
+
 ### 2.2 旧版（仅作历史对照，不得作为方案）
 
 - 客户端：`1.56.6 / Chromium 129.0.6668.79`
@@ -137,8 +238,10 @@
     | grep -oE 'doubao_pc/[0-9.]+/Doubao_win_X64_[0-9.]+-signed\.zip'
   ```
 
-  2026-11-07 21:44 实测返回 `doubao_pc/2.32.6/Doubao_win_X64_2.32.6-signed.zip`，
-  即**官方 Windows x64 最新版仍是 2.32.6**，与本机已装版本一致。
+  2026-11-07 21:44 与 2026-11-08 21:07 两次实测均返回
+  `doubao_pc/2.32.6/Doubao_win_X64_2.32.6-signed.zip`，即**安装器渠道当前仍是 2.32.6**。
+  注意这个接口只代表安装器渠道，**不代表客户端运行版本**（本机运行中一度是 2.35.8，
+  详见 2.1.2）；换 `update_type=update/updater/hotupdate` 或留空，接口一律回 2.32.6。
 
 #### `/S` 不是静默安装（2026-11-07 实测推翻旧结论）
 
@@ -155,6 +258,20 @@
 它用 `_NET_WM_PID` 反查确认安装器窗口、抓窗口位图按按钮主题色 `#3370FF`
 定位「立即安装」实心块（不写死坐标，兼容 DPI 缩放），点下去后以安装日志
 本轮新增行里的 `_OnInstallSuccess` 为完成判据。
+
+抓图与点击这一段有四个必须处理的坑（2026-11-08 21:07 通过 `install.py` 菜单实跑才暴露）：
+
+- **窗口枚举要按 PID 过滤**：豆包客户端自身也注册名为「豆包」的窗口，
+  混进来会抓到没有安装界面的窗口。
+- **必须等映射**：安装器窗口刚建出来时 `map_state != IsViewable`，
+  此时 `XGetImage` 直接抛 `Xlib.error.BadMatch`（`code=8`）。脚本改为轮询
+  `map_state` 并重试抓图，最多等 60 秒。
+- **点击要走 XTEST**：`xdotool click --window` 用的是 `XSendEvent` 合成事件，
+  Wine 侧会忽略；改成 `mousemove --window` + `xdotool click` 的真实指针点击。
+- **安装前必须关掉同前缀的客户端**：Wine 进程的命令行里**不含** `WINEPREFIX`
+  （只有 `C:\...` 路径），`pgrep -f "$PREFIX"` 匹配不到；前缀只在
+  `/proc/<pid>/environ` 里。脚本改用 `environ` 精确匹配，否则运行中的豆包关不掉，
+  安装器会因文件被占用而卡住。
 
 #### 一次完整安装的实际行为（2026-11-07 21:46 日志）
 
@@ -181,7 +298,7 @@
 | 客户端 | 版本 | 当前状态 |
 |---|---|---|
 | `Program Files/Doubao/app` | 1.56.6 | 早期在 Deepin Wine 8.16 + Mesa 下可显示，**仅作历史对照** |
-| `AppData/Local/Doubao/Application/app` | 2.32.6 | 官方最新，**唯一目标版本**；经 Steam Runtime 容器启动已显示真实界面（见 2.1.1） |
+| `AppData/Local/Doubao/Application/app` | 2.32.6（安装器渠道；客户端自更新后可为 2.35.8） | **唯一目标版本**；经 Steam Runtime 容器启动已显示真实界面（见 2.1.1、2.1.2） |
 
 安装器还创建了 `~/Desktop/豆包.lnk`。`run-doubao-wine.sh` 仍指向旧版，
 `run-doubao-wine11.sh` 才是新版启动器；桌面入口已于 2026-11-07 切到后者。
@@ -301,6 +418,11 @@ DING 会把它当成不可信启动器，双击不一定执行。
 
 #### 2.6.1 顶部状态栏的「退出」为什么时好时坏（2026-11-08 10:15 更正并补测）
 
+> ⚠️ **本小节的最终结论已被 2.6.3 推翻**：当时归因于「云配置 / 登录态拉不到 → 建不出菜单」，
+> 实测证明那是**红鲱鱼** —— 真因是**菜单一旦被关闭过就永久失效**（见 1.1 / 2.6.3）。
+> 本小节保留是因为它的取证（托盘图标本体、XEmbed 状态、6 种输入尝试）
+> 仍是有效的，且记录了「如何证伪一个看似合理的假设」。
+
 **先更正**：本小节上一版写「顶栏里根本没有豆包图标」是错的。当时只查了
 SNI 注册表和 `_NET_SYSTEM_TRAY_S0` owner 的子窗口数，漏了一个事实：
 Ubuntu 的 `ubuntu-appindicators` 扩展**自带 legacy XEmbed 托盘**：
@@ -363,6 +485,12 @@ gsettings get org.gnome.shell.extensions.appindicator tray-pos             # 'ri
 
 #### 2.6.2 带 Wine systray 调试的深挖：菜单为什么「时有时无」（2026-11-08 13:20）
 
+> ⚠️ **本小节结论已被 2.6.3 补充与修正**：
+> 「菜单只在启动阶段建一次」方向对，但**触发条件说错了** —— 不是「构建失败」，
+> 而是「**构建成功后被关闭过一次**」；因此 2.6.2 里「广播 `TaskbarCreated` 后第一次点击
+> 能弹、之后再不弹」的观测，真实原因是那次「能弹」恰好是**本轮启动的第一次**。
+> 本小节的 Wine systray 调试方法与消息链取证仍然有效。
+
 方法：`WINEDEBUG=+systray` 重启客户端，Wine 会打印托盘图标的完整消息链
 （`add_icon` / `Shell_NotifyIconW` / `X11DRV_SystrayDockInsert` / `tray_icon_wndproc` /
 `notify_owner relaying`）。注意一个方法论：GNOME 面板是 Wayland actor，
@@ -393,6 +521,9 @@ gsettings get org.gnome.shell.extensions.appindicator tray-pos             # 'ri
 `--status` 已改为**只看本次启动**的日志段来判断托盘菜单能否用，不再读历史会话。
 
 #### 2.6.3 反编译定案：菜单「关一次就永久失效」（2026-11-08 19:00）
+
+> 本节的**顶层结论**（规律 + 责任方 + 唯一恢复手段 + 给使用者的建议）已提到
+> **第 1.1 节**；本节是支撑该结论的完整证据链。两处内容一致，以本节为准。
 
 上一小节的结论「菜单构建一次性、失败后不自愈」方向对，但**触发条件说错了**。
 经过反编译 `Doubao.dll` + 受控对照实验，真实规律是：
@@ -845,7 +976,7 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 
 账号数据不要直接整目录覆盖。日志里已出现 `AppBoundEncryption` 错误，跨 Wine/前缀迁移后应有重新登录的心理准备。
 
-## 8. 验收标准（新版 2.32.6）
+## 8. 验收标准（官方最新版本）
 
 新版至少满足以下条件，才算修完（2026-11-08 实测进度）：
 
@@ -855,7 +986,12 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 - ⬜ 登录和文字对话可用（需用户交互确认）；
 - ✅ 连续 3 次从 `~/Desktop/doubao-wine.desktop` 启动均正常：三次都
   `map=2`、546–547 色、`main_browser=1`、`pressure_vessel` 在跑；
-- ✅ 版本保持官方 2.32.6，不需要禁用更新器或屏蔽版本号才能运行。
+- ✅ 版本跟随官方（安装器渠道或客户端自更新），不需要禁用更新器或屏蔽版本号才能运行。
+- ✅ 安装/升级链路已跑通：`install.py` **菜单 26** 实跑一轮完整安装，
+  自动定位并点中「立即安装」（窗口 88080391，按钮中心 358,309），
+  安装日志出现 `_OnInstallSuccess`，安装结果：成功。
+- ✅ 托盘菜单：**已彻底定案**（关一次即永久失效，责任在客户端，唯一恢复是重启），
+  `--fix` 闭环实测通过；详见 1.1 / 2.6.3。此项**不再作为待排查项**。
 
 2026-11-08 抓图人工确认：窗口内是真实豆包主界面（「有什么我能帮你的吗？」、
 左侧「新工作任务 / 新对话 / API 服务 / 更多」、左下「登录」、底部输入框与
@@ -872,14 +1008,21 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 
 ## 9. 相关文件
 
-- `doubao/install-doubao.sh`：**官方在线安装器的安装/升级入口**；预查下发版本、
-  自动点「立即安装」、以 `_OnInstallSuccess` 为完成判据，装完自动跑前缀层修复与桌面入口修复。
+- `doubao/install-doubao.sh`：**官方在线安装器的安装/升级入口**（对应 `install.py` 菜单 **26**）；
+  预查安装器渠道下发版本、关掉同前缀进程（按 `/proc/<pid>/environ` 精确匹配 `WINEPREFIX`）、
+  自动点「立即安装」（枚举窗口 + 等 `IsViewable` + 重试抓图，XTEST 真实点击）、
+  以 `_OnInstallSuccess` 为完成判据，装完自动跑前缀层修复与桌面入口修复。
 - `doubao/fix-doubao-desktop.sh`：**入口与异常状态修复**（幂等、`--status`、`--uninstall`）：
   统一四个 `.desktop` 的 Exec 到 Wine 11、去 shebang、打 trusted 标记、移走 `豆包.lnk`、
   备份并清零旧前缀 `running_exception`。
 - `doubao/quit-doubao.sh`：**退出 / 唤回 / 状态**（见 2.6）。点 X 只是隐入通知栏，
   而本机通知栏不可用，所以用 `--quit` 真正退出、`--show` 唤回主窗口、
   `--status` 区分「隐入通知栏」与「崩溃」；只作用于 `doubao-wine11` 前缀，无守护。
+- `doubao/tray-doctor.sh`：**托盘菜单诊断与修复**（见 1.1 / 2.6.3）：`--status` 只读、
+  `--probe` 判定好坏态、`--fix` 重启客户端复位菜单。
+- `doubao/tray-probe.py`：托盘菜单探针（用 `XSendEvent` 模拟 XEmbed 转发，
+  轮询 165x284 菜单窗口出现；**绝不主动关闭菜单**，因为关闭正是触发坏态的动作）。
+  退出码 `0`=好 / `1`=坏 / `3`=没找到托盘图标。
 - `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的主线启动器**，自动套
   `SteamLinuxRuntime_sniper` 容器；启动日志落在 `~/.local/share/doubao-wine11/launch.log`。
   `DOUBAO_NO_STEAM_RUNTIME=1` 可回到裸 wine 做对照诊断。

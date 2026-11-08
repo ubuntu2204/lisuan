@@ -108,6 +108,8 @@ right headers.
 | `dkms/` | DKMS 内核驱动 | 驱动构建/装载修复与卸载、体检、DKMS Makefile 补丁、厂商源码与 bug 报告 |
 | `mesa/` | Mesa 图形栈 | 驱动名修复（`lisuan` vs `gf`）、系统 Mesa 兼容、切换与体检、源码级分析 |
 | `audio/` | 显卡音频 | 7G100 伴生 HDA（`4c54:5010`）绑 `snd_hda_intel` 的 INTx 修复、开机自绑、BAR0 诊断探针；根因与证据见 [`audio/README.md`](./audio/README.md) |
+| `doubao/` | 豆包 Windows 客户端 | 官方 2.32.6 在 Wine 11（Proton 11.0）下的安装/启动/排障；托盘菜单「关一次即永久失效」的反编译定案；根因与证据见 [`doubao/README.md`](./doubao/README.md) |
+| `dreamina/` | 即梦 AI Windows 客户端 | 官方 1.0.59 在 Wine 11 下的安装/启动；NSIS 安装器需替换 Wine 的 powershell 空壳 stub；Electron 黑屏根因（ANGLE 要求 `WGL_NV_DX_interop2`）；见 [`dreamina/README.md`](./dreamina/README.md) |
 
 其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）。
 
@@ -211,9 +213,9 @@ sudo dpkg -i packaging/dist/lisuan-fix_*_all.deb        # 安装
 lisuan-fix --detect                                     # PATH 直达，资源在 /usr/share/lisuan-fix
 ```
 
-**菜单结构**（2026-10-25 修订）：环境检测单独一节（两项体检也归入此节），
+**菜单结构**（2026-11-08 修订）：环境检测单独一节（两项体检也归入此节），
 其余按**类别**分组，顺序为 **DKMS → Mesa → Electron → Steam → 随从大师 → 刀塔霸业
-→ 王国保卫战 → 音频 → 求生之路 2**（新类别追加在末尾），
+→ 王国保卫战 → 音频 → 求生之路 2 → Windows 应用**（新类别追加在末尾），
 每个类别内严格按 **安装/修复 → 卸载 → 说明** 排列（说明项打开该目录下的 md 文档）：
 
 ```
@@ -227,10 +229,25 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 18-19)  王国保卫战   安装/修复 · 说明
 20-21)  音频         显卡 HDMI/DP 安装/修复 · 说明
 22-23)  求生之路 2   原生 Venus 安装/修复 · 说明（卸载走 22 的操作列）
+24-25)  植物大战僵尸  安装/修复 · 说明
+26-29)  Windows 应用 豆包 · 说明 · 即梦 AI · 说明（Wine 11 官方 Windows 客户端）
 ```
 
 > 注意：编号已按新分组**重新编排**。
 > 本文件及项目各处引用的"菜单 [N]"均已同步为新编号。
+>
+> **Windows 应用组（26–29）** 收录豆包与即梦 AI 两个官方 Windows 客户端，
+> 用 Valve Proton 11.0 的 wine-11.0 在**独立用户前缀**里运行
+> （`~/.deepinwine/doubao-wine11`、`~/.deepinwine/dreamina-wine11`），
+> 不碰系统 Wine、不装驱动、不需要 root。官方安装器属厂商专有产物，
+> **不入库**（见 `.gitignore`），需自行从官网下载后放入 `doubao/` / `dreamina/`
+> 目录（或 `~/下载`），安装脚本会自动查找：
+
+```bash
+# 手动执行（与菜单 [26] / [28] 等价）
+./doubao/install-doubao.sh [安装器.exe]        # 也可放 ~/下载/ 自动查找
+./dreamina/install-dreamina.sh [安装器.exe]
+```
 
 **GUI 依赖**（Ubuntu 24.04 默认未装 tkinter 运行时）：
 

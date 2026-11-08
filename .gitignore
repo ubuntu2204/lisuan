@@ -32,6 +32,11 @@ left4dead2/gf-compat/
 # 实际安装器路径与 SHA 记录在 doubao/README.md；需要复现时由用户自行从官网下载。
 doubao/doubao_client_*.exe
 
+# ---- Dreamina 官方桌面客户端安装器：厂商专有二进制，不入库 ----
+# 官网下载的 PE 安装器（约 103MB），每次换版本号都会改文件名，仓库只保留脚本与文档。
+# 实际安装器路径与 SHA 记录在 dreamina/README.md；需要复现时由用户自行从官网下载。
+dreamina/Dreamina-Desktop-*-x64-setup.exe
+
 # ---- 本地诊断草稿区：构建日志、探针、解包的厂商源码等，整体不入库 ----
 _work/
 

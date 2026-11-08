@@ -40,7 +40,16 @@ export LD_LIBRARY_PATH="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i38
 export WINEDLLOVERRIDES='mscoree,mshtml='
 
 [[ -x "$WINE" ]] || { echo "错误：找不到 Proton 的 wine：$WINE" >&2; exit 1; }
-[[ -d "$PREFIX/drive_c" ]] || { echo "错误：Wine 11 前缀不存在：$PREFIX" >&2; exit 1; }
+
+# 前缀不存在时自动初始化（与 dreamina/install-dreamina.sh 行为一致）：
+# 首次从 install.py 菜单安装时本机往往还没有 Wine 11 前缀，
+# 直接报错退出的话用户永远装不上。wineboot --init 是幂等的。
+if [[ ! -d "$PREFIX/drive_c" ]]; then
+    echo "初始化 Wine 11 前缀：$PREFIX"
+    mkdir -p "$PREFIX"
+    WINEDEBUG=-all timeout 300 "$WINE" wineboot --init >/dev/null 2>&1
+fi
+[[ -d "$PREFIX/drive_c" ]] || { echo "错误：Wine 11 前缀初始化失败：$PREFIX" >&2; exit 1; }
 
 # 只读探测已安装的客户端版本，仅用于报告前后变化，不参与任何回退判断。
 detect_version() {
@@ -77,41 +86,98 @@ installer_log() {
 
 # 从安装器窗口里定位「立即安装」按钮：抓窗口位图，找按钮主题色 #3370FF 的实心块。
 # 不靠写死坐标，因为窗口尺寸会随 DPI 缩放。需要 python3-xlib + Pillow + xdotool。
+#
+# 窗口枚举、等待映射、抓图重试全部在 Python 侧完成，原因有二：
+#   1) 豆包客户端自身也会注册名为「豆包」的窗口，抓到它就抓不到安装界面；
+#   2) 安装器窗口刚弹出时可能尚未真正映射（map_state != IsViewable），
+#      立刻 XGetImage 会抛 Xlib.error.BadMatch，必须等映射并重试。
+# 成功时输出「窗口id x y」，失败时非 0 退出并把原因写到 stderr。
 find_install_button() {
-    python3 - "$1" <<'PY'
-import sys
+    python3 - <<'PY'
+import subprocess, sys, time
 try:
     from Xlib import X, display
     from PIL import Image
 except ImportError as e:
     sys.exit(f"缺少抓图依赖：{e}（python3-xlib / Pillow）")
-wid = int(sys.argv[1])
-d = display.Display()
-w = d.create_resource_object('window', wid)
-g = w.get_geometry()
-img = w.get_image(0, 0, g.width, g.height, X.ZPixmap, 0xffffffff)
-raw = bytes(img.data)
-bpp = len(raw) // (g.width * g.height)
-if bpp == 4:
-    im = Image.frombytes('RGBA', (g.width, g.height), raw, 'raw', 'BGRA', 0, 1).convert('RGB')
-elif bpp == 3:
-    im = Image.frombytes('RGB', (g.width, g.height), raw, 'raw', 'BGR', 0, 1)
-else:
-    sys.exit(f"未知像素宽度：{bpp}")
-px = im.load()
-target = (51, 112, 255)          # main_window_*.xml 里 start_install 的 bkcolor #FF3370ff
+
+TARGET = (51, 112, 255)   # main_window_*.xml 里 start_install 的 bkcolor #FF3370ff
+DEADLINE = time.time() + 60
+
 
 def near(c, delta=28):
-    return all(abs(a - b) <= delta for a, b in zip(c, target))
+    return all(abs(a - b) <= delta for a, b in zip(c, TARGET))
 
-# 只取“实心行”（单行蓝色像素足够多），排除同样蓝色的「自定义安装地址」文字
-rows = [y for y in range(im.height)
-        if sum(1 for x in range(im.width) if near(px[x, y])) > 50]
-if not rows:
-    sys.exit("窗口里没找到「立即安装」按钮（可能已点过或界面改版）")
-y0, y1 = rows[0], rows[-1]
-xs = [x for y in range(y0, y1 + 1) for x in range(im.width) if near(px[x, y])]
-print((min(xs) + max(xs)) // 2, (y0 + y1) // 2)
+
+def installer_wids():
+    """枚举属于安装器进程的窗口（豆包客户端自身的窗口要排除）。"""
+    try:
+        out = subprocess.run(["xdotool", "search", "--name", "豆包"],
+                             capture_output=True, text=True).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return []
+    wids = []
+    for wid in out:
+        try:
+            prop = subprocess.run(["xprop", "-id", wid, "_NET_WM_PID"],
+                                  capture_output=True, text=True).stdout
+            pid = prop.split("=")[-1].strip()
+            if not pid.isdigit():
+                continue
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmd = f.read().replace(b"\0", b" ").decode("utf-8", "replace")
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if "doubao_client" in cmd:
+            wids.append(int(wid))
+    return wids
+
+
+def grab(d, wid):
+    """抓窗口位图；窗口还没真正映射时抛异常，由调用方重试。"""
+    w = d.create_resource_object("window", wid)
+    attrs = w.get_attributes()
+    if attrs.map_state != X.IsViewable:
+        raise RuntimeError(f"窗口 {wid} 尚未映射（map_state={attrs.map_state}）")
+    g = w.get_geometry()
+    img = w.get_image(0, 0, g.width, g.height, X.ZPixmap, 0xffffffff)
+    raw = bytes(img.data)
+    bpp = len(raw) // (g.width * g.height)
+    if bpp == 4:
+        return Image.frombytes("RGBA", (g.width, g.height), raw, "raw", "BGRA", 0, 1).convert("RGB")
+    if bpp == 3:
+        return Image.frombytes("RGB", (g.width, g.height), raw, "raw", "BGR", 0, 1)
+    raise RuntimeError(f"未知像素宽度：{bpp}")
+
+
+def button_center(im):
+    px = im.load()
+    # 只取“实心行”（单行蓝色像素足够多），排除同样蓝色的「自定义安装地址」文字
+    rows = [y for y in range(im.height)
+            if sum(1 for x in range(im.width) if near(px[x, y])) > 50]
+    if not rows:
+        return None
+    y0, y1 = rows[0], rows[-1]
+    xs = [x for y in range(y0, y1 + 1) for x in range(im.width) if near(px[x, y])]
+    return (min(xs) + max(xs)) // 2, (y0 + y1) // 2
+
+
+d = display.Display()
+last = "没找到安装器窗口"
+while time.time() < DEADLINE:
+    for wid in installer_wids():
+        try:
+            im = grab(d, wid)
+        except Exception as e:
+            last = f"{type(e).__name__}: {e}"
+            continue
+        pos = button_center(im)
+        if pos:
+            print(wid, pos[0], pos[1])
+            sys.exit(0)
+        last = "窗口里没找到「立即安装」按钮（可能已点过或界面改版）"
+    time.sleep(1)
+sys.exit(last)
 PY
 }
 
@@ -163,24 +229,48 @@ server_ver="$(query_server_version || true)"
 echo "安装器：$INSTALLER"
 echo "前  缀：$PREFIX"
 echo "当前版本：${before}"
-echo "官方下发：${server_ver:-未查到（接口不可达或格式变了）}"
-if [[ -n "$server_ver" && "$server_ver" == "$before" ]]; then
-    echo "说明：已是官方最新版，本次为同版本完整重装。"
+echo "安装器渠道下发：${server_ver:-未查到（接口不可达或格式变了）}"
+# 「官方版本」有两个口径，别混用：
+#   - 安装器渠道：就是上面这个接口返回的版本（2026-11-08 实测 2.32.6）；
+#   - 客户端运行版本：客户端自更新后可以更高（2026-11-08 实测运行中 2.35.8）。
+# 跑一次安装器 = 把客户端落回安装器渠道版本，之后由客户端自己的更新器决定最终版本。
+if [[ -n "$server_ver" && "$before" != "未安装" ]]; then
+    if [[ "$before" == "$server_ver" ]]; then
+        echo "说明：与安装器渠道版本一致，本次为同版本完整重装。"
+    elif [[ "$(printf '%s\n%s\n' "$before" "$server_ver" | sort -V | tail -n 1)" == "$before" ]]; then
+        echo "提示：当前客户端版本（$before）高于安装器渠道（$server_ver）；"
+        echo "      本次安装会先落回渠道版本，客户端启动后由它自己的更新器决定最终版本。"
+    fi
 fi
 echo "日志：$LOG"
 
 # 安装器无法覆盖正在使用的文件；只结束本前缀的 Wine 进程，不动其他前缀
 # （Deepin 的 ~/.deepinwine/doubao-wine 与 Steam 的 Proton 前缀互不影响）。
-if pgrep -f -- "$PREFIX" >/dev/null 2>&1; then
+#
+# 注意：Wine 进程的命令行里**不含** WINEPREFIX（只有 C:\... 路径），
+# `pgrep -f "$PREFIX"` 匹配不到；前缀只在 /proc/<pid>/environ 里。
+# 所以这里改用 environ 精确匹配，否则运行中的豆包关不掉，
+# 安装器会因文件被占用而卡住（实测：客户端没关 → 按钮定位 BadMatch → 等到超时）。
+prefix_pids() {
+    local pid
+    for pid in $(pgrep -f 'Doubao\.exe|explorer\.exe|wineserver|winedevice\.exe' 2>/dev/null); do
+        if tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null |
+           grep -qxF "WINEPREFIX=$PREFIX"; then
+            printf '%s\n' "$pid"
+        fi
+    done
+}
+
+if [[ -n "$(prefix_pids)" ]]; then
     echo "检测到本前缀有豆包进程在运行，先关闭该前缀（wineserver -k）……"
     "$WINESERVER" -k 2>/dev/null || true
     for _ in $(seq 1 30); do
-        pgrep -f -- "$PREFIX" >/dev/null 2>&1 || break
+        [[ -z "$(prefix_pids)" ]] && break
         sleep 1
     done
-    if pgrep -f -- "$PREFIX" >/dev/null 2>&1; then
+    if [[ -n "$(prefix_pids)" ]]; then
         echo "错误：仍有进程占用该前缀，请手动结束后重试：" >&2
-        pgrep -af -- "$PREFIX" >&2
+        printf '  pid %s\n' $(prefix_pids) >&2
         exit 1
     fi
     echo "已关闭。"
@@ -212,15 +302,19 @@ done
 # 避免把上一次安装的 _OnInstallSuccess 当成本次结果。
 base_lines=$(wc -l < "$ILOG" 2>/dev/null || echo 0)
 
-if ! XY="$(find_install_button "$WID" 2>&1)"; then
-    echo "警告：无法自动定位「立即安装」按钮：$XY" >&2
+if ! XYZ="$(find_install_button 2>&1)"; then
+    echo "警告：无法自动定位「立即安装」按钮：$XYZ" >&2
     echo "请手动在弹出的安装窗口里点「立即安装」，脚本继续等安装完成……" >&2
 else
-    read -r bx by <<< "$XY"
+    read -r WID bx by <<< "$XYZ"
     echo "安装器窗口：$WID；「立即安装」按钮中心：$bx,$by"
-    xdotool windowactivate --sync "$WID" \
-        mousemove --window "$WID" "$bx" "$by" \
-        click --window "$WID" 1
+    # 先激活窗口再用 XTEST 真实点击：xdotool click --window 走 XSendEvent，
+    # 合成事件常被 Wine 侧忽略，点下去没反应。
+    xdotool windowactivate --sync "$WID" 2>/dev/null \
+        || xdotool windowfocus "$WID" 2>/dev/null || true
+    xdotool mousemove --window "$WID" "$bx" "$by"
+    sleep 1
+    xdotool click 1
 fi
 
 # 完成判据：安装器日志本轮新增行里出现成功/失败标记。

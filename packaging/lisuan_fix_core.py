@@ -411,12 +411,15 @@ def _doc(rel: str) -> str:
 # 分组与排列规则（2026-09-05 修订）：
 #   1) 环境检测单独一节，两项"体检"也归入此节（本质就是检测）；
 #   2) 其余按类别（目录）分组，顺序：DKMS -> Mesa -> Electron -> Steam
-#      -> 随从大师 -> 刀塔霸业 -> 王国保卫战 -> 音频 -> 求生之路 2（新类别追加在末尾）；
+#      -> 随从大师 -> 刀塔霸业 -> 王国保卫战 -> 音频 -> 求生之路 2 -> Windows 应用
+#      （新类别追加在末尾）；
 #   3) 每个类别内严格按"安装/修复 -> 卸载 -> 说明"排列。
 #   4) 历史"建立 lisuan_dri.so 软链"方案整体退出菜单：宿主 Mesa 由 drirc
 #      （01-gf_drv.conf 的 kernel_driver/dri_driver 映射）天然找到 gf 驱动，
 #      Steam 走 GBM_BACKEND=dri，全局软链反而会使 Steam 客户端 double free。
 #      修复/清理脚本保留在 mesa/ 作手动工具，不再占用菜单编号。
+#   5) "Windows 应用"组收录豆包 / 即梦 AI 两个官方 Windows 客户端：
+#      都在独立的 Wine 11 前缀里运行，不涉及内核驱动与系统图形栈。
 ITEMS: list[Item] = [
     # ---- 环境检测（含两项体检）----
     {"id": 1,  "title": "重新检测系统环境", "group": "环境检测", "root": False,
@@ -512,11 +515,26 @@ ITEMS: list[Item] = [
      "cmd": lambda a: _sh("Plants-vs-Zombies/fix-plants-vs-zombies.sh", *a), "doc": ""},
     {"id": 25, "title": "说明：植物大战僵尸 GOTY 修复文档", "group": "植物大战僵尸",
      "root": False, "cmd": None, "doc": _doc("Plants-vs-Zombies/README.md")},
+
+    # ---- Windows 应用（Wine 11）----
+    # 豆包 / 即梦 AI 的官方 Windows 客户端，用 Valve Proton 11.0 的 wine-11.0 运行。
+    # 两者各自独立前缀（~/.deepinwine/<app>-wine11），不碰系统 Wine、不装驱动。
+    # 安装器路径可作为附加参数传入（菜单执行时用脚本内置的默认查找顺序）。
+    {"id": 26, "title": "安装/修复：豆包 Windows 客户端（Wine 11 + 官方在线安装器）",
+     "group": "Windows 应用", "root": False,
+     "cmd": lambda a: _sh("doubao/install-doubao.sh", *a), "doc": ""},
+    {"id": 27, "title": "说明：豆包客户端排障记录（Wine 11 / 托盘菜单定案）", "group": "Windows 应用",
+     "root": False, "cmd": None, "doc": _doc("doubao/README.md")},
+    {"id": 28, "title": "安装/修复：即梦 AI Windows 客户端（Wine 11 + NSIS 静默安装）",
+     "group": "Windows 应用", "root": False,
+     "cmd": lambda a: _sh("dreamina/install-dreamina.sh", *a), "doc": ""},
+    {"id": 29, "title": "说明：即梦 AI 安装与渲染记录（Wine 11 / ANGLE 黑屏根因）", "group": "Windows 应用",
+     "root": False, "cmd": None, "doc": _doc("dreamina/README.md")},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
 GROUP_ORDER = ["环境检测", "DKMS", "Mesa", "Electron", "Steam", "随从大师", "刀塔霸业",
-               "王国保卫战", "植物大战僵尸", "音频", "求生之路 2"]
+               "王国保卫战", "植物大战僵尸", "音频", "求生之路 2", "Windows 应用"]
 
 
 class UndoAction(TypedDict):
@@ -871,6 +889,24 @@ def _l4d2_state(home: Path) -> tuple[str, str]:
     return ("有残留", "warn") if remnants else ("✗ 需修复", "bad")
 
 
+def _wine11_app_state(prefix: Path, rel_exe: str, installer: Path,
+                     installer_glob: str) -> tuple[str, str]:
+    """Wine 11 官方 Windows 客户端的安装状态。
+
+    ok   = 前缀里已找到主程序
+    warn = 前缀在但主程序缺失（安装未完成）
+    dim  = 前缀都没建（未安装）
+    """
+    if not prefix.is_dir():
+        return ("未安装", "dim")
+    hits = list(prefix.glob(rel_exe))
+    if hits:
+        return ("✓ 已安装", "ok")
+    if installer.is_dir() and any(installer.glob(installer_glob)):
+        return ("! 主程序缺失（安装未完成）", "warn")
+    return ("! 前缀存在但无客户端", "warn")
+
+
 def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
@@ -1027,6 +1063,19 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     # 22 L4D2：原生 Venus 服务、启动链、Steam 配置与 locale shim（23 为说明项）
     st[22] = _l4d2_state(home)
     st[23] = ("按需", "dim")
+
+    # 26/28 Windows 应用（Wine 11）：豆包 / 即梦 AI。
+    # 两者都在各自独立的用户前缀里，不影响系统 Wine，也不需要 root。
+    st[26] = _wine11_app_state(
+        home / ".deepinwine/doubao-wine11",
+        "drive_c/users/*/AppData/Local/Doubao/Application/app/Doubao.exe",
+        S / "doubao", "doubao_client_*.exe")
+    st[27] = ("按需", "dim")
+    st[28] = _wine11_app_state(
+        home / ".deepinwine/dreamina-wine11",
+        "drive_c/users/*/AppData/Local/Programs/dreamina-desktop/*.exe",
+        S / "dreamina", "Dreamina-Desktop-*-x64-setup.exe")
+    st[29] = ("按需", "dim")
 
     return st
 
