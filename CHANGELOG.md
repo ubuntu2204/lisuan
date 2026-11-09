@@ -3,6 +3,9 @@
 本项目采用日期版本号。所有变更均在 Ubuntu 24.04 LTS + 砺算 7G100（PCI `4c54:5006`）
 实机验证。
 
+> 历史条目保留当时的命令与路径，照抄前请先看最新条目：**现行** Steam 启动命令见
+> `2026.11.09 — Steam「帮助 → 系统信息」闪退修复` 与 `steam/steam-on-lisuan.md` §3。
+
 ## 2026.11.09 — 即梦 AI 桌面图标修复与安装脚本健壮化
 
 ### 根因
@@ -44,25 +47,32 @@
   加载 `gf_dri.so` → `libglapi_gf.so.0`；这套 22.0.4 fork 与系统 Mesa 25.2 在
   pressure-vessel 容器里混用，触发 `double free or corruption (!prev)` 或
   `xcb_io.c:626 _XAllocID` 断言，Steam 主进程 `Aborted (core dumped)`。
+- 只加 `LIBGL_ALWAYS_SOFTWARE=1` 虽然不再闪退，但 CEF 的 ANGLE/EGL GPU 进程
+  初始化失败（`eglInitialize ... failed` / `Exiting GPU process ...`），界面会
+  一直停在加载动画——必须用 Steam 官方命令行参数 `-cef-disable-gpu` 走 CPU 合成。
 - 另有独立的入口回归：DING 真正监听的 `~/桌面/steam.desktop` 还带
   `MESA_LOADER_DRIVER_OVERRIDE=gf -no-cef-sandbox -cef-force-64bit`，而
   `~/.local/share/applications/steam.desktop` 只修了 GBM，两处不一致。
 
 ### 修复与验证
 
-- 菜单 12 的 Steam 桌面启动器 Exec 改为
-  `env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam %U`；只影响
-  Steam 客户端 GL，实测游戏容器内 `VK_ICD_FILENAMES` 仍是 gf ICD。
+- 菜单 12 的 Steam 桌面启动器 Exec 最终改为
+  `env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam -cef-disable-gpu %U`；
+  `-cef-disable-gpu` 是命令行参数，不改 `steamwebhelper_sniper_wrap.sh`，不触发
+  Steam 校验回滚。只影响 Steam 客户端 CEF/GL，实测游戏容器内
+  `VK_ICD_FILENAMES` 仍是 gf ICD。
 - `steam_desktop_files()` 统一修用户级菜单项、XDG 桌面图标与历史 `~/Desktop`
-  入口；`steam_desktop_fixed()` 要求两个变量齐全且不含旧 gf 注入；安装时只改
-  Exec 行、备份原文件、补 `metadata::trusted`，卸载可逐项摘除。
+  入口；`steam_desktop_fixed()` 要求两个变量 + `-cef-disable-gpu` 齐全且不含旧
+  gf 注入；安装时只改 Exec 行、备份原文件、补 `metadata::trusted`，卸载逐项摘除。
 - 受控 A/B（启动 7 秒后 `steam steam://open/systeminfo`）：基线 `GBM_BACKEND=dri`
-  5 次里 4 次崩溃；加 `LIBGL_ALWAYS_SOFTWARE=1` 后 5 次全存活，
-  `PopupHTMLWindow` 正常且无 `failed to load driver`。单独用
-  `-cef-disable-gpu` 仍会崩，未采用。
-- 文档 `steam/steam-on-lisuan.md` 新增 §3.1；测试新增
+  5 次里 4 次崩溃；只加软件 GL 0/5 崩溃但界面卡加载动画；单独
+  `-cef-disable-gpu` 3 次里 1 次仍崩；`MESA_LOADER_DRIVER_OVERRIDE=llvmpipe`
+  0/3 崩溃但重复 `failed to load driver: llvmpipe`，均未采用。
+- 最终三项组合 0 崩溃，X11 抓图确认主界面 1280x800（128463 色）与标题为
+  「系统信息」的 600x500 窗口（5712 色）均渲染真实内容，不是加载动画。
+- 文档 `steam/steam-on-lisuan.md` 新增 §3.1 并细化 §3；测试新增
   `tests/test-steam-desktop.sh`（临时 HOME 验证三处入口的修复/幂等/回滚），
-  并在 `tests/test-repo-health.sh` 加入旧 gf 注入清理的断言。
+  `tests/test-repo-health.sh` 加入 `-cef-disable-gpu` 必需性与旧 gf 注入清理断言。
 
 ## 2026.11.08 — 豆包 2.32.6 主窗口跑通（Steam Runtime 容器为稳健默认）
 

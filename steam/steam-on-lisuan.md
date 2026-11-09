@@ -17,7 +17,7 @@
    新建 GL 上下文会 double free（见 §3.1）。要么按当前 libgbm / Mesa ABI
    重编厂商 GBM 与 DRI 驱动，要么随驱动自带完整 libgbm 并做好 soname 隔离。
    → 退役：steam.desktop 的 `GBM_BACKEND=dri` + `LIBGL_ALWAYS_SOFTWARE=1` 注入
-   （install.py 菜单 12）。
+   与 `-cef-disable-gpu` 启动参数（install.py 菜单 12）。
 2. **GLVND 标准集成**：把 GLX vendor ICD 装到 `/usr/share/glx/vendors/`、EGL ICD
    装到 `/usr/share/egl/egl_vendor.d/`，并保证设备认领**不依赖 `/sys/bus/pci`**
    （pressure-vessel 容器会隐藏它；参考 Mesa 基于 `/dev/dri/renderD*` +
@@ -105,24 +105,25 @@ Steam UI 的 CEF/GPU 进程在 gf 驱动下有两个崩溃点：
 > 不受影响（不依赖这些软链）。故 `fix-steam-cef-lock.sh` 应**停止向 Steam 客户端 wrap 注入**
 > gf PRELOAD（保留为可选、仅供原生游戏排障用，且明确警告其会害 Steam 客户端）。
 
-### 最终解法（2026-11-09 更新）：`GBM_BACKEND=dri` + `LIBGL_ALWAYS_SOFTWARE=1`
+### 最终解法（2026-11-09 更新）：`GBM_BACKEND=dri` + `LIBGL_ALWAYS_SOFTWARE=1` + `-cef-disable-gpu`
 
 ```bash
-GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam          # 命令行
+GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam -cef-disable-gpu          # 命令行
 ```
 
 桌面启动器（菜单 [12] 会统一写用户级菜单项、XDG 桌面图标与历史 `~/Desktop` 入口）：
 
 ```ini
-Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam %U
+Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam -cef-disable-gpu %U
 ```
 
 > **允许叠加自己的环境变量**：Exec 行的 env 段可以按需加入其它变量而不影响
 > 修复判定，例如 `Exec=env LC_ALL=en_US.UTF-8 GBM_BACKEND=dri
-> LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam %U`。菜单 [12] 按「两个变量是否都位于
-> Exec 行 env 段、且不含旧 gf 注入」判定/注入，只改 Exec 行、保留其余内容。
+> LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam -cef-disable-gpu %U`。菜单 [12] 按
+> 「两个变量都在 Exec 行 env 段、`-cef-disable-gpu` 在 steam 之后、且不含旧 gf
+> 注入」判定/注入，只改 Exec 行、保留其余内容。
 
-**为什么需要两个变量**：
+**为什么需要三项**：
 
 - libgbm 支持 `GBM_BACKEND` / `GBM_BACKENDS_PATH` 两个环境变量（见 `strings libgbm.so.1`）。
   设 `GBM_BACKEND=dri` 后，libgbm 直接加载 Mesa 的 `dri_gbm.so`（56KB），
@@ -131,6 +132,12 @@ Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam %U
   **不再按 `/usr/share/drirc.d/01-gf_drv.conf` 的 `kernel_driver=gf → dri_driver=gf`
   映射加载 `gf_dri.so` / `libglapi_gf.so.0`**。后者是「帮助→系统信息」弹窗闪退的
   根因，详见 §3.1。
+- `-cef-disable-gpu` 是 **Steam 官方命令行参数**（`strings ubuntu12_32/steam` 可见，
+  2026-08 日志里也使用过），**不是**往 `steamwebhelper_sniper_wrap.sh` 注入
+  `--disable-gpu`。只加软件 GL 时 CEF 的 ANGLE/EGL GPU 进程初始化失败：
+  `eglInitialize ... failed` / `Exiting GPU process due to errors during initialization`，
+  界面会一直停在加载动画；显式禁用 CEF GPU 后走 CPU 合成，主界面和系统信息弹窗
+  都能正常渲染。该参数只作用于 Steam 客户端 CEF，游戏进程不继承。
 - **不修改任何 Steam 文件**（既不动系统库，也不动 `steamwebhelper_sniper_wrap.sh`），因此：
   - 不改变 wrap 脚本大小 → **不触发 Steam 校验回滚**；
   - 无需 `chattr +i` 锁定 → **不会陷入更新回滚循环**（该循环会重置游戏下载状态，
@@ -140,7 +147,10 @@ Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam %U
   `VK_ICD_FILENAMES` 仍是 gf ICD，Proton/DXVK/Vulkan 游戏不受影响。
 
 **验证**：`grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt` → `0`；
-`python3 install.py 12 --status` 之后菜单 12 应为「✓ 已修复」。
+点系统信息后 `console-linux.txt` 无 `double free` / `Aborted`；X11 抓图确认
+主界面 1280x800（128463 色）与标题为「系统信息」的 600x500 窗口（5712 色）
+均为真实内容，不是加载动画；`python3 install.py --detect` 的 Steam 项为 `ok`，
+菜单 12 状态为「✓ 已修复」。
 
 > **重要纠正（推翻 2026-08-24 的结论）**：仅移除全局 `lisuan_dri.so` 软链和 wrap 里的
 > `LD_PRELOAD` **并不足以让 CEF 稳定**。实测在"干净"状态下 CEF 仍以 exit_code=139 崩溃，
@@ -176,22 +186,30 @@ pressure-vessel 容器里与系统 Mesa 25.2 混用，触发 double free 或 Xli
 `steamsysinfo` 的 Vulkan 查询失败（`VK_ERROR_INCOMPATIBLE_DRIVER`，缺 WSI 扩展）是另一层
 独立噪音，不是闪退主因；不要为它把 `VK_ICD_FILENAMES` 改成 llvmpipe，那会连累游戏。
 
-**解法**：只给 Steam 客户端加 `LIBGL_ALWAYS_SOFTWARE=1`（见本节开头 Exec），不碰
-`VK_ICD_FILENAMES`、不改 Steam 文件、不加看门狗。`MESA_LOADER_DRIVER_OVERRIDE=llvmpipe`
-也能避开崩溃，但会打出 `failed to load driver: llvmpipe`，不如标准变量干净。
+**解法**：给 Steam 客户端同时加 `LIBGL_ALWAYS_SOFTWARE=1` 与
+`-cef-disable-gpu`（见 §3 Exec），不碰 `VK_ICD_FILENAMES`、不改 Steam 文件、
+不加看门狗。前者防 `gf_dri.so` 崩溃，后者让 CEF 在软件 GL 下跳过失败的 GPU
+初始化、改用 CPU 合成——**只加前者虽不闪退，但界面会一直停在加载动画**，
+这是 2026-11-09 继续验证时补上的关键一层。
 
 受控 A/B（启动 7 秒后 `steam steam://open/systeminfo`）：
 
 | 启动环境 | 结果 |
 |---|---|
 | `GBM_BACKEND=dri` | 5 次里 4 次 `double free` / `Aborted` |
-| `GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1` | 5 次全存活，`PopupHTMLWindow` 正常，无 `failed to load driver` |
-| `GBM_BACKEND=dri -cef-disable-gpu` | 仍会崩，单独不够 |
+| `GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1` | 0/5 崩溃，但 CEF GPU 进程初始化失败，主界面卡加载动画（抓图约 500–1000 色） |
+| `GBM_BACKEND=dri -cef-disable-gpu` | 3 次里 1 次仍崩，单独不够 |
+| `GBM_BACKEND=dri MESA_LOADER_DRIVER_OVERRIDE=llvmpipe` | 0/3 崩溃，但重复 `failed to load driver: llvmpipe`，未采用 |
+| **三项组合（最终）** | 0 崩溃；X11 抓图主界面 128463 色、标题「系统信息」弹窗 5712 色，均为真实内容 |
+
+`MESA_LOADER_DRIVER_OVERRIDE=llvmpipe` 与单独 `-cef-disable-gpu` 都只是中间对照，
+不要写回桌面启动器。
 
 另有一处**独立的入口回归**：`~/桌面/steam.desktop`（DING 真正监听的目录）还停留在
 2026-08-24 的旧配置 `MESA_LOADER_DRIVER_OVERRIDE=gf /usr/bin/steam -no-cef-sandbox
 -cef-force-64bit`，而 `~/.local/share/applications/steam.desktop` 只修了 GBM。
 菜单 [12] 现在统一修**用户级菜单项 + XDG 桌面图标 + 历史 `~/Desktop` 入口**，
+写入 `GBM_BACKEND=dri` / `LIBGL_ALWAYS_SOFTWARE=1` / `-cef-disable-gpu`、
 剔除旧 gf 注入、补 `metadata::trusted`，并只改 Exec 行保留用户其它定制。
 `/usr/share/applications/steam.desktop` 属于系统包、保持不动；XDG 规范下
 `~/.local/share/applications/steam.desktop` 同名优先，菜单/概览启动会走修好的那份。
@@ -345,9 +363,10 @@ user_settings = {
 | 现象 | 先查 |
 | --- | --- |
 | Steam 客户端打不开 / 闪退 | 全局 gf env 污染（§2），去掉后恢复 |
-| Steam UI 花屏 / GPU 进程崩 (`exit_code=139`) | CEF gbm（§3），用 `GBM_BACKEND=dri steam` 启动 |
-| 点「帮助 → 系统信息」闪退 / `double free` / `_XAllocID` | 补 `LIBGL_ALWAYS_SOFTWARE=1` 并清掉旧 gf 注入（§3.1，菜单 [12]） |
-| `steamwebhelper` 无限重启（`startcount` 递增） | 同上（§3），`GBM_BACKEND=dri` |
+| Steam UI 花屏 / GPU 进程崩 (`exit_code=139`) | CEF gbm（§3），`GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam -cef-disable-gpu` |
+| 点「帮助 → 系统信息」闪退 / `double free` / `_XAllocID` | 补 `LIBGL_ALWAYS_SOFTWARE=1` + `-cef-disable-gpu`，清掉旧 gf 注入（§3.1，菜单 [12]） |
+| Steam 界面一直停在加载动画 | 只加软件 GL 时 CEF GPU 初始化失败，必须再加 `-cef-disable-gpu`（§3） |
+| `steamwebhelper` 无限重启（`startcount` 递增） | 同上（§3），`GBM_BACKEND=dri` + 软件 GL + `-cef-disable-gpu` |
 | **游戏反复自动重新下载** | Steam 更新回滚循环（§10），`lsattr` 查是否被 `chattr +i` 锁死 |
 | 游戏 e0434352 退出、无 Player.log | Steam 未登录（§4，缺 ssfn），图形界面登录一次 |
 | `applaunch` 拉不起游戏 | "游戏运行中"状态卡死（§5），`steam -shutdown` 重启 |

@@ -156,6 +156,8 @@ done
 # --- 7c. Steam 系统信息闪退修复 ---------------------------------------------
 t_assert_grep "${REPO_TOP}/packaging/lisuan_fix_core.py" \
   'LIBGL_ALWAYS_SOFTWARE=1' "Steam fix forces software GL"
+t_assert_grep "${REPO_TOP}/packaging/lisuan_fix_core.py" \
+  '\-cef-disable-gpu' "Steam fix disables CEF GPU init"
 t_assert_grep "${REPO_TOP}/steam/steam-on-lisuan.md" \
   '系统信息' "Steam docs cover system information crash"
 python3 - "$REPO_TOP" <<'PY'
@@ -172,14 +174,19 @@ assert not core.steam_desktop_fixed(bad)
 new, changed = core._build_fixed_exec(bad)
 assert changed
 assert "GBM_BACKEND=dri" in new and "LIBGL_ALWAYS_SOFTWARE=1" in new
+assert core.STEAM_FIX_FLAG in new
 assert "MESA_LOADER_DRIVER_OVERRIDE=gf" not in new
 assert "-no-cef-sandbox" not in new and "-cef-force-64bit" not in new
 fixed = "[Desktop Entry]\nExec=" + new + "\n"
 assert core.steam_desktop_fixed(fixed)
+without_flag = fixed.replace(" -cef-disable-gpu", "")
+assert not core.steam_desktop_fixed(without_flag)
 plain = core._strip_fixed_exec(fixed)
 assert "GBM_BACKEND=dri" not in plain and "LIBGL_ALWAYS_SOFTWARE=1" not in plain
+assert core.STEAM_FIX_FLAG not in plain
 assert "GBM_BACKEND=dri" in core.STEAM_DESKTOP_BODY_FIXED
 assert "LIBGL_ALWAYS_SOFTWARE=1" in core.STEAM_DESKTOP_BODY_FIXED
+assert core.STEAM_FIX_FLAG in core.STEAM_DESKTOP_BODY_FIXED
 assert core.STEAM_DESKTOP in core.steam_desktop_files()
 PY
 t_assert_eq 0 $? "Steam desktop fix helpers reject old gf injection and are reversible"

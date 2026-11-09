@@ -234,9 +234,10 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 ```
 
 > **Steam 菜单 [12]** 现在统一修用户级菜单项、XDG 桌面图标与历史 `~/Desktop` 入口：
-> 写入 `GBM_BACKEND=dri`（绕开 `gf_gbm.so` 段错误）和
+> 写入 `GBM_BACKEND=dri`（绕开 `gf_gbm.so` 段错误）、
 > `LIBGL_ALWAYS_SOFTWARE=1`（绕开「帮助→系统信息」弹窗加载 `gf_dri.so` 后的
-> double free），并清掉 `MESA_LOADER_DRIVER_OVERRIDE=gf` 等旧注入。只改 `.desktop`
+> double free）和 `-cef-disable-gpu`（软件 GL 下让 CEF 走 CPU 合成，避免界面卡在
+> 加载动画），并清掉 `MESA_LOADER_DRIVER_OVERRIDE=gf` 等旧注入。只改 `.desktop`
 > 的 Exec 行，不动 Steam 自身文件；游戏容器内 gf Vulkan ICD 不受影响。
 > 细节见 [`steam/steam-on-lisuan.md`](./steam/steam-on-lisuan.md) §3 / §3.1。
 
@@ -284,9 +285,9 @@ sudo ./fix-lisuan-gpu.sh
 #    已由 drirc（/usr/share/drirc.d/01-gf_drv.conf）天然解决，无需操作；
 #    若缺该文件请重装厂商 lib 包（lisuangpu-lib）
 
-# 3) Steam 界面起不来（cef_log.txt 大量 exit_code=139/11）
-GBM_BACKEND=dri steam
-# 桌面启动器已内置该变量，从菜单启动同样生效。
+# 3) Steam 界面起不来 / 点「帮助→系统信息」闪退 / 界面卡加载动画
+GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam -cef-disable-gpu
+# 桌面启动器已内置两个变量与 -cef-disable-gpu，从菜单启动同样生效（python3 install.py 12）。
 # 若曾被 chattr 锁死过（会引发更新回滚、游戏反复重下），先解锁：
 sudo chattr -i ~/.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh
 
@@ -544,22 +545,35 @@ sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
    GL 符号在容器内找不到 glapi 提供者 → `symbol lookup error (fatal)` → SIGSEGV。
    证据：`LD_DEBUG=libs` 追踪到 GPU 进程崩溃前的完整加载链。
 
-### 修复（2026-09-01 实测确认）
+### 修复（2026-11-09 更新）
 
 ```bash
-GBM_BACKEND=dri steam
+GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam -cef-disable-gpu
 ```
 
-桌面启动器 `~/.local/share/applications/steam.desktop` 已内置该变量
-（`Exec=env GBM_BACKEND=dri /usr/bin/steam %U`），从菜单启动同样生效。
-env 段允许叠加自己的变量（如 `LC_ALL=en_US.UTF-8`），不影响修复判定——
-`install.py` 菜单 [12] 只按"Exec 行 env 段是否含 `GBM_BACKEND=dri`"检测，
-且只改 Exec 行、保留文件其余内容。
+桌面启动器（用户级菜单项、XDG 桌面图标、历史 `~/Desktop` 入口）由
+`python3 install.py 12` 统一写入：
+
+```ini
+Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam -cef-disable-gpu %U
+```
+
+env 段允许叠加自己的变量（如 `LC_ALL=en_US.UTF-8`）；菜单 [12] 按「两个变量都在
+env 段、`-cef-disable-gpu` 在 steam 之后、且不含旧 gf 注入」判定，只改 Exec 行、
+保留文件其余内容。
 
 **原理**：`GBM_BACKEND=dri` 让 libgbm 直接加载 Mesa 的 `dri_gbm.so`（56KB），
-不再扫描加载厂商 `gf_gbm.so`（106KB，与 libgbm 25.2.8 ABI 不兼容）——从源头消除段错误。
-GPU 进程不再崩溃，尝试硬件加速失败后自动回退软渲染，Steam 界面正常。
-验证：`grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt` → `0`。
+不再扫描加载厂商 `gf_gbm.so`（106KB，与 libgbm 25.2.8 ABI 不兼容）——消除 CEF 启动
+段错误。`LIBGL_ALWAYS_SOFTWARE=1` 再阻断新建 GL 上下文时按 drirc 映射加载
+`gf_dri.so` / `libglapi_gf.so.0`，修掉「帮助→系统信息」弹窗的
+`double free` / `_XAllocID` 闪退。但只加软件 GL 会让 CEF 的 ANGLE/EGL GPU 进程
+初始化失败、界面停在加载动画，所以还要加 Steam 官方命令行参数
+`-cef-disable-gpu`（不是改 `wrap.sh`）走 CPU 合成。游戏容器内 gf Vulkan ICD 不变。
+详见 `steam/steam-on-lisuan.md` §3 / §3.1。
+
+验证：`grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt` → `0`；
+新一次系统信息弹窗后 `console-linux.txt` 无 `double free` / `Aborted`；
+X11 抓图确认主界面与「系统信息」窗口均渲染出真实内容，而不是加载动画。
 
 > **为什么不再注入 `wrap.sh`（2026-09-01 修正）**
 >
