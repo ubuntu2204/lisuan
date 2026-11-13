@@ -44,9 +44,10 @@ dkms status
 
 ## 4. Steam CEF
 
-- 正确启动命令是 `GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam -cef-disable-gpu`。
+- 正确启动命令是 `GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa steam -cef-disable-gpu`。
 - 检查 `~/.local/share/Steam/logs/cef_log.txt` 中 `exit_code=139` 或 `GPU process isn't usable`；点系统信息崩溃查 `console-linux.txt` 的 `double free` / `_XAllocID`；界面卡加载动画查 `webhelper-linux.txt` 的 `Exiting GPU process due to errors during initialization`。
-- 当前唯一修复是**全部** `steam.desktop`（用户级菜单项 + XDG 桌面图标 + 历史 `~/Desktop`）的 `Exec` 行注入 `GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1` 与 `-cef-disable-gpu`，由 `install_steam_fix()` 宽松解析并保留用户其它 env 定制。
+- 当前唯一修复是**全部** `steam.desktop`（用户级菜单项 + XDG 桌面图标 + 历史 `~/Desktop`）的 `Exec` 行注入 `GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa` 与 `-cef-disable-gpu`，由 `install_steam_fix()` 宽松解析并保留用户其它 env 定制。
+- 启动时弹 `OpenGL GLX context is not using direct rendering`（KB 9938-EYZB-7457）是 GLX 上下文建不起来（`glXCreateContext failed` / GLX BadValue）的自检结果，加 `__GLX_VENDOR_LIBRARY_NAME=mesa` 即可消除；2026-11-13 八组消融显示只有该变量有效且无新增崩溃，`MESA_LOADER_DRIVER_OVERRIDE=llvmpipe` 无效。B3/B4 类「弹窗为 0」是客户端根本没起来，不是修好。详见 `steam/steam-on-lisuan.md` §3.2。
 - 点「帮助→系统信息」闪退是第二层：`drirc` 把 gf 设备映射到 `gf_dri.so` / `libglapi_gf.so.0`，新 GL 上下文在容器里 double free 或 Xlib 断言。`LIBGL_ALWAYS_SOFTWARE=1` 防崩溃，但它会让 CEF ANGLE/EGL GPU 进程初始化失败、界面停在加载动画，所以必须再加 Steam 官方命令行参数 `-cef-disable-gpu` 走 CPU 合成。单独用该参数仍会崩；不要改 `VK_ICD_FILENAMES`（会连累游戏 Vulkan），也不要用 `MESA_LOADER_DRIVER_OVERRIDE=llvmpipe`（重复 `failed to load driver`）。
 - 不要修改 `steamwebhelper_sniper_wrap.sh`；不要 `chattr +i`；不要**往 wrap.sh 注入** `--disable-gpu`（会改文件大小触发校验回滚甚至反复重下游戏）。`-cef-disable-gpu` 是传给 `/usr/bin/steam` 的官方命令行参数，与注入 wrap.sh 不是一回事。详见 `steam/steam-on-lisuan.md` §3 / §3.1。
 - Steam 的 `steamid=0` 陈旧态通常重启客户端即可，不需要图形登录界面；首次登录例外。

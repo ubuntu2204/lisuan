@@ -64,10 +64,15 @@ STEAM_WRAP = Path.home() / ".local/share/Steam/ubuntu12_64/steamwebhelper_sniper
 # GBM_BACKEND=dri 绕开 gf_gbm.so 的 CEF 启动段错误；LIBGL_ALWAYS_SOFTWARE=1
 # 阻止「帮助→系统信息」等新 GL 上下文按 drirc 映射加载 gf_dri.so /
 # libglapi_gf.so.0（容器内会 double free / Xlib _XAllocID 断言）。
+# __GLX_VENDOR_LIBRARY_NAME=mesa 让 GLVND 把 Steam 客户端的 GLX 分发到系统 Mesa
+# vendor：glXCreateContext 成功、glXIsDirect 通过，消除启动时
+# "OpenGL GLX context is not using direct rendering" 弹窗及 GLX BadValue
+# （2026-11-13 八组消融验证；必须是 mesa，gf 会让客户端崩溃）。
 # -cef-disable-gpu 是 Steam 官方命令行参数（不是修改 wrap.sh）：软件 GL 下 CEF
 # 的 ANGLE/EGL GPU 进程初始化会失败、界面卡在加载动画；显式禁用 CEF GPU 后走
 # CPU 合成，主界面与系统信息弹窗都能正常渲染（2026-11-09 抓图验证）。
-STEAM_FIX_ENV = ("GBM_BACKEND=dri", "LIBGL_ALWAYS_SOFTWARE=1")
+STEAM_FIX_ENV = ("GBM_BACKEND=dri", "LIBGL_ALWAYS_SOFTWARE=1",
+                 "__GLX_VENDOR_LIBRARY_NAME=mesa")
 STEAM_FIX_FLAG = "-cef-disable-gpu"
 STEAM_FIX_TOKENS = (*STEAM_FIX_ENV, STEAM_FIX_FLAG)
 STEAM_HARMFUL_PREFIXES = ("MESA_LOADER_DRIVER_OVERRIDE=gf",
@@ -90,10 +95,14 @@ STEAM_DESKTOP_BODY_FIXED = _STEAM_DESKTOP_COMMON.format(exec_line=(
     "# GBM_BACKEND=dri：绕开厂商 gf_gbm.so 与系统 libgbm 的 ABI 不兼容（CEF exit_code=139）。\n"
     "# LIBGL_ALWAYS_SOFTWARE=1：绕开系统信息弹窗加载 gf_dri.so/libglapi_gf.so.0 后的\n"
     "# double free / Xlib 断言。仅作用于 Steam 客户端 GL，不影响游戏容器里的 gf Vulkan ICD。\n"
+    "# __GLX_VENDOR_LIBRARY_NAME=mesa：让 GLVND 走系统 Mesa GLX vendor，\n"
+    "# glXCreateContext 成功、直接渲染成立，消除「GLX context is not using direct\n"
+    "# rendering」启动弹窗（2026-11-13 消融验证，详见 §3.2）。注意不是 gf。\n"
     "# -cef-disable-gpu：软件 GL 下让 CEF 跳过失败的 GPU 初始化，改用 CPU 合成，\n"
     "# 否则主界面会一直停在加载动画。它是 Steam 命令行参数，不改任何 Steam 文件。\n"
-    "# 详见 steam/steam-on-lisuan.md §3 / §3.1\n"
-    "Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam -cef-disable-gpu %U"
+    "# 详见 steam/steam-on-lisuan.md §3 / §3.1 / §3.2\n"
+    "Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 "
+    "__GLX_VENDOR_LIBRARY_NAME=mesa /usr/bin/steam -cef-disable-gpu %U"
 ))
 
 STEAM_DESKTOP_BODY_PLAIN = _STEAM_DESKTOP_COMMON.format(exec_line="Exec=/usr/bin/steam %U")
@@ -174,7 +183,7 @@ def _steam_exe_index(toks: list[str]) -> int | None:
 def steam_desktop_fixed(content: str) -> bool:
     """Steam 启动器是否已具备完整修复且不含旧 gf 注入。
 
-    两个修复变量必须在 steam 可执行文件之前，`-cef-disable-gpu` 必须在其后；
+    三个修复变量必须在 steam 可执行文件之前，`-cef-disable-gpu` 必须在其后；
     容忍用户叠加的 `LC_ALL=...` 等合法 env 定制，但旧 gf 覆盖 / CEF flag 必须清掉。
     """
     toks = _steam_exec_tokens(content)
@@ -191,7 +200,7 @@ def steam_desktop_fixed(content: str) -> bool:
 
 
 def _build_fixed_exec(content: str) -> tuple[str, bool]:
-    """注入两个修复变量与 -cef-disable-gpu，剔除旧 gf 注入，保留其它定制。
+    """注入三个修复变量与 -cef-disable-gpu，剔除旧 gf 注入，保留其它定制。
 
     返回 (新 Exec 行值, 是否发生变化)。无 Exec 行或找不到 steam 可执行文件时
     返回 ("", False)，由调用方回退到完整模板。
@@ -215,7 +224,7 @@ def _build_fixed_exec(content: str) -> tuple[str, bool]:
 
 
 def _strip_fixed_exec(content: str) -> str | None:
-    """从 Exec 行摘除两个修复变量与 -cef-disable-gpu（逆操作）。
+    """从 Exec 行摘除三个修复变量与 -cef-disable-gpu（逆操作）。
 
     无 Exec 行返回 None。摘除后若 env 前缀下已无其它赋值，连 env 一起去掉，
     避免残留空的 `env`。
@@ -386,14 +395,15 @@ def detect() -> Env:
             first = (stale or missing)[0]
             env.add("Steam", "bad",
                     f"{len(missing)} 个 Steam 入口缺失、{len(stale)} 个入口缺 "
-                    "GBM_BACKEND=dri / LIBGL_ALWAYS_SOFTWARE=1 / -cef-disable-gpu "
-                    "或仍含旧 gf 注入 —— 点系统信息会闪退或界面卡加载动画"
-                    f"（例如 {first}），菜单 [12]", "12")
+                    "GBM_BACKEND=dri / LIBGL_ALWAYS_SOFTWARE=1 / "
+                    "__GLX_VENDOR_LIBRARY_NAME=mesa / -cef-disable-gpu "
+                    "或仍含旧 gf 注入 —— 点系统信息会闪退、界面卡加载动画"
+                    f"或启动弹 GLX 非直接渲染警告（例如 {first}），菜单 [12]", "12")
         else:
             env.add("Steam", "ok",
                     "全部 Steam 桌面入口已配置 GBM_BACKEND=dri + "
-                    "LIBGL_ALWAYS_SOFTWARE=1 + -cef-disable-gpu"
-                    "（CEF/系统信息闪退已修复、界面正常渲染）")
+                    "LIBGL_ALWAYS_SOFTWARE=1 + __GLX_VENDOR_LIBRARY_NAME=mesa + "
+                    "-cef-disable-gpu（CEF/系统信息闪退与 GLX 弹窗均已修复）")
 
         if STEAM_WRAP.is_file():
             try:
@@ -552,7 +562,7 @@ ITEMS: list[Item] = [
      "root": False, "cmd": None, "doc": _doc("electron/README.md")},
 
     # ---- Steam ----
-    {"id": 12, "title": "安装/修复：Steam 界面/系统信息闪退（GBM_BACKEND=dri + 软件 GL + 禁用 CEF GPU）",
+    {"id": 12, "title": "安装/修复：Steam 界面/系统信息闪退/GLX 弹窗（GBM + 软件 GL + Mesa GLX + 禁用 CEF GPU）",
      "group": "Steam", "root": False, "cmd": None, "doc": ""},  # install_steam_fix
     {"id": 13, "title": "说明：Steam 在砺算上的适配细节（容器/CEF/Proton）", "group": "Steam",
      "root": False, "cmd": None, "doc": _doc("steam/steam-on-lisuan.md")},
@@ -721,7 +731,7 @@ def _mark_steam_desktop_trusted(path: Path) -> None:
 def install_steam_fix() -> int:
     """统一修复所有 Steam 桌面入口（用户级菜单、XDG 桌面图标、历史 ~/Desktop）。
 
-    只改 Exec 行并保留用户其它定制（如 LC_ALL=en_US.UTF-8）；注入两个修复变量
+    只改 Exec 行并保留用户其它定制（如 LC_ALL=en_US.UTF-8）；注入三个修复变量
     与 -cef-disable-gpu，并剔除会让 Steam 客户端崩溃/卡加载动画的旧 gf 注入。
     重复执行幂等，不修改 Steam 自身文件。
     """
@@ -782,13 +792,14 @@ def install_steam_fix() -> int:
             continue
         _mark_steam_desktop_trusted(path)
 
-    print("  Steam 客户端修复完成：GBM_BACKEND=dri + LIBGL_ALWAYS_SOFTWARE=1 + -cef-disable-gpu")
+    print("  Steam 客户端修复完成：GBM_BACKEND=dri + LIBGL_ALWAYS_SOFTWARE=1 + "
+          "__GLX_VENDOR_LIBRARY_NAME=mesa + -cef-disable-gpu")
     print("  （下次从桌面/菜单启动 Steam 生效；不修改 Steam 自身文件）")
     return rc
 
 
 def remove_steam_fix() -> int:
-    """从所有 Steam 桌面入口摘除两个修复变量与 -cef-disable-gpu，解锁 chattr +i。
+    """从所有 Steam 桌面入口摘除三个修复变量与 -cef-disable-gpu，解锁 chattr +i。
 
     只动 Exec 行，保留用户其它 env 定制；Exec 行缺失时才回退备份/纯净模板。
     """
@@ -820,7 +831,7 @@ def remove_steam_fix() -> int:
                 print(f"  写入失败：{e}")
                 rc = 1
                 continue
-            print(f"  已从 Exec 行摘除修复变量与 -cef-disable-gpu：{path}")
+            print(f"  已从 Exec 行摘除三个修复变量与 -cef-disable-gpu：{path}")
             print(f"    Exec={new_exec}")
             continue
 

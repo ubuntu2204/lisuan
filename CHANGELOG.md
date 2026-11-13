@@ -4,7 +4,68 @@
 实机验证。
 
 > 历史条目保留当时的命令与路径，照抄前请先看最新条目：**现行** Steam 启动命令见
-> `2026.11.09 — Steam「帮助 → 系统信息」闪退修复` 与 `steam/steam-on-lisuan.md` §3。
+> `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
+> 与 `steam/steam-on-lisuan.md` §3 / §3.2。
+
+## 2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复
+
+### 根因
+
+- 弹窗来自 Steam 客户端启动自检：`console-linux.txt` 里
+  `glXCreateContext failed`、`X Error ... Major opcode 149 (GLX) /
+  X_GLXCreateContext`、`CVRStreamThread: Couldn't create context`，随后
+  `Using host zenity for message` 弹出 KB 9938-EYZB-7457 文案。宿主
+  `glxinfo -B` 同时仍是 `direct rendering: Yes`（LISUAN 7G100、OpenGL 4.6），
+  硬件 GLX 正常，只有被 CEF workaround 限制的 Steam 客户端建不出 GLX 上下文。
+- 原三项修复（`GBM_BACKEND=dri` + `LIBGL_ALWAYS_SOFTWARE=1` +
+  `-cef-disable-gpu`）解决了 CEF 段错误与系统信息闪退，但没有指定 GLX vendor；
+  GLVND 在 pressure-vessel 容器内落到失败的间接路径，`glXIsDirect` 判否。
+
+### 消融（单实例、单次启动、无自动恢复，8 组）
+
+| 组 | 变化 | 弹窗 | `glXCreateContext failed` / GLX BadValue | 结果 |
+| --- | --- | --- | --- | --- |
+| A0r | 基线三项 | 1 | 7 / 5 | 界面正常，弹窗复现 |
+| A1r | + `__GLX_VENDOR_LIBRARY_NAME=mesa` | 0 | 0 / 0 | 弹窗消失，无新增失败 |
+| A4 | mesa GLX，去掉 `LIBGL_ALWAYS_SOFTWARE` | 0 | 0 / 0 | 同样消弹窗，系统信息安全性未复验 |
+| A2 | + `MESA_LOADER_DRIVER_OVERRIDE=llvmpipe` | 1 | 7 / 5 | 无效，与文档结论一致 |
+| B1 | 去掉 `LIBGL_ALWAYS_SOFTWARE` | 1 | 2 / 3 | 弹窗仍在，登录窗口波动 |
+| B2 | 去掉 `-cef-disable-gpu` | 1 | 7 / 5 | GPU 初始化失败 14→66，界面走加载动画 |
+| B3 | 去掉 `GBM_BACKEND=dri` | 0 | 0 / 2 | `alive=0`，客户端直接退出 |
+| B4 | 三项全无（裸启动） | 0 | 0 / 0 | `alive=0`，客户端直接退出 |
+
+- 唯一有效且无新增失败的是 `__GLX_VENDOR_LIBRARY_NAME=mesa`：A1r / A4 / A1r2 /
+  最终恢复启动共 4 次弹窗 0、GLX 失败 0、`double free` 0、CEF `exit_code=139` 0，
+  `Exiting GPU process ...` 计数与基线同为 14。B3/B4 的「弹窗 0」是客户端根本
+  没起来，不是修好。
+- 明确跳过（仓库已证伪或会伤及游戏客户端）：`__GLX_VENDOR_LIBRARY_NAME=gf`、
+  `LD_PRELOAD=libglapi_gf.so.0`、改 `steamwebhelper_sniper_wrap.sh` / `chattr +i`、
+  改 `VK_ICD_FILENAMES`。
+
+### 固化与验证
+
+- `packaging/lisuan_fix_core.py` 的 `STEAM_FIX_ENV` 增加
+  `__GLX_VENDOR_LIBRARY_NAME=mesa`（现为三个变量 + `-cef-disable-gpu`）；
+  `steam_desktop_fixed()` / `_build_fixed_exec()` / `_strip_fixed_exec()` /
+  `detect()` / 菜单 12 标题与输出同步，卸载仍逐项摘除、可逆。
+- 全部 `steam.desktop` 由菜单 12 统一写入四项，保留用户原有
+  `LC_ALL=en_US.UTF-8` 等 env 定制；`python3 install.py --detect` 的 Steam 项为 ok。
+- 测试：`tests/test-steam-desktop.sh` 三处入口的修复/幂等/回滚断言加入新变量并禁止
+  gf 注入；`tests/test-repo-health.sh` 增加「缺 Mesa GLX 判否」与可逆卸载断言；
+  完整套件 `bash tests/run-tests.sh -v` 通过。
+- 文档：`steam/steam-on-lisuan.md` 新增 §3.2（消融表、结论、禁忌、限制），
+  `README.md` / 本 CHANGELOG / 项目技能排障参考同步四项命令。
+- 当前 Steam 进程 `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/gf_icd.x86_64.json`
+  未变，游戏 gf Vulkan 不受影响；`LIBGL_ALWAYS_SOFTWARE=1` 保留，
+  「帮助 → 系统信息」的 double free 防护仍在。
+
+### 限制
+
+- 反复重启期间 Steam 登录态出现波动（几次停在「登录 Steam」窗口），
+  「帮助 → 系统信息」未能在稳定登录态下复验，需登录后点一次确认。
+- 早期 A0/A1 两轮因 `steam://open/systeminfo` 触发窗口/额外进程而作废，
+  只采用 A0r 起的干净口径。证据留在 `/tmp/steam-glx-ab/results.tsv` 及同目录
+  各组 `*.console.log` / `*.windows.log` / `*.xwd`（临时目录，未入库）。
 
 ## 2026.11.09 — 即梦 AI 桌面图标修复与安装脚本健壮化
 

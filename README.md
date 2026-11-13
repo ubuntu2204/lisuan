@@ -236,10 +236,13 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 > **Steam 菜单 [12]** 现在统一修用户级菜单项、XDG 桌面图标与历史 `~/Desktop` 入口：
 > 写入 `GBM_BACKEND=dri`（绕开 `gf_gbm.so` 段错误）、
 > `LIBGL_ALWAYS_SOFTWARE=1`（绕开「帮助→系统信息」弹窗加载 `gf_dri.so` 后的
-> double free）和 `-cef-disable-gpu`（软件 GL 下让 CEF 走 CPU 合成，避免界面卡在
-> 加载动画），并清掉 `MESA_LOADER_DRIVER_OVERRIDE=gf` 等旧注入。只改 `.desktop`
-> 的 Exec 行，不动 Steam 自身文件；游戏容器内 gf Vulkan ICD 不受影响。
-> 细节见 [`steam/steam-on-lisuan.md`](./steam/steam-on-lisuan.md) §3 / §3.1。
+> double free）、`__GLX_VENDOR_LIBRARY_NAME=mesa`（让 GLX 走系统 Mesa vendor，
+> 消除「GLX context is not using direct rendering」启动弹窗）和
+> `-cef-disable-gpu`（软件 GL 下让 CEF 走 CPU 合成，避免界面卡在加载动画），
+> 并清掉 `MESA_LOADER_DRIVER_OVERRIDE=gf` / `__GLX_VENDOR_LIBRARY_NAME=gf`
+> 等旧注入。只改 `.desktop` 的 Exec 行，不动 Steam 自身文件；游戏容器内
+> gf Vulkan ICD 不受影响。
+> 细节见 [`steam/steam-on-lisuan.md`](./steam/steam-on-lisuan.md) §3 / §3.1 / §3.2。
 
 > 注意：编号已按新分组**重新编排**。
 > 本文件及项目各处引用的"菜单 [N]"均已同步为新编号。
@@ -285,9 +288,9 @@ sudo ./fix-lisuan-gpu.sh
 #    已由 drirc（/usr/share/drirc.d/01-gf_drv.conf）天然解决，无需操作；
 #    若缺该文件请重装厂商 lib 包（lisuangpu-lib）
 
-# 3) Steam 界面起不来 / 点「帮助→系统信息」闪退 / 界面卡加载动画
-GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam -cef-disable-gpu
-# 桌面启动器已内置两个变量与 -cef-disable-gpu，从菜单启动同样生效（python3 install.py 12）。
+# 3) Steam 界面起不来 / 点「帮助→系统信息」闪退 / 界面卡加载动画 / GLX 非直接渲染弹窗
+GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa steam -cef-disable-gpu
+# 桌面启动器已内置三个变量与 -cef-disable-gpu，从菜单启动同样生效（python3 install.py 12）。
 # 若曾被 chattr 锁死过（会引发更新回滚、游戏反复重下），先解锁：
 sudo chattr -i ~/.local/share/Steam/ubuntu12_64/steamwebhelper_sniper_wrap.sh
 
@@ -548,17 +551,17 @@ sed -n '4p' "$(ls -d /usr/src/lisuangpu-dkms-* | sort -V | tail -1)/Makefile"
 ### 修复（2026-11-09 更新）
 
 ```bash
-GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 steam -cef-disable-gpu
+GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa steam -cef-disable-gpu
 ```
 
 桌面启动器（用户级菜单项、XDG 桌面图标、历史 `~/Desktop` 入口）由
 `python3 install.py 12` 统一写入：
 
 ```ini
-Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 /usr/bin/steam -cef-disable-gpu %U
+Exec=env GBM_BACKEND=dri LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa /usr/bin/steam -cef-disable-gpu %U
 ```
 
-env 段允许叠加自己的变量（如 `LC_ALL=en_US.UTF-8`）；菜单 [12] 按「两个变量都在
+env 段允许叠加自己的变量（如 `LC_ALL=en_US.UTF-8`）；菜单 [12] 按「三个变量都在
 env 段、`-cef-disable-gpu` 在 steam 之后、且不含旧 gf 注入」判定，只改 Exec 行、
 保留文件其余内容。
 
@@ -568,8 +571,11 @@ env 段、`-cef-disable-gpu` 在 steam 之后、且不含旧 gf 注入」判定�
 `gf_dri.so` / `libglapi_gf.so.0`，修掉「帮助→系统信息」弹窗的
 `double free` / `_XAllocID` 闪退。但只加软件 GL 会让 CEF 的 ANGLE/EGL GPU 进程
 初始化失败、界面停在加载动画，所以还要加 Steam 官方命令行参数
-`-cef-disable-gpu`（不是改 `wrap.sh`）走 CPU 合成。游戏容器内 gf Vulkan ICD 不变。
-详见 `steam/steam-on-lisuan.md` §3 / §3.1。
+`-cef-disable-gpu`（不是改 `wrap.sh`）走 CPU 合成。`__GLX_VENDOR_LIBRARY_NAME=mesa`
+让 GLVND 把客户端 GLX 分发到系统 Mesa vendor，`glXCreateContext` 成功、直接渲染
+成立，消除启动时的「GLX context is not using direct rendering」弹窗（2026-11-13
+八组消融，详见 §3.2；注意是 `mesa` 不是 `gf`）。游戏容器内 gf Vulkan ICD 不变。
+详见 `steam/steam-on-lisuan.md` §3 / §3.1 / §3.2。
 
 验证：`grep -c 'exit_code=139' ~/.local/share/Steam/logs/cef_log.txt` → `0`；
 新一次系统信息弹窗后 `console-linux.txt` 无 `double free` / `Aborted`；

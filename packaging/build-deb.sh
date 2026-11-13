@@ -139,7 +139,7 @@ Description: 砺算 7G100 GPU 修复工具（DKMS/Mesa/Steam/游戏/Electron/音
  一体化修复与体检工具，覆盖：
   - DKMS 驱动构建/加载（vermagic 错配、黑屏）
   - Mesa DRI 驱动名适配（lisuan vs gf）
-  - Steam 客户端 CEF 崩溃（GBM_BACKEND=dri 环境变量方案）
+  - Steam 客户端 CEF / GLX 修复（GBM_BACKEND=dri + 软件 GL + Mesa GLX + 禁用 CEF GPU）
   - Left 4 Dead 2 原生 Venus 硬件渲染、D16 与 locale 修复
   - Dota Underlords 原生直跑补丁
   - Electron 应用（ZCode/CodeBuddy/Qoder）gf 硬件加速

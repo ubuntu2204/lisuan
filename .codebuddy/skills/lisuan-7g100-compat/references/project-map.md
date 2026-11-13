@@ -95,7 +95,7 @@ deb 构建：`packaging/build-deb.sh <VER>`，输出 `packaging/dist/lisuan-fix_
 | 主题目录 | 9 个 | 12 个，`kingdom-rush/`、`doubao/`、`dreamina/` 未列入旧表 |
 | 测试套件 | 6 / 7 个 | 11 个 |
 | deb 覆盖 | core 注释称不含 `minion-masters/` | `build-deb.sh` 已精简打包 `doubao/` 与 `dreamina/`（不含厂商 exe）；真正未打包的是 `Plants-vs-Zombies/` |
-| Steam 方案 | 旧脚本头仍描述注入和 `chattr +i` | 当前只改桌面 `Exec` 注入 `GBM_BACKEND=dri`；旧脚本仅用于清理残留 |
+| Steam 方案 | 旧脚本头仍描述注入和 `chattr +i` | 当前只改桌面 `Exec` 注入四项：`GBM_BACKEND=dri`、`LIBGL_ALWAYS_SOFTWARE=1`、`__GLX_VENDOR_LIBRARY_NAME=mesa`、`-cef-disable-gpu`；旧脚本仅用于清理残留 |
 
 ## 关键文档
 

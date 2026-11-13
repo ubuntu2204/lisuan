@@ -3,6 +3,13 @@
 # fix-steam-cef-lock.sh — lock the CEF software-rendering patch in place so
 # Steam's checksum verification cannot revert it.
 #
+# ⚠ 已废弃（2026-11-13）：本脚本默认模式会注入 LD_PRELOAD=libglapi_gf.so.0 并用
+# chattr +i 锁定 wrap.sh，二者都已被证伪（double free / Steam 校验回滚导致游戏反复重下）。
+# 只保留 --unlock / --uninstall 用于清理历史残留，不要用默认模式修 Steam。
+# 现行方案：菜单 [12] 只改全部 steam.desktop 的 Exec，注入
+# GBM_BACKEND=dri + LIBGL_ALWAYS_SOFTWARE=1 + __GLX_VENDOR_LIBRARY_NAME=mesa
+# + -cef-disable-gpu，见 steam/steam-on-lisuan.md §3 / §3.2。
+#
 # Steam overwrites steamwebhelper_sniper_wrap.sh on every launch ("Verifying
 # all executable checksums"), undoing a plain edit. This script re-applies the
 # CEF injection AND sets the immutable attribute (chattr +i) so the

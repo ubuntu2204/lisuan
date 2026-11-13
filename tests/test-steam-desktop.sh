@@ -35,7 +35,9 @@ t_assert_eq 0 $? "install_steam_fix() succeeds in isolated HOME"
 for f in "${ENTRIES[@]}"; do
     if grep -q 'GBM_BACKEND=dri' "$f" && \
        grep -q 'LIBGL_ALWAYS_SOFTWARE=1' "$f" && \
+       grep -q '__GLX_VENDOR_LIBRARY_NAME=mesa' "$f" && \
        grep -q -- '-cef-disable-gpu' "$f" && \
+       ! grep -q '__GLX_VENDOR_LIBRARY_NAME=gf' "$f" && \
        ! grep -q 'MESA_LOADER_DRIVER_OVERRIDE=gf' "$f" && \
        ! grep -q -- '-no-cef-sandbox' "$f" && \
        ! grep -q -- '-cef-force-64bit' "$f"; then
@@ -66,6 +68,7 @@ t_assert_eq 0 $? "remove_steam_fix() succeeds"
 for f in "${ENTRIES[@]}"; do
     if ! grep -q 'GBM_BACKEND=dri' "$f" && \
        ! grep -q 'LIBGL_ALWAYS_SOFTWARE=1' "$f" && \
+       ! grep -q '__GLX_VENDOR_LIBRARY_NAME=mesa' "$f" && \
        ! grep -q -- '-cef-disable-gpu' "$f" && \
        grep -q '^Exec=/usr/bin/steam %U$' "$f"; then
         t_ok "rollback entry: $(basename "$(dirname "$f")")/steam.desktop"
