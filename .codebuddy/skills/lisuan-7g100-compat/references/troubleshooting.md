@@ -154,7 +154,9 @@ dkms status
 - 已证伪：`QT_OPENGL=software|desktop`（被应用代码覆盖）、`QTWEBENGINE_CHROMIUM_FLAGS` 与命令行 `--disable-gpu` / `--use-gl=desktop`、把工作目录改到安装目录。
 - 有效：`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json` 与 `WINE_D3D_CONFIG=renderer=gl`；消融显示任一单独即可越过崩溃，固化在 `war3/run-kk-platform.sh`（同时带项目软件渲染三件套）。验收 3 次：两个窗口 `IsViewable`、抓图 5674–11113 色、应用日志越过崩溃点并拿到 `status:200`、无 `c0000005`、主进程存活到显式收尾。
 - 图标是独立桌面集成问题：`war3/extract-icon.py` 从本机 `Platform.exe` 的 PE 资源提取 10 个尺寸写入 hicolor，`war3/fix-kk-desktop.sh` 写三个 `.desktop`（`Icon=kkduizhan` / Exec 指向启动器 / `metadata::trusted`），提供 `--status` / `--uninstall` 且幂等可逆；Wine 前缀里的 `.lnk` 不出现在 Linux 桌面。
-- 半透明重影根因：窗口为 Depth 32 / ARGB，XWayland 合成后透出后方窗口。`XLIB_SKIP_ARGB_VISUALS=1` 使 Depth 32→24、抓图颜色数 32829→166278，重影消失且弹窗点击命中；已固化在 `war3/run-kk-platform.sh`，`KK_LAYOUT_LEGACY=1` 可回退。
+- **界面现象（2026-11-14 用户纠正）**：启动时盖住主界面的半透明深灰层是活动弹窗的模态遮罩，点弹窗 `X` 关闭即消失，是正常 UI、**不是 bug**，不要做 ARGB / 合成层干预。曾误判为「Depth 32 重影」并注入 `XLIB_SKIP_ARGB_VISUALS=1`，虽变不透明却让 QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，**已撤销**；`KK_LAYOUT_LEGACY` / `KK_SKIP_ARGB` / 虚拟桌面开关一并移除。
+- **真正的缺陷是 UI 错位**：WM 主框架（Depth 24、1334×947）在 `(293,32)`，承载实际 UI 的 override-redirect 内容层（Depth 32、1332×946）被 Wine 固定在 `(0,0)`，相差 293/32 px，界面画到窗口外、点击位置与视觉不符。`xdotool windowmove` 把内容层对齐到 `(294,33)` 后导航 / 游戏列表 / 弹窗全部回正。`war3/run-kk-platform.sh` 启动后等结构稳定做一次性对齐并有限复核（应用会把它重置回 `(0,0)`），`KK_ALIGN_WINDOWS=0` 可关；不监控、不守护、不自动重启。详见 `war3/README.md` §5 与 CHANGELOG `2026.11.14 — KK 界面现象纠正`。
+- 已证伪：Wine 虚拟桌面（内容层仍独立在 `(0,0)`，ScreenCast 抓帧持续超时）、把主框架移到 `(0,0)`（顶栏把 Y 钳在 32）、WebEngine 软件绘制 / DPR flags、SwiftShader、容器、`LIBGL_DRI3_DISABLE=1`。`_NET_WM_WINDOW_OPACITY` 尝试被用户中止、未执行，遮罩本就不是 bug，无需再试。
 - 未验收账号登录、房间匹配与 Warcraft III 本体对战；不要为该应用加自动重启或守护。
 
 ## 9. 日志与验收
@@ -168,7 +170,7 @@ dkms status
 
 - **不要把 X11 抓图当证据**：本机 GNOME Wayland + XWayland 下，`xwd`（窗口与 root）、`ffmpeg -f x11grab`（窗口与 1920×1080 全屏）、PIL `ImageGrab` 都拿不到合成后内容，全屏实测 207 万像素纯黑、`xwd` 报 `BadMatch`。这是 `XGetImage` 的全局限制，不是应用渲染故障。曾据此误判 KK 对战平台「合成层脱节」，已在 `war3/README.md` 与 CHANGELOG 纠正。
 - 已证伪通道：GNOME Shell `org.gnome.Shell.Screenshot` D-Bus 返回 `AccessDenied: Screenshot is not allowed`；`xdotool key shift+Print`（XTEST）到不了 Wayland 合成器，不落盘；portal Screenshot 会走交互授权，不适合自动取证。
-- **可用通道**：`org.gnome.Mutter.ScreenCast` D-Bus + PipeWire + GStreamer。工具 `.codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py`，用法 `python3 <脚本> -o /tmp/shot.png`，`--check` 只读查依赖。首帧实测 1920×1080 / 34486 色，能看到桌面、任务栏与各窗口，客观复现了 KK 窗口半透明重影。
+- **可用通道**：`org.gnome.Mutter.ScreenCast` D-Bus + PipeWire + GStreamer。工具 `.codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py`，用法 `python3 <脚本> -o /tmp/shot.png`，`--check` 只读查依赖。首帧实测 1920×1080 / 34486 色，能看到桌面、任务栏与各窗口；曾据此把 KK 弹窗遮罩误判为「半透明重影」，现已纠正（见 §8 KK 条目）。
 - **关键坑**：ScreenCast session 与创建它的 D-Bus 连接绑定；`gdbus call` 逐条调用会在连接断开后被 Mutter 回收（再调 `RecordMonitor` 报「对象不存在」）。必须在同一条连接里完成 `CreateSession → RecordMonitor('DP-1') →` 订阅 `PipeWireStreamAdded(u node_id)` → `Session.Start()` → `gst-launch-1.0 pipewiresrc path=<node_id> num-buffers=1 ! videoconvert ! pngenc ! filesink` → `Session.Stop()`。
 - 会话必须显式 Stop，不留后台录屏；不做常驻/守护/自动重试。规则见 `.codebuddy/rules/Wayland抓图约定.md`。
 - 应用内 WebView 另可用 `QTWEBENGINE_REMOTE_DEBUGGING=9222` + CDP 读 `devicePixelRatio` / `Page.captureScreenshot`（只读 Web 层，不替代整屏合成画面）。

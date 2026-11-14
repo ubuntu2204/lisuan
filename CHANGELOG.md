@@ -5,14 +5,66 @@
 
 > 历史条目保留当时的命令与路径，照抄前请先看最新条目：**现行** Steam 启动命令见
 > `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
-> 与 `steam/steam-on-lisuan.md` §3 / §3.2。
+> 与 `steam/steam-on-lisuan.md` §3 / §3.2；**现行** KK 启动器结论见
+> `2026.11.14 — KK 界面现象纠正` 与 `war3/README.md` §5。
 
-## 2026.11.14 — KK 半透明重影修复
+## 2026.11.14 — KK 界面现象纠正：撤销 ARGB「重影修复」，定位 UI 错位
 
-- 根因：主窗口 client 区与 920×560 弹窗为 Depth 32 / ARGB，XWayland 合成后整窗半透明、后方文字透出。
-- 解法：`XLIB_SKIP_ARGB_VISUALS=1`；Depth 32→24，抓图颜色数 32829→166278，弹窗点击命中（2→1 窗口）。
+> 本条纠正并取代下方 `KK 半透明重影修复` 条目；后者仅作史料保留，勿照抄。
+
+### 用户纠正与误判
+
+- 启动时盖住主界面的半透明深灰层是**活动弹窗自带的模态遮罩**，点弹窗的 `X`
+  关闭即消失，是正常 UI，**不是渲染 bug**，不需要任何 ARGB / 合成层干预。
+- 此前把该遮罩误判为「32 位 ARGB 窗口重影」并注入 `XLIB_SKIP_ARGB_VISUALS=1`。
+  Wayland 合成画面显示：窗口确实从半透明变不透明，但 QtWebEngine 主内容
+  （游戏列表 / 商城导航）整片空白，点不动——代价大于收益，**已撤销**。
+  `KK_SKIP_ARGB` / `KK_LAYOUT_LEGACY` 开关与 `_NET_WM_WINDOW_OPACITY` 尝试
+  一并移除，测试断言改为禁止注入该变量。
+
+### 真正的缺陷：窗口几何错位
+
+- 关掉遮罩后界面元素整体偏左上、点击位置与视觉不符。`xwininfo -root -tree`
+  取证：WM 主框架 `0x7e00018`（Depth 24、1334×947、位于 `(293,32)`），承载实际
+  UI 的内容层 `0x7e0001d`（Depth 32、`Override Redirect State: yes`、1332×946、
+  被 Wine 固定在 `(0,0)`）。两者错开 293/32 px，界面画到窗口外、窗口内空白。
+- 用 `xdotool windowmove` 把内容层对齐到 `(294,33)` 后，顶部导航、左侧游戏列表、
+  活动弹窗、系统通知全部落回窗口内正确位置（ScreenCast 抓图验收）。
+  与渲染深度、Web 层 DPR 无关。
+
+### 消融与已证伪
+
+| 尝试 | 结果 |
+| --- | --- |
+| `XLIB_SKIP_ARGB_VISUALS=1` | 窗口不透明，WebEngine 主内容空白 —— 撤销 |
+| Wine 虚拟桌面 `/desktop=KK,1920x1080` | 内容层仍是 `(0,0)` 独立窗口、主框架 `(293,66)`，错位依旧；ScreenCast 抓帧持续超时 |
+| 主框架移到 `(0,0)` | GNOME 顶栏把 Y 钳在 32，仍差 32 px；内容层又被应用重置 |
+| 内容层单次对齐（过早执行） | 应用初始化期间把内容层放回 `(0,0)`，对齐失效 |
+| **稳定后对齐 + 有限复核** | **有效，UI 回正，已固化** |
+| `KK_WEBENGINE_SOFTWARE` / DPR flags、SwiftShader、容器、`LIBGL_DRI3_DISABLE` | 无收益或不稳定；前者仅留作 A/B 诊断 |
+
+### 固化与验证
+
+- `war3/run-kk-platform.sh`：撤销全部 ARGB / 虚拟桌面干预，只保留启动后一次性
+  窗口对齐（等结构稳定后最多移动 3 次并复核），`KK_ALIGN_WINDOWS=0` 可关；
+  **不监控、不守护、不自动重启**。文件头、用法注释同步纠正。
+- 默认启动实测：`窗口对齐：内容层 0x7e0001d -> 主框架 0x7e00018 (293,32)`，
+  几何变为内容层 `(294,33)`，主进程存活，导航 / 游戏列表 / 弹窗位置回正。
+- `tests/test-repo-health.sh`：断言改为要求 `KK_ALIGN_WINDOWS` 对齐开关、禁止
+  `XLIB_SKIP_ARGB_VISUALS`；`war3/README.md` §5 与技能 `references/troubleshooting.md`
+  同步纠正；`bash tests/run-tests.sh -v` 通过。
+- 限制：内容层位置由应用决定，对齐是启动期一次性尽力而为；若之后被重置，
+  重启客户端即可重新对齐。账号登录交互、房间匹配、Warcraft III 本体对战未验收。
+
+## 2026.11.14 — KK 半透明重影修复（已撤销，仅作史料）
+
+> **勿照抄**：结论已被上方条目纠正。半透明层是弹窗遮罩而非渲染 bug，
+> `XLIB_SKIP_ARGB_VISUALS=1` 会让 WebEngine 主内容空白。
+
+- 根因（当时的误判）：主窗口 client 区与 920×560 弹窗为 Depth 32 / ARGB，XWayland 合成后整窗半透明、后方文字透出。
+- 解法（已撤销）：`XLIB_SKIP_ARGB_VISUALS=1`；Depth 32→24，抓图颜色数 32829→166278，弹窗点击命中（2→1 窗口）。
 - 消融：只留 ARGB 修复也正常，WebEngine 软件绘制/DPR flags 无额外收益，改为 `KK_WEBENGINE_SOFTWARE=1` 可选。
-- 验收：最终脚本重启后两窗口 Depth 24、抓图 163800 色、自动登录进大厅、主进程存活、调试端口关闭。
+- 验收（当时口径）：最终脚本重启后两窗口 Depth 24、抓图 163800 色、自动登录进大厅、主进程存活、调试端口关闭。
 
 ## 2026.11.14 — 打通 Wayland 合成画面的非交互抓图通道
 
@@ -36,8 +88,9 @@
   `Start` → `gst-launch-1.0 pipewiresrc path=<node_id> num-buffers=1 !
   videoconvert ! pngenc ! filesink` → `finally Stop`；`--check` 只读查依赖，
   `--connector` / `--timeout` 可覆盖，不留后台录屏、不自动重试。
-- 实测首帧 1920×1080 / 34486 色，能看到桌面、任务栏与各窗口，
-  并客观复现 KK 窗口半透明重影（此前只能靠用户截图）。
+- 实测首帧 1920×1080 / 34486 色，能看到桌面、任务栏与各窗口。
+  当时把画面里的 KK 弹窗遮罩记成「半透明重影」，该判读已由
+  `2026.11.14 — KK 界面现象纠正` 条目更正；抓图通道本身有效。
 - 新增规则 `.codebuddy/rules/Wayland抓图约定.md`（禁用证伪通道、
   规定唯一通道与验收标准）；技能 `SKILL.md` 验证命令、
   `references/troubleshooting.md` §10、`references/conventions.md` 同步；

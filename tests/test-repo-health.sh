@@ -162,9 +162,9 @@ t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
 t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
   'force-device-scale-factor=1' "KK launcher fixes WebEngine DPR"
 t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
-  'KK_LAYOUT_LEGACY' "KK layout fix has a rollback switch"
-t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
-  'XLIB_SKIP_ARGB_VISUALS=1' "KK launcher blocks ARGB translucent windows"
+  'KK_ALIGN_WINDOWS' "KK launcher has a one-shot window alignment switch"
+t_assert_not_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
+  'export XLIB_SKIP_ARGB_VISUALS' "KK launcher does not inject harmful ARGB override"
 t_assert_grep "${REPO_TOP}/war3/fix-kk-desktop.sh" \
   'ICON_NAME=kkduizhan' "KK desktop fix uses extracted icon name"
 t_assert_grep "${REPO_TOP}/war3/fix-kk-desktop.sh" \

@@ -105,46 +105,63 @@ I 之后未再跑 Steam Runtime 容器组：裸 wine 已稳定，容器非必要
 - 实测 `--status` 全项 `[OK]`，`desktop-file-validate` 无警告；`--uninstall`
   从备份还原（新建的直接删除）并移除生成的图标。
 
-## 5. 界面半透明重影（2026-11-14，已修复并验收）
+## 5. 界面现象：弹窗遮罩（非 bug）与 UI 错位（2026-11-14 纠正）
 
-**结论**：根因是 32 位 ARGB 窗口，不是 Web 层渲染或 DPR。修复见下方「已生效修复」，`KK_LAYOUT_LEGACY=1` 可回退。
+**结论（据用户纠正）**：启动时盖住主界面的半透明深灰层是活动弹窗自带的
+**模态遮罩**，点弹窗的 `X` 关闭即消失，是正常 UI，**不是渲染 bug**，不需要任何
+ARGB / 合成层干预。此前把它误判为「32 位 ARGB 窗口重影」并注入
+`XLIB_SKIP_ARGB_VISUALS=1`；Wayland 合成画面显示窗口虽变不透明，却让
+QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大于收益，**已撤销**。
+详见 `CHANGELOG.md` 的 `2026.11.14 — KK 界面现象纠正` 条目。
 
-**用户反馈**：能进主界面并登录，但画面重影/元素错位、有未绘制黑块，Web 内容区域的鼠标点击对不上（原生窗口控件可点）。
+### 真正的缺陷：UI 错位
 
-**已查明的客观事实**（全部只读，不点击界面、不结束已登录会话）：
+关掉遮罩后可看出界面元素整体偏左上、点击位置与视觉不符。根因在窗口几何，
+与渲染无关（Wayland ScreenCast 抓图 + `xwininfo` 取证）：
 
-- `wmctrl` 与 `xwininfo` 的窗口坐标在本机所有应用上都差 2 倍（微信/QQ/百度网盘/CodeBuddy 同样如此），是 XWayland 全局映射，不是 KK 独有，其它应用工作正常。
-- **纠正（自动测试后）**：`xwd` / `ffmpeg x11grab` / PIL `ImageGrab` 拿到的 KK 窗口是纯黑，`xwd` 对 root 与窗口均 `BadMatch`，GNOME Shell 的 D-Bus 截图 `AccessDenied`；但按 `xwininfo` 的 X11 真实坐标重抓、**连 1920×1080 全屏都是纯黑**——这是 XWayland 下 `XGetImage` 拿不到任何合成后内容的全局限制，**不是 KK 渲染故障的证据**，之前「合成层脱节」的推断作废。
-- 客观证据改由 QtWebEngine CDP 提供：端口 9222 报
-  `QtWebEngine/5.15.2 Chrome/83`，登录页 `Page.captureScreenshot` 得到完整清晰的
-  728×554 页面（无重影、黑块），`devicePixelRatio=1`、`visualViewport.scale=1`、
-  `innerWidth/Height=728/554`。即 **Web 层渲染与 DPR 都正常**。
-- `LIBGL_DRI3_DISABLE=1` 对照未改变 X11 抓图结果（同样是全局限制），无客观收益证据，未固化。
-- 用弹窗原生关闭按钮做的一次 hit-test 命中（窗口数 2→1），说明 Qt 原生控件输入坐标正常；问题集中在 Web 内容层。该测试方式已停用（可能误触界面上的账号相关按钮，用户明确要求不再点）。
-- 无效或不稳定：Steam Runtime 容器（同样黑）、`QT_ANGLE_PLATFORM=swiftshader`（弹窗/渲染路径不稳定）、Wine 虚拟桌面（`explorer /desktop=KK,1920x1080`，X11 抓图仍全黑）。
-- 宿主泄漏进 Wine 进程的 `QT_ACCESSIBILITY=1` / `QT_IM_MODULE=fcitx` 已确认存在。
+| 窗口 | 类型 | 位置 | 作用 |
+| --- | --- | --- | --- |
+| `0x7e00018` | WM 管理、Depth 24、非 override-redirect | (293,32) | 主框架，1334×947 |
+| `0x7e0001d` | Depth 32、`Override Redirect State: yes` | (0,0) | 承载实际 UI 的内容层，1332×946 |
 
-**已生效修复**（`war3/run-kk-platform.sh`）：`XLIB_SKIP_ARGB_VISUALS=1` 让窗口用 24 位不透明 visual。实测两窗口 Depth 32→24，ScreenCast 抓图颜色数 32829→166278，半透明重影消失；弹窗 X 真实点击命中（窗口 2→1）。消融显示单独这一项即可，WebEngine 软件绘制/DPR flags 无额外收益，已改为 `KK_WEBENGINE_SOFTWARE=1` 可选。最终脚本重启验收：Depth 24、抓图 163800 色、自动登录进大厅、主进程存活。
+Qt 把界面画在内容层上，Wine 把它固定放在 `(0,0)`，而主框架在 `(293,32)`，
+两者错开 293/32 px → 界面画到窗口外、窗口内是大片深色空白、点击位置与视觉
+不符（用户「点魔兽争霸 3 右面有效」即此偏移）。把内容层 `xdotool windowmove`
+到 `(294,33)` 后，顶部导航、左侧游戏列表、活动弹窗、系统通知**全部落回窗口内
+正确位置**（合成画面验收）。
 
-**以下为此前的候选修复记录（保留作排查史料）**：
-清掉宿主 `QT_*` 泄漏；`QT_SCALE_FACTOR=1` / `QT_AUTO_SCREEN_SCALE_FACTOR=0` / `QT_FONT_DPI=96`；
-`QTWEBENGINE_CHROMIUM_FLAGS` 加 `--disable-gpu --disable-gpu-compositing --disable-accelerated-2d-canvas --force-device-scale-factor=1 --disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows`。
-前四个开关此前已单独验证不会破坏启动（窗口与主进程正常）。设 `KK_LAYOUT_LEGACY=1` 可一键回到修复前配置做 A/B。
+**现行解法**（`war3/run-kk-platform.sh`）：启动后等窗口结构稳定，一次性把
+内容层对齐到主框架并复核（应用初始化期间会反复把内容层放回 `(0,0)`，故最多
+移动 3 次），`KK_ALIGN_WINDOWS=0` 可关闭。有限次数、单次启动，**不监控、不守护、
+不自动重启客户端**。不做 ARGB 干预，QtWebEngine 主内容保持完整。
 
-**自动测试与验收状态（用户授权可点击、可开关客户端后）**：
+### 已证伪 / 已撤销（排查史料，勿再照抄）
 
-- 已用信号正常关闭/重启客户端多次，全程不点账号或退出登录按钮；应用凭保存的
-  token 自动重登成功（`Login game finished, err: 0` → `WndLobby`），**未要求用户重新输入密码**。
-- 弹窗原生关闭按钮的真实鼠标 hit-test 命中（窗口数 2→1），说明输入通道可用；
-  「点不了」更可能是用户看到的合成画面位置与实际可点区域不一致，而非应用收不到点击。
-- 最后用**生产启动器**（不带 CDP 调试端口、不带 `LIBGL_DRI3_DISABLE`）重启，
-  确认 1334×947 主窗口、主进程存活、自动登录进大厅，`QTWEBENGINE_CHROMIUM_FLAGS`
-  与 `QT_SCALE_FACTOR=1` 等修复变量已生效，9222 端口已关闭。
-- **视觉仍未由我判定**：Wayland 合成后的画面本机没有任何非交互抓图通道
-  （X11 全局限制 + GNOME D-Bus AccessDenied）。请直接看当前已运行的主界面，
-  确认重影/黑块/点击是否改善；若仍异常，发一张修复后的新截图，或设
-  `KK_LAYOUT_LEGACY=1` 回退做 A/B，再考虑调整 GNOME 缩放因子 / Xorg 会话等
-  系统级方向（需用户同意）。
+- `XLIB_SKIP_ARGB_VISUALS=1`：窗口不透明，但游戏列表 / 商城导航整片空白。
+- Wine 虚拟桌面 `explorer /desktop=KK,1920x1080`：内容层仍是 `(0,0)` 的独立
+  窗口、主框架在 `(293,66)`，错位依旧；且该模式下 ScreenCast 抓帧持续超时。
+- 把主框架移到 `(0,0)`：GNOME 顶栏把 Y 钳在 32，仍差 32 px；内容层又被应用
+  重置，单次移动不可靠。
+- `KK_WEBENGINE_SOFTWARE` 的软件绘制 / DPR=1 flags、
+  `QT_ANGLE_PLATFORM=swiftshader`、Steam Runtime 容器、`LIBGL_DRI3_DISABLE=1`：
+  均无收益或不稳定。`KK_WEBENGINE_SOFTWARE=1` 仅保留为 A/B 诊断开关。
+- `_NET_WM_WINDOW_OPACITY`：曾准备给内容层强制不透明，命令被用户中止、
+  **未执行**；既然遮罩不是 bug，无需再做这类透明层干预。
+- 早期 X11 抓图全黑曾被误判为「合成层脱节」：`xwd` / `ffmpeg x11grab` /
+  PIL `ImageGrab` 连 1920×1080 全屏都纯黑，是 XWayland 下 `XGetImage` 拿不到
+  合成内容的全局限制；CDP（`QtWebEngine/5.15.2 Chrome/83`）证实 Web 层渲染与
+  DPR（`devicePixelRatio=1`）都正常。
+- `wmctrl` 与 `xwininfo` 坐标差 2 倍是本机所有应用共有的 XWayland 全局映射，
+  不是 KK 独有。宿主泄漏的 `QT_ACCESSIBILITY=1` / `QT_IM_MODULE=fcitx` 仍被
+  启动器清掉（无害保留）。
+
+### 限制
+
+- 「帮助 → 系统信息」类窗口、账号登录交互、房间匹配与 Warcraft III 本体对战
+  本轮未验收；不对该应用加自动重启 / 重试 / 守护（见
+  `.codebuddy/rules/崩溃处理约定.md`）。
+- 内容层位置由应用决定，对齐是启动期一次性尽力而为；若之后被重置导致错位
+  重现，重启客户端即可重新对齐，不要加常驻监视。
 
 ## 6. 已知噪音与限制
 
