@@ -37,6 +37,11 @@ doubao/doubao_client_*.exe
 # 实际安装器路径与 SHA 记录在 dreamina/README.md；需要复现时由用户自行从官网下载。
 dreamina/Dreamina-Desktop-*-x64-setup.exe
 
+# ---- KK 对战平台下载器（魔兽争霸 3 用）：厂商专有二进制，不入库 ----
+# 官网/对战平台分发的 NSIS PE 安装器（约 8MB），换版本号会改文件名；
+# 文件名、版本与获取方式记录在 war3/README.md，仓库只保留脚本与文档。
+war3/4_pf_files_KKDuiZhanDownloader-*.exe
+
 # ---- 本地诊断草稿区：构建日志、探针、解包的厂商源码等，整体不入库 ----
 _work/
 

@@ -7,6 +7,35 @@
 > `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
 > 与 `steam/steam-on-lisuan.md` §3 / §3.2。
 
+## 2026.11.14 — KK 官方对战平台（魔兽争霸 III）下载器安装
+
+### 背景与改动
+
+- 新增主题目录 `war3/`：官方 NSIS 安装器
+  `4_pf_files_KKDuiZhanDownloader-v1.0.2.454.exe`（PE32、7.9 MB）按
+  `.codebuddy/rules/仓库组织约定.md` 二加入 `.gitignore` 第 43 行规则
+  `war3/4_pf_files_KKDuiZhanDownloader-*.exe`；`war3/README.md` 写清
+  「是什么 / 为何不入库 / 从哪获取」三件事与本机 SHA256。
+- 新增 `war3/install-kk-platform.sh`：用 Proton 11.0 的 wine-11.0 在独立前缀
+  `~/.deepinwine/kkduizhan-wine11` 跑 NSIS `/S` 静默安装；只在 wine 进程树上
+  设置 `WINEPREFIX` / `WINEDLLPATH` / `LD_LIBRARY_PATH` /
+  `WINEDLLOVERRIDES`，不注入全局 gf 环境、不改系统文件、不做自动重试/守护；
+  提供 `--status` / `--help`、幂等安装与 `2`/`124`/其它返回码分类。
+- `tests/test-repo-health.sh` 加入「war3 厂商安装器不得入库」断言；
+  `packaging/build-deb.sh` 把 `war3/` 纳入精简打包（只含脚本与文档，不含 exe）。
+
+### 实测与限制
+
+- 安装器 `/S` 返回码 `0`，落地
+  `C:\Program Files (x86)\kkduizhan\`（1.1 GB / 539 文件），
+  `Platform.exe`（48 MB）与 `Uninstall.exe` 均为有效 PE；`user.reg` 有
+  `Platform.exe "%1"` 文件关联，安装器自带 Wine 菜单项与桌面 `.lnk`。
+- 日志里 `failed to get driver name ... 4c54:5006, driver (null)` /
+  `No driver found` 是 wine 探测 GPU 的既有噪音，与安装结果无关。
+- **只验收安装完成**：未启动 `Platform.exe`，GUI 窗口 / 登录 / 渲染 / 对战
+  均未验收，后续如需验证须做单次冒烟并显式收尾，不得加自动恢复。
+- 卸载用安装器自带 `Uninstall.exe /S`（未实测）；本主题未接入 `install.py` 菜单。
+
 ## 2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复
 
 ### 根因

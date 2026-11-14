@@ -145,7 +145,8 @@ t_assert_grep "${REPO_TOP}/dreamina/powershell-stub.c" \
 t_assert_grep "${REPO_TOP}/dreamina/run-dreamina.sh" \
   'AppData/Local/Programs/dreamina-desktop' "launcher locates install dir"
 # 官方安装器属厂商专有产物，不得入库
-for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.exe'; do
+for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.exe' \
+           'war3/4_pf_files_KKDuiZhanDownloader-*.exe'; do
   if git -C "$REPO_TOP" ls-files -z -- "$pat" 2>/dev/null | grep -qz .; then
     t_fail "vendor installer must not be tracked: $pat"
   else
