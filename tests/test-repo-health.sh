@@ -162,9 +162,17 @@ t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
 t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
   'force-device-scale-factor=1' "KK launcher fixes WebEngine DPR"
 t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
-  'KK_ALIGN_WINDOWS' "KK launcher has a one-shot window alignment switch"
+  'KK_GEOMETRY_SHIM' "KK launcher has a geometry-fix switch (user32 wrapper + X11 shim)"
+t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
+  'user32=n,b' "KK launcher scopes the native user32 wrapper override"
+t_assert_grep "${REPO_TOP}/war3/kk-user32-wrapper.c" \
+  'MapWindowPoints' "KK user32 wrapper converts child ULW pptDst"
+t_assert_grep "${REPO_TOP}/war3/kk-geometry-shim.c" \
+  'CWStackMode' "KK X11 shim suppresses content-layer raises"
 t_assert_not_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
   'export XLIB_SKIP_ARGB_VISUALS' "KK launcher does not inject harmful ARGB override"
+t_assert_not_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
+  'xdotool windowmove' "KK launcher no longer moves windows behind Wine's back"
 t_assert_grep "${REPO_TOP}/war3/fix-kk-desktop.sh" \
   'ICON_NAME=kkduizhan' "KK desktop fix uses extracted icon name"
 t_assert_grep "${REPO_TOP}/war3/fix-kk-desktop.sh" \

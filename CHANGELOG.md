@@ -6,7 +6,50 @@
 > 历史条目保留当时的命令与路径，照抄前请先看最新条目：**现行** Steam 启动命令见
 > `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
 > 与 `steam/steam-on-lisuan.md` §3 / §3.2；**现行** KK 启动器结论见
-> `2026.11.14 — KK 界面现象纠正` 与 `war3/README.md` §5。
+> `2026.11.14 — KK UI 错位与按键不可点根因修复（user32 包装层 + X11 垫片）`
+> 与 `war3/README.md` §5。
+
+## 2026.11.14 — KK UI 错位与按键不可点根因修复（user32 包装层 + X11 垫片）
+
+> 本条取代下方 `KK 界面现象纠正` 中的「一次性窗口对齐」解法；后者仅作史料。
+
+### 根因（WINEDEBUG=+x11drv,+win,+event 取证）
+
+- KK 内容层先以 WS_POPUP 建在 (0,0)，SetParent 挂到主框架下后用
+  `UpdateLayeredWindow(pptDst=(0,0))` 定位；Windows 对子窗口按父客户区坐标
+  解释 pptDst，Wine/Proton 11 按屏幕坐标解释 → 内容层 win32k 矩形永停 (0,0)：
+  视觉错开整个框架原点；win32k 子窗口命中裁剪到父矩形，侧栏 / 导航点击
+  `hittest 0` 直接丢弃；OR+TOPMOST 内容层盖住弹窗按键；SetParent(web 子窗口)
+  误判 offscreen 把 QtWebEngine 客户窗口 detach 到 1x1 dummy 下致游戏列表不可见。
+- Wine managed/unmanaged 两条路径都不把 X 几何回写 win32k
+  （`window_update_client_config`），外部移主框架 / Managed=N / 虚拟桌面 /
+  serial 错开全部证伪；旧「xdotool 对齐」只修视觉不修输入且被应用事件重置。
+
+### 修复（双层，仅 KK 进程树，不监控不守护不重启）
+
+- `war3/kk-user32-wrapper.c` + `war3/gen-kk-user32-def.py`：native user32 包装层
+  （`WINEDLLOVERRIDES=user32=n,b`，syswow64 部署；其余导出 PE forwarder 转回
+  重命名内置 `user32_orig.dll`，unixlib 改名加载已实测）。子窗口且
+  pptDst==(0,0) 时 MapWindowPoints 换屏幕坐标；「保持位置」调用透传
+  （一律换算会 (294,33)->(588,66) 振荡）。dlltool 不支持纯序号 forwarder，
+  476 个序号导出跳过（KK/Qt/Wine 均按名字导入）。
+- `war3/kk-geometry-shim.c`：LD_PRELOAD X11 垫片（32 位主 / 64 位兼容，免系统
+  头文件）：剥夺内容层抬升；Depth32 弹窗 / 通知保持 OR 并抬到内容层之上；
+  detach 到 dummy 的大客户窗口立即恢复原父原位（保留导航偏移）。
+- `war3/run-kk-platform.sh`：移除 xdotool 对齐循环与 `KK_ALIGN_WINDOWS`，改
+  `KK_GEOMETRY_SHIM`（=0 回退原始行为）；按需 gcc/mingw/dlltool 编译，产物不入库。
+
+### 验收与限制
+
+- 内容层 (294,33) = 主框架客户区原点且不再振荡；登录窗 / 模态 / 活动弹窗几何
+  正确；模态「确定」、登录页「密码登录」tab、活动弹窗 X 合成点击均生效；
+  登录页 Web 渲染完整。XTEST 点击在本机 XWayland 不投递 ButtonPress，验收用
+  XSendEvent（`_work/xsend-click.py`，不入库）。
+- 验收末尾服务端会话过期（「验证过期」），大厅侧栏选中 / 房间匹配 / War3 本体
+  未复验，需用户重新登录后取证；识别常量绑定厂商当前尺寸，改尺寸自动退化透传。
+- `tests/test-repo-health.sh` 断言改为 `KK_GEOMETRY_SHIM` / `user32=n,b` /
+  包装层与垫片源码特征，禁止 `xdotool windowmove` 与 `XLIB_SKIP_ARGB_VISUALS`；
+  `war3/README.md` §5 与技能 `references/troubleshooting.md` 同步。
 
 ## 2026.11.14 — KK 界面现象纠正：撤销 ARGB「重影修复」，定位 UI 错位
 

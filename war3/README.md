@@ -114,34 +114,67 @@ ARGB / 合成层干预。此前把它误判为「32 位 ARGB 窗口重影」并�
 QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大于收益，**已撤销**。
 详见 `CHANGELOG.md` 的 `2026.11.14 — KK 界面现象纠正` 条目。
 
-### 真正的缺陷：UI 错位
+### 真正的缺陷：Wine 对分层子窗口的坐标语义误处理（2026-11-14 深夜定案）
 
-关掉遮罩后可看出界面元素整体偏左上、点击位置与视觉不符。根因在窗口几何，
-与渲染无关（Wayland ScreenCast 抓图 + `xwininfo` 取证）：
+关掉遮罩后界面元素整体偏左上、按键点不动。`WINEDEBUG=+x11drv,+win,+event`
+取证链：
 
-| 窗口 | 类型 | 位置 | 作用 |
-| --- | --- | --- | --- |
-| `0x7e00018` | WM 管理、Depth 24、非 override-redirect | (293,32) | 主框架，1334×947 |
-| `0x7e0001d` | Depth 32、`Override Redirect State: yes` | (0,0) | 承载实际 UI 的内容层，1332×946 |
+1. KK 的 Qt UI 先以 `WS_POPUP` 在 `(0,0)` 创建内容层（Depth 32、1332×946、
+   `WS_EX_LAYERED|TOPMOST`），再 `NtUserSetParent` 挂到主框架（Depth 24、
+   1334×947）下，随后用 `UpdateLayeredWindow(pptDst=(0,0))` 定位。
+   **Windows 对子窗口把 pptDst 解释为父客户区坐标，Wine/Proton 11 的 win32u
+   按屏幕坐标处理** → 内容层 win32k 矩形永远停在屏幕 `(0,0)`。
+2. 视觉：内容层 X 窗口画在 `(0,0)`，与主框架 `(293,32)` 错开整个框架原点。
+3. 输入：win32k 的子窗口命中测试裁剪到父矩形，内容层几乎整片在父矩形外，
+   侧栏 / 导航的 `ButtonPress` 在 win32k 直接 `hittest 0` 丢弃（trace 实证）。
+4. 堆叠：内容层是 override-redirect + TOPMOST，盖住活动弹窗的原生窗口，
+   弹窗的 `X` / 按钮永远收不到点击；mutter 又把受管窗口恒排在 OR 窗口之下
+   且忽略客户端 raise 请求。
+5. 渲染：`SetParent(web 子窗口)` 期间主框架客户面被误判 offscreen，
+   QtWebEngine 客户窗口被 `detach_client_window` 停到 1×1 dummy 父窗口下，
+   游戏列表整片不可见。
 
-Qt 把界面画在内容层上，Wine 把它固定放在 `(0,0)`，而主框架在 `(293,32)`，
-两者错开 293/32 px → 界面画到窗口外、窗口内是大片深色空白、点击位置与视觉
-不符（用户「点魔兽争霸 3 右面有效」即此偏移）。把内容层 `xdotool windowmove`
-到 `(294,33)` 后，顶部导航、左侧游戏列表、活动弹窗、系统通知**全部落回窗口内
-正确位置**（合成画面验收）。
+另取证：Wine 的 managed / unmanaged 两条路径都**不把 X 几何回写 win32k**
+（`window_update_client_config` 对 unmanaged 直接返回 0，managed 等 WM_STATE
+而 OR 窗口永远等不到），所以任何「外部移主框架」的方案都修不了父子矩形。
 
-**现行解法**（`war3/run-kk-platform.sh`）：启动后等窗口结构稳定，一次性把
-内容层对齐到主框架并复核（应用初始化期间会反复把内容层放回 `(0,0)`，故最多
-移动 3 次），`KK_ALIGN_WINDOWS=0` 可关闭。有限次数、单次启动，**不监控、不守护、
-不自动重启客户端**。不做 ARGB 干预，QtWebEngine 主内容保持完整。
+### 现行解法：双层修复（`war3/run-kk-platform.sh`，`KK_GEOMETRY_SHIM=0` 可关）
+
+- **根因层 `war3/kk-user32-wrapper.c`**：native user32 包装层（mingw 编译，
+  `WINEDLLOVERRIDES=user32=n,b` 仅 KK 进程树；64 位进程回退内置）。除
+  `UpdateLayeredWindow` / `UpdateLayeredWindowIndirect` 外全部导出以 PE
+  forwarder 转回 `user32_orig.dll`（内置 user32 的重命名副本，unixlib 名字嵌
+  在 PE 里、改名加载已实测）。自实现只换算一种调用：子窗口且
+  `pptDst==(0,0)`（KK 的「父客户区原点」调用）→ `MapWindowPoints` 换屏幕坐标；
+  KK 另有「保持位置」调用传当前全局矩形，原样透传（一律换算会二次偏移成
+  `(588,66)` 振荡，trace 取证）。def 由 `war3/gen-kk-user32-def.py` 从内置
+  user32 导出表生成（纯标准库；dlltool 不支持纯序号 forwarder，476 个序号
+  导出跳过，KK/Qt/Wine 均按名字导入）。
+- **堆叠 / 挂载层 `war3/kk-geometry-shim.c`**：LD_PRELOAD X11 垫片（32 位为主、
+  64 位兼容新 WoW64；免系统头文件自声明 X11 类型，本机无 multilib 头文件）。
+  剥夺内容层抬升（`XRaiseWindow` / `XMapRaised` / `CWStackMode`）；Depth 32
+  弹窗 / 通知保持 OR 并在映射后抬到内容层之上；被 detach 到 1×1 dummy 的大
+  客户窗口在 detach 完成后立即恢复原父窗口与原位（lobby web 子窗口带导航
+  偏移，不能一律挂 `(1,1)`）。识别靠创建时精确尺寸 / 深度 / OR 组合且只认
+  第一个匹配者，厂商改尺寸自动退化透传，不误伤 Warcraft III 本体。
+- 两层都**不监控、不守护、不自动重启**；启动器按需编译（gcc / mingw /
+  dlltool），产物落 `~/.local/share/kkduizhan-wine11/` 与前缀 syswow64，不入库。
+
+**验收**（2026-11-14 21:0x，合成画面 + 合成点击）：内容层 `(294,33)` = 主框架
+客户区原点且不再振荡；登录窗 / 模态 / 活动弹窗几何全部正确；模态「确定」、
+登录页「密码登录」tab（Web 内容点击）、活动弹窗 `X` 均点击生效；登录页 Web
+渲染完整。大厅侧栏选中在登录态过期前未及复验（见限制）。
 
 ### 已证伪 / 已撤销（排查史料，勿再照抄）
 
 - `XLIB_SKIP_ARGB_VISUALS=1`：窗口不透明，但游戏列表 / 商城导航整片空白。
-- Wine 虚拟桌面 `explorer /desktop=KK,1920x1080`：内容层仍是 `(0,0)` 的独立
-  窗口、主框架在 `(293,66)`，错位依旧；且该模式下 ScreenCast 抓帧持续超时。
-- 把主框架移到 `(0,0)`：GNOME 顶栏把 Y 钳在 32，仍差 32 px；内容层又被应用
-  重置，单次移动不可靠。
+- 一次性 / 多次 `xdotool windowmove` 对齐内容层：只修视觉不修输入（win32k
+  矩形不变，点击偏移整个框架原点），且应用事件会把内容层重置回 `(0,0)`。
+- 外部移主框架到 `(0,0)` / `(-1,-1)` + OR 化 + `Managed=N` + serial 错开：
+  Wine 两条路径都不把 X 几何回写 win32k，父子矩形修不了（本轮 trace 定案）。
+- Wine 虚拟桌面 `explorer /desktop=KK,1920x1080` 与 `1332x945`：前者主框架被
+  居中 / 被 mutter 钳制依旧错开；后者应用仍按真实屏幕尺寸居中主框架，桌面内
+  父子矩形再次错开。
 - `KK_WEBENGINE_SOFTWARE` 的软件绘制 / DPR=1 flags、
   `QT_ANGLE_PLATFORM=swiftshader`、Steam Runtime 容器、`LIBGL_DRI3_DISABLE=1`：
   均无收益或不稳定。`KK_WEBENGINE_SOFTWARE=1` 仅保留为 A/B 诊断开关。
@@ -151,17 +184,22 @@ Qt 把界面画在内容层上，Wine 把它固定放在 `(0,0)`，而主框架�
   PIL `ImageGrab` 连 1920×1080 全屏都纯黑，是 XWayland 下 `XGetImage` 拿不到
   合成内容的全局限制；CDP（`QtWebEngine/5.15.2 Chrome/83`）证实 Web 层渲染与
   DPR（`devicePixelRatio=1`）都正常。
+- XTEST 合成点击（`xdotool click`）在本机 XWayland 会话不投递 ButtonPress 给
+  X 客户端（只有 motion 生效）；点击验收改用 `XSendEvent` 合成事件
+  （`_work/xsend-click.py`，不入库）或真实鼠标。
 - `wmctrl` 与 `xwininfo` 坐标差 2 倍是本机所有应用共有的 XWayland 全局映射，
   不是 KK 独有。宿主泄漏的 `QT_ACCESSIBILITY=1` / `QT_IM_MODULE=fcitx` 仍被
   启动器清掉（无害保留）。
 
 ### 限制
 
-- 「帮助 → 系统信息」类窗口、账号登录交互、房间匹配与 Warcraft III 本体对战
-  本轮未验收；不对该应用加自动重启 / 重试 / 守护（见
-  `.codebuddy/rules/崩溃处理约定.md`）。
-- 内容层位置由应用决定，对齐是启动期一次性尽力而为；若之后被重置导致错位
-  重现，重启客户端即可重新对齐，不要加常驻监视。
+- 大厅侧栏选中 / 房间匹配 / Warcraft III 本体对战本轮未复验：验收末尾服务端
+  会话过期（登录窗「验证过期」），需用户重新登录后按同样方式取证；不对该应用
+  加自动重启 / 重试 / 守护（见 `.codebuddy/rules/崩溃处理约定.md`）。
+- 包装层 / 垫片的窗口识别绑定厂商当前尺寸（1332×945 / 1332×946 / Depth 组合），
+  厂商改尺寸时自动退化透传（回到未修复行为），需按新尺寸更新识别常量。
+- `KK_GEOMETRY_SHIM=0` 回到未修复原始行为；syswow64 里的包装层 dll 在没有
+  `user32=n,b` override 时不被加载（Wine 默认内置优先），无副作用。
 
 ## 6. 已知噪音与限制
 
