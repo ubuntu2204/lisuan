@@ -41,6 +41,7 @@ description: This skill should be used when working on the lisuan 7G100 Ubuntu c
 - 分层排障命令、日志、图形栈、Proton 11、Steam CEF、Electron、音频和各游戏既有结论：读取 `references/troubleshooting.md`。
 - 仓库组织、开源合规、命名、幂等、回滚、崩溃处理、路径与文档约定：读取 `references/conventions.md`。
 - 需要精确行号时优先使用 LSP 或 `search_content`，不要将 65 KB 的 `README.md` 整体读入上下文。大文档推荐搜索模式：`坑|GBM_BACKEND|Vulkan|Player.log|驱动包|测试`。
+- 涉及 Wayland 合成后画面（重影、黑块、坐标错位、窗口透明叠加）取证：只用 `scripts/capture-wayland-screen.py`（Mutter ScreenCast + PipeWire），规则见 `.codebuddy/rules/Wayland抓图约定.md`；`xwd` / `ffmpeg x11grab` / PIL `ImageGrab` 在本机全是黑的，禁止据此判定应用渲染故障。
 
 ## 常见修改工作流
 
@@ -81,6 +82,8 @@ python3 install.py --detect --json
 python3 install.py -h
 bash tests/run-tests.sh -v
 git diff --check
+python3 .codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py --check
+python3 .codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py -o /tmp/shot.png
 ```
 
 技能压缩包输出在仓库根的 `dist/lisuan-7g100-compat.zip`；`dist/` 已被 `.gitignore` 排除，项目技能本体位于 `.codebuddy/skills/lisuan-7g100-compat/` 并随仓库版本控制。

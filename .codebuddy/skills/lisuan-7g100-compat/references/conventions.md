@@ -53,6 +53,11 @@
 - Steam 启动只使用 `GBM_BACKEND=dri`；不要修改 Steam 的包装脚本或给文件加 `chattr +i`。
 - 修复完成后验证系统驱动文件 md5 与原始备份一致，确保没有全局补丁残留。
 
+## 图形取证（Wayland）
+
+- 判定合成后画面（重影、黑块、坐标错位）只能用 `.codebuddy/rules/Wayland抓图约定.md` 规定的 Mutter ScreenCast + PipeWire 通道；`xwd` / `ffmpeg x11grab` / PIL `ImageGrab` 在 XWayland 下全是黑的，不得作为渲染故障证据。
+- 抓帧必须在同一条 D-Bus 连接内建会话并显式 Stop，不留后台录屏；不做自动重试或守护。
+
 ## 技能自身维护
 
 - 驱动基线变化时，同步更新 `install.py`、`packaging/lisuan_fix_core.py`、技能 `SKILL.md`、参考文档、`scripts/check_driver_baseline.py` 与 `tests/test-repo-health.sh`。

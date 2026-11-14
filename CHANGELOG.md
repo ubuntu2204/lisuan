@@ -7,6 +7,42 @@
 > `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
 > 与 `steam/steam-on-lisuan.md` §3 / §3.2。
 
+## 2026.11.14 — KK 半透明重影修复
+
+- 根因：主窗口 client 区与 920×560 弹窗为 Depth 32 / ARGB，XWayland 合成后整窗半透明、后方文字透出。
+- 解法：`XLIB_SKIP_ARGB_VISUALS=1`；Depth 32→24，抓图颜色数 32829→166278，弹窗点击命中（2→1 窗口）。
+- 消融：只留 ARGB 修复也正常，WebEngine 软件绘制/DPR flags 无额外收益，改为 `KK_WEBENGINE_SOFTWARE=1` 可选。
+- 验收：最终脚本重启后两窗口 Depth 24、抓图 163800 色、自动登录进大厅、主进程存活、调试端口关闭。
+
+## 2026.11.14 — 打通 Wayland 合成画面的非交互抓图通道
+
+### 问题与误判纠正
+
+- 排查 KK 窗口错位时，X11 抓图全黑曾被误判为「QtWebEngine 合成层没画进 X11 窗口」。
+  按 `xwininfo` 真实坐标重抓后确认：`xwd`（窗口/root，报 `BadMatch`）、
+  `ffmpeg -f x11grab`（窗口与 1920×1080 全屏）、PIL `ImageGrab` 全部拿不到
+  合成后内容，连全屏都是纯黑——这是 XWayland 下 `XGetImage` 的全局限制，
+  **不是应用渲染故障**。`war3/README.md` 已更正。
+- 已证伪通道：GNOME Shell `org.gnome.Shell.Screenshot` D-Bus
+  （`AccessDenied: Screenshot is not allowed`）、`xdotool key shift+Print`
+  （XTEST 到不了 Wayland 合成器，不落盘）、逐条 `gdbus call` 操作 ScreenCast
+  （连接断开后 session 被 Mutter 回收）。
+
+### 通道与工具
+
+- 新增 `.codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py`：
+  在**同一条 D-Bus 连接**里完成 `org.gnome.Mutter.ScreenCast` 的
+  `CreateSession → RecordMonitor('DP-1')` → 订阅 `PipeWireStreamAdded` →
+  `Start` → `gst-launch-1.0 pipewiresrc path=<node_id> num-buffers=1 !
+  videoconvert ! pngenc ! filesink` → `finally Stop`；`--check` 只读查依赖，
+  `--connector` / `--timeout` 可覆盖，不留后台录屏、不自动重试。
+- 实测首帧 1920×1080 / 34486 色，能看到桌面、任务栏与各窗口，
+  并客观复现 KK 窗口半透明重影（此前只能靠用户截图）。
+- 新增规则 `.codebuddy/rules/Wayland抓图约定.md`（禁用证伪通道、
+  规定唯一通道与验收标准）；技能 `SKILL.md` 验证命令、
+  `references/troubleshooting.md` §10、`references/conventions.md` 同步；
+  `tests/test-repo-health.sh` 增加脚本与规则文件断言。
+
 ## 2026.11.14 — KK 官方对战平台运行修复与官方图标
 
 ### 根因
@@ -55,6 +91,35 @@
 - 未验收账号登录交互、房间/匹配与 Warcraft III 本体对战；本次只验收客户端
   界面渲染与网络响应。
 - 客户端卸载仍用安装器自带 `Uninstall.exe /S`（未实测），桌面集成为可撤销。
+
+### 后续（同日，未验收）：界面错位 / Web 内容点击
+
+- 用户反馈主界面重影、错位、黑块，Web 内容点击对不上（原生控件可点）。
+- 只读证据：XWayland 坐标 2 倍是全局现象（其它应用正常）；X11 抓图全黑、
+  `xwd` BadMatch、GNOME 截图 D-Bus AccessDenied，看不到 Wayland 合成画面；
+  容器 / SwiftShader / Wine 虚拟桌面均未改变该现象。
+- `war3/run-kk-platform.sh` 写入候选修复：清理宿主 `QT_*` 泄漏、
+  `QT_SCALE_FACTOR=1` / `QT_AUTO_SCREEN_SCALE_FACTOR=0` / `QT_FONT_DPI=96`、
+  `QTWEBENGINE_CHROMIUM_FLAGS` 的软件绘制 + DPR=1 + 禁用遮挡检测；
+  `KK_LAYOUT_LEGACY=1` 回退。前四个 flags 已验证不破坏启动。
+- 首轮为保护登录态未重启客户端；效果待确认。
+
+### 自动测试补充（同日，用户授权可点击/可开关客户端后）
+
+- 纠正误判：按 `xwininfo` 真实 X11 坐标重抓，KK 窗口与 1920×1080 全屏
+  **都是纯黑**，是 XWayland 下 `XGetImage` 拿不到合成内容的全局限制，
+  不是 KK 渲染故障；「合成层脱节」推断作废。
+- 用 `QTWEBENGINE_REMOTE_DEBUGGING=9222` 接 CDP 客观取证：`QtWebEngine/5.15.2
+  Chrome/83`，登录页 `Page.captureScreenshot` 完整清晰（728×554），
+  `devicePixelRatio=1`、`visualViewport.scale=1` → Web 层渲染与 DPR 正常。
+- 真实鼠标 hit-test 命中弹窗原生关闭按钮（窗口数 2→1），输入通道可用；
+  `LIBGL_DRI3_DISABLE=1` 无客观收益，未固化。
+- 多次用信号正常关闭/重启（不点账号按钮），应用凭 token 自动重登成功
+  （`Login game finished, err: 0` → `WndLobby`），**没有要求用户重新输密码**。
+- 最终用生产启动器重启：无调试端口（9222 已关闭）、主窗口 1334×947、
+  主进程存活、布局修复变量生效。视觉仍受限于本机无非交互 Wayland 抓图通道，
+  需用户看当前窗口确认；若仍异常，回退 `KK_LAYOUT_LEGACY=1` 做 A/B 或提供
+  修复后截图，再评估 GNOME 缩放 / Xorg 会话等系统级方向。
 
 ## 2026.11.14 — KK 官方对战平台（魔兽争霸 III）下载器安装
 

@@ -159,12 +159,35 @@ t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
   'VK_ICD_FILENAMES=.*lvp_icd.json' "KK launcher pins llvmpipe Vulkan ICD"
 t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
   "WINE_D3D_CONFIG=.*renderer=gl" "KK launcher pins wined3d GL renderer"
+t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
+  'force-device-scale-factor=1' "KK launcher fixes WebEngine DPR"
+t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
+  'KK_LAYOUT_LEGACY' "KK layout fix has a rollback switch"
+t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
+  'XLIB_SKIP_ARGB_VISUALS=1' "KK launcher blocks ARGB translucent windows"
 t_assert_grep "${REPO_TOP}/war3/fix-kk-desktop.sh" \
   'ICON_NAME=kkduizhan' "KK desktop fix uses extracted icon name"
 t_assert_grep "${REPO_TOP}/war3/fix-kk-desktop.sh" \
   'uninstall' "KK desktop fix is reversible"
 t_assert_grep "${REPO_TOP}/war3/extract-icon.py" \
   'RT_GROUP_ICON' "KK icon extractor parses PE icon resources"
+# --- 7b3. Wayland 合成画面取证通道 -----------------------------------------
+CAPTURE="${REPO_TOP}/.codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py"
+t_assert_grep "$CAPTURE" 'PipeWireStreamAdded' \
+  "Wayland capture subscribes to Mutter ScreenCast stream signal"
+t_assert_grep "$CAPTURE" 'RecordMonitor' \
+  "Wayland capture records a Mutter monitor"
+t_assert_grep "$CAPTURE" 'sess.Stop' \
+  "Wayland capture stops the session"
+t_assert_grep "${REPO_TOP}/.codebuddy/rules/Wayland抓图约定.md" \
+  'Mutter.ScreenCast' "Wayland capture rule documents the supported channel"
+if git -C "$REPO_TOP" ls-files --error-unmatch \
+    '.codebuddy/rules/Wayland抓图约定.md' >/dev/null 2>&1 || \
+   [ -f "${REPO_TOP}/.codebuddy/rules/Wayland抓图约定.md" ]; then
+  t_ok "Wayland capture rule is present in repo"
+else
+  t_fail "Wayland capture rule missing"
+fi
 
 # --- 7c. Steam 系统信息闪退 / GLX 弹窗修复 ---------------------------------
 t_assert_grep "${REPO_TOP}/packaging/lisuan_fix_core.py" \

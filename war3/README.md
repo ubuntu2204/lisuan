@@ -105,7 +105,48 @@ I 之后未再跑 Steam Runtime 容器组：裸 wine 已稳定，容器非必要
 - 实测 `--status` 全项 `[OK]`，`desktop-file-validate` 无警告；`--uninstall`
   从备份还原（新建的直接删除）并移除生成的图标。
 
-## 5. 已知噪音与限制
+## 5. 界面半透明重影（2026-11-14，已修复并验收）
+
+**结论**：根因是 32 位 ARGB 窗口，不是 Web 层渲染或 DPR。修复见下方「已生效修复」，`KK_LAYOUT_LEGACY=1` 可回退。
+
+**用户反馈**：能进主界面并登录，但画面重影/元素错位、有未绘制黑块，Web 内容区域的鼠标点击对不上（原生窗口控件可点）。
+
+**已查明的客观事实**（全部只读，不点击界面、不结束已登录会话）：
+
+- `wmctrl` 与 `xwininfo` 的窗口坐标在本机所有应用上都差 2 倍（微信/QQ/百度网盘/CodeBuddy 同样如此），是 XWayland 全局映射，不是 KK 独有，其它应用工作正常。
+- **纠正（自动测试后）**：`xwd` / `ffmpeg x11grab` / PIL `ImageGrab` 拿到的 KK 窗口是纯黑，`xwd` 对 root 与窗口均 `BadMatch`，GNOME Shell 的 D-Bus 截图 `AccessDenied`；但按 `xwininfo` 的 X11 真实坐标重抓、**连 1920×1080 全屏都是纯黑**——这是 XWayland 下 `XGetImage` 拿不到任何合成后内容的全局限制，**不是 KK 渲染故障的证据**，之前「合成层脱节」的推断作废。
+- 客观证据改由 QtWebEngine CDP 提供：端口 9222 报
+  `QtWebEngine/5.15.2 Chrome/83`，登录页 `Page.captureScreenshot` 得到完整清晰的
+  728×554 页面（无重影、黑块），`devicePixelRatio=1`、`visualViewport.scale=1`、
+  `innerWidth/Height=728/554`。即 **Web 层渲染与 DPR 都正常**。
+- `LIBGL_DRI3_DISABLE=1` 对照未改变 X11 抓图结果（同样是全局限制），无客观收益证据，未固化。
+- 用弹窗原生关闭按钮做的一次 hit-test 命中（窗口数 2→1），说明 Qt 原生控件输入坐标正常；问题集中在 Web 内容层。该测试方式已停用（可能误触界面上的账号相关按钮，用户明确要求不再点）。
+- 无效或不稳定：Steam Runtime 容器（同样黑）、`QT_ANGLE_PLATFORM=swiftshader`（弹窗/渲染路径不稳定）、Wine 虚拟桌面（`explorer /desktop=KK,1920x1080`，X11 抓图仍全黑）。
+- 宿主泄漏进 Wine 进程的 `QT_ACCESSIBILITY=1` / `QT_IM_MODULE=fcitx` 已确认存在。
+
+**已生效修复**（`war3/run-kk-platform.sh`）：`XLIB_SKIP_ARGB_VISUALS=1` 让窗口用 24 位不透明 visual。实测两窗口 Depth 32→24，ScreenCast 抓图颜色数 32829→166278，半透明重影消失；弹窗 X 真实点击命中（窗口 2→1）。消融显示单独这一项即可，WebEngine 软件绘制/DPR flags 无额外收益，已改为 `KK_WEBENGINE_SOFTWARE=1` 可选。最终脚本重启验收：Depth 24、抓图 163800 色、自动登录进大厅、主进程存活。
+
+**以下为此前的候选修复记录（保留作排查史料）**：
+清掉宿主 `QT_*` 泄漏；`QT_SCALE_FACTOR=1` / `QT_AUTO_SCREEN_SCALE_FACTOR=0` / `QT_FONT_DPI=96`；
+`QTWEBENGINE_CHROMIUM_FLAGS` 加 `--disable-gpu --disable-gpu-compositing --disable-accelerated-2d-canvas --force-device-scale-factor=1 --disable-features=CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows`。
+前四个开关此前已单独验证不会破坏启动（窗口与主进程正常）。设 `KK_LAYOUT_LEGACY=1` 可一键回到修复前配置做 A/B。
+
+**自动测试与验收状态（用户授权可点击、可开关客户端后）**：
+
+- 已用信号正常关闭/重启客户端多次，全程不点账号或退出登录按钮；应用凭保存的
+  token 自动重登成功（`Login game finished, err: 0` → `WndLobby`），**未要求用户重新输入密码**。
+- 弹窗原生关闭按钮的真实鼠标 hit-test 命中（窗口数 2→1），说明输入通道可用；
+  「点不了」更可能是用户看到的合成画面位置与实际可点区域不一致，而非应用收不到点击。
+- 最后用**生产启动器**（不带 CDP 调试端口、不带 `LIBGL_DRI3_DISABLE`）重启，
+  确认 1334×947 主窗口、主进程存活、自动登录进大厅，`QTWEBENGINE_CHROMIUM_FLAGS`
+  与 `QT_SCALE_FACTOR=1` 等修复变量已生效，9222 端口已关闭。
+- **视觉仍未由我判定**：Wayland 合成后的画面本机没有任何非交互抓图通道
+  （X11 全局限制 + GNOME D-Bus AccessDenied）。请直接看当前已运行的主界面，
+  确认重影/黑块/点击是否改善；若仍异常，发一张修复后的新截图，或设
+  `KK_LAYOUT_LEGACY=1` 回退做 A/B，再考虑调整 GNOME 缩放因子 / Xorg 会话等
+  系统级方向（需用户同意）。
+
+## 6. 已知噪音与限制
 
 - 安装/启动日志里 `failed to get driver name ... 4c54:5006, driver (null)` /
   `No driver found` 是 wine 探测 GPU 的既有噪音，与安装和运行结果无关，

@@ -154,6 +154,7 @@ dkms status
 - 已证伪：`QT_OPENGL=software|desktop`（被应用代码覆盖）、`QTWEBENGINE_CHROMIUM_FLAGS` 与命令行 `--disable-gpu` / `--use-gl=desktop`、把工作目录改到安装目录。
 - 有效：`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json` 与 `WINE_D3D_CONFIG=renderer=gl`；消融显示任一单独即可越过崩溃，固化在 `war3/run-kk-platform.sh`（同时带项目软件渲染三件套）。验收 3 次：两个窗口 `IsViewable`、抓图 5674–11113 色、应用日志越过崩溃点并拿到 `status:200`、无 `c0000005`、主进程存活到显式收尾。
 - 图标是独立桌面集成问题：`war3/extract-icon.py` 从本机 `Platform.exe` 的 PE 资源提取 10 个尺寸写入 hicolor，`war3/fix-kk-desktop.sh` 写三个 `.desktop`（`Icon=kkduizhan` / Exec 指向启动器 / `metadata::trusted`），提供 `--status` / `--uninstall` 且幂等可逆；Wine 前缀里的 `.lnk` 不出现在 Linux 桌面。
+- 半透明重影根因：窗口为 Depth 32 / ARGB，XWayland 合成后透出后方窗口。`XLIB_SKIP_ARGB_VISUALS=1` 使 Depth 32→24、抓图颜色数 32829→166278，重影消失且弹窗点击命中；已固化在 `war3/run-kk-platform.sh`，`KK_LAYOUT_LEGACY=1` 可回退。
 - 未验收账号登录、房间匹配与 Warcraft III 本体对战；不要为该应用加自动重启或守护。
 
 ## 9. 日志与验收
@@ -162,3 +163,12 @@ dkms status
 - Unity 启动会轮转 `Player.log` 为 `Player-prev.log`，用 mtime 区分本次运行。
 - 崩溃取证可用 `coredumpctl`、`ulimit -c unlimited`、`dmesg`、`journalctl --user`、Crashpad 转储；先定位根因，不自动重启。
 - 验收至少包括：目标窗口出现、主进程持续存活、关键错误计数为 0 或确认为既有非阻塞噪音、重复启动稳定、用户数据未被清除。
+
+## 10. Wayland 合成画面取证（2026-11-14）
+
+- **不要把 X11 抓图当证据**：本机 GNOME Wayland + XWayland 下，`xwd`（窗口与 root）、`ffmpeg -f x11grab`（窗口与 1920×1080 全屏）、PIL `ImageGrab` 都拿不到合成后内容，全屏实测 207 万像素纯黑、`xwd` 报 `BadMatch`。这是 `XGetImage` 的全局限制，不是应用渲染故障。曾据此误判 KK 对战平台「合成层脱节」，已在 `war3/README.md` 与 CHANGELOG 纠正。
+- 已证伪通道：GNOME Shell `org.gnome.Shell.Screenshot` D-Bus 返回 `AccessDenied: Screenshot is not allowed`；`xdotool key shift+Print`（XTEST）到不了 Wayland 合成器，不落盘；portal Screenshot 会走交互授权，不适合自动取证。
+- **可用通道**：`org.gnome.Mutter.ScreenCast` D-Bus + PipeWire + GStreamer。工具 `.codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py`，用法 `python3 <脚本> -o /tmp/shot.png`，`--check` 只读查依赖。首帧实测 1920×1080 / 34486 色，能看到桌面、任务栏与各窗口，客观复现了 KK 窗口半透明重影。
+- **关键坑**：ScreenCast session 与创建它的 D-Bus 连接绑定；`gdbus call` 逐条调用会在连接断开后被 Mutter 回收（再调 `RecordMonitor` 报「对象不存在」）。必须在同一条连接里完成 `CreateSession → RecordMonitor('DP-1') →` 订阅 `PipeWireStreamAdded(u node_id)` → `Session.Start()` → `gst-launch-1.0 pipewiresrc path=<node_id> num-buffers=1 ! videoconvert ! pngenc ! filesink` → `Session.Stop()`。
+- 会话必须显式 Stop，不留后台录屏；不做常驻/守护/自动重试。规则见 `.codebuddy/rules/Wayland抓图约定.md`。
+- 应用内 WebView 另可用 `QTWEBENGINE_REMOTE_DEBUGGING=9222` + CDP 读 `devicePixelRatio` / `Page.captureScreenshot`（只读 Web 层，不替代整屏合成画面）。

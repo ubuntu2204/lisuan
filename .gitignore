@@ -55,6 +55,9 @@ _work/
 !.codebuddy/rules/
 !.codebuddy/skills/
 !.codebuddy/skills/**
+# 上面的技能放行规则会覆盖通用 __pycache__ 排除，需单独排除 Python 缓存，
+# 否则 py_compile 产物会被 git 跟踪并打进技能压缩包。
+.codebuddy/skills/**/__pycache__/
 
 # ---- 构建产物噪音 ----
 *.mod
