@@ -10,9 +10,10 @@
  * 本包装层以 native user32 身份加载（WINEDLLOVERRIDES=user32=n,b，仅 KK 进程
  * 树），其余 1300 余个导出全部 PE forwarder 转回重命名的 Wine 内置
  * user32_orig.dll（内置 PE 的 unixlib 名字嵌在 PE 里，改名加载已实测可行），
- * 只自实现 UpdateLayeredWindow / UpdateLayeredWindowIndirect：子窗口且
- * pptDst==(0,0)（KK 的“父客户区原点”调用）时换算成屏幕坐标再转交内置；
- * KK 另有“保持位置”调用传当前全局矩形，原样透传（一律换算会二次偏移振荡）。
+ * 只自实现 UpdateLayeredWindow / UpdateLayeredWindowIndirect：子窗口的
+ * pptDst（父客户区坐标，含内容层 (0,0) 与弹窗关闭按钮等非零相对坐标）换算
+ * 成屏幕坐标再转交内置；「保持位置」调用（pptDst == 当前全局矩形原点且非
+ * (0,0)）原样透传（一律换算会二次偏移振荡）。
  *
  * 编译（def 由 gen-kk-user32-def.py 从内置 user32 生成；启动器自动做）：
  *   i686-w64-mingw32-dlltool --def user32.def --dllname user32.dll \
@@ -44,16 +45,21 @@ static void resolve_orig(void)
     orig_ulwi = (ULWI_t)GetProcAddress(orig_mod, "UpdateLayeredWindowIndirect");
 }
 
-/* 子窗口且 pptDst==(0,0)：KK 的“放到父客户区原点”调用（Windows 语义），
-   换算成屏幕坐标。其余调用（KK 用 GetWindowRect 的当前全局矩形做“保持位置”
-   更新）原样透传；若一律换算会把保持位置调用二次偏移（(294,33)->(588,66)
-   振荡，2026-11-14 trace 取证）。 */
+/* 子窗口的 pptDst 是父客户区坐标（KK 的内容层原点调用 (0,0)、弹窗关闭按钮
+   的 (popup_width-42,0) 等都是），换算成屏幕坐标再交给内置实现。
+   例外：KK 的「保持位置」调用传的是当前全局矩形（pptDst == GetWindowRect
+   原点且非 (0,0)），原样透传；若一律换算会把保持位置调用二次偏移
+   （(294,33)->(588,66) 振荡，2026-11-14 trace 取证）。 */
 static POINT map_dst(HWND hwnd, const POINT *src, POINT *buf)
 {
     HWND parent = GetParent(hwnd);
+    RECT cur;
     *buf = *src;
-    if (parent && src->x == 0 && src->y == 0)
-        MapWindowPoints(parent, HWND_DESKTOP, buf, 1);
+    if (!parent) return *buf;
+    if (!(src->x == 0 && src->y == 0) &&
+        GetWindowRect(hwnd, &cur) && cur.left == src->x && cur.top == src->y)
+        return *buf; /* 保持位置：已是屏幕坐标 */
+    MapWindowPoints(parent, HWND_DESKTOP, buf, 1);
     return *buf;
 }
 
