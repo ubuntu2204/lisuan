@@ -55,6 +55,7 @@ python3 install.py -h
 | `Plants-vs-Zombies/` | 32 位 PVZ、wined3d GL、Steam 启动选项修复 |
 | `doubao/` | 豆包 2.32.6 的 Steam Runtime 容器启动器、桌面入口修复、安装器与排障记录；菜单 26/27 |
 | `dreamina/` | 即梦 AI 1.0.59 的 NSIS 安装/升级、powershell 替身、PE 图标提取、桌面入口与渲染记录；菜单 28/29 |
+| `war3/` | KK 官方对战平台（魔兽争霸 III）：NSIS 安装、QtWebEngine 崩溃修复启动器、PE 图标提取与桌面入口；未接入菜单 |
 | `packaging/` | 核心模块、GUI、deb 构建脚本 |
 | `tests/` | 离线回归套件与 fixtures |
 | `.codebuddy/rules/` | 仓库组织约定、崩溃处理约定 |

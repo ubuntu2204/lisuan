@@ -7,6 +7,55 @@
 > `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
 > 与 `steam/steam-on-lisuan.md` §3 / §3.2。
 
+## 2026.11.14 — KK 官方对战平台运行修复与官方图标
+
+### 根因
+
+- `Platform.exe`（32 位 Qt5 + QtWebEngine）裸跑 Proton 11 wine 时约 3 秒退出
+  （rc=5、无窗口）。Wine `+seh,+loaddll` 日志把 `c0000005`（读地址 8）定位到
+  `Qt5WebEngineCore.dll + 0x82FA45`；应用 `platform.log` 停在
+  `[PlatformManager:1117] clear cache`，CrashHunter 捕获后静默退出。
+- 应用强制 `QT_OPENGL=angle`，默认 wined3d / Vulkan 后端在 Wine 11 下没能
+  初始化出 GL 设备，ANGLE 拿到空对象。**与 gf 显卡硬件无关**，也不是安装缺文件。
+- 无效路径（均实测）：`QT_OPENGL=software|desktop`（被应用覆盖）、
+  `QTWEBENGINE_CHROMIUM_FLAGS` 的 `--disable-gpu` / `--use-gl=desktop`、
+  同名命令行参数、把工作目录改到安装目录。
+
+### 修复与消融
+
+- 新增 `war3/run-kk-platform.sh`：只在应用进程树设置
+  `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json` 与
+  `WINE_D3D_CONFIG=renderer=gl`（外加项目既有软件渲染三件套），
+  `cd` 安装目录后 `exec` wine；日志写
+  `~/.local/share/kkduizhan-wine11/launch.log`，无自动重启/守护。
+- 消融显示两个关键项**任一单独**即可越过崩溃（K 只 lvp、L 只 wined3d GL
+  都成功），同时设置是冗余保险；Steam Runtime 容器组无需再跑。
+- 验收 3 次独立启动：两个「KK官方对战平台」窗口 `IsViewable`、
+  1334×947 / 920×560、抓图 5674–11113 色，应用日志越过原崩溃点并拿到
+  `status:200` 网络响应，无 `c0000005`，主进程持续存活到显式收尾
+  （`timeout` / `wineserver -k`），无残留进程。
+
+### 图标与桌面集成
+
+- 新增 `war3/extract-icon.py`（与 `dreamina/extract-icon.py` 同源，纯标准库
+  解析 PE `RT_ICON` / `RT_GROUP_ICON`），从本机 `Platform.exe` 提取官方图标，
+  写入 hicolor 共 10 个尺寸（最大 256×256）；厂商图标产物不入库。
+- 新增 `war3/fix-kk-desktop.sh`：写三个 `.desktop`（用户级 / XDG 桌面 /
+  历史 `~/Desktop`），`Icon=kkduizhan`、`Exec` 指向启动器、打
+  `metadata::trusted`；只改 `Icon`/`Exec` 两行、改前备份，提供
+  `--status` / `--uninstall` / `--help`，幂等可逆。
+- 实测 `--status` 全项 `[OK]`，`desktop-file-validate` 无警告；Wine 前缀里的
+  `.lnk` 不影响 Linux 桌面，无需移动。
+- `war3/README.md` 新增 §3 运行消融与 §4 图标/桌面章节；
+  `tests/test-repo-health.sh` 增加两个关键 env 与图标脚本断言；
+  项目技能排障参考同步 KK 平台结论。
+
+### 限制
+
+- 未验收账号登录交互、房间/匹配与 Warcraft III 本体对战；本次只验收客户端
+  界面渲染与网络响应。
+- 客户端卸载仍用安装器自带 `Uninstall.exe /S`（未实测），桌面集成为可撤销。
+
 ## 2026.11.14 — KK 官方对战平台（魔兽争霸 III）下载器安装
 
 ### 背景与改动

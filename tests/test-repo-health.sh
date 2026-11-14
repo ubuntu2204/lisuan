@@ -154,6 +154,18 @@ for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.e
   fi
 done
 
+# --- 7b2. KK 对战平台：运行修复与图标 ---------------------------------------
+t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
+  'VK_ICD_FILENAMES=.*lvp_icd.json' "KK launcher pins llvmpipe Vulkan ICD"
+t_assert_grep "${REPO_TOP}/war3/run-kk-platform.sh" \
+  "WINE_D3D_CONFIG=.*renderer=gl" "KK launcher pins wined3d GL renderer"
+t_assert_grep "${REPO_TOP}/war3/fix-kk-desktop.sh" \
+  'ICON_NAME=kkduizhan' "KK desktop fix uses extracted icon name"
+t_assert_grep "${REPO_TOP}/war3/fix-kk-desktop.sh" \
+  'uninstall' "KK desktop fix is reversible"
+t_assert_grep "${REPO_TOP}/war3/extract-icon.py" \
+  'RT_GROUP_ICON' "KK icon extractor parses PE icon resources"
+
 # --- 7c. Steam 系统信息闪退 / GLX 弹窗修复 ---------------------------------
 t_assert_grep "${REPO_TOP}/packaging/lisuan_fix_core.py" \
   'LIBGL_ALWAYS_SOFTWARE=1' "Steam fix forces software GL"

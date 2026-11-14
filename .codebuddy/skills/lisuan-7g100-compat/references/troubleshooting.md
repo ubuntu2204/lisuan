@@ -147,6 +147,15 @@ dkms status
 - 桌面没有图标是**独立的桌面集成问题**：旧模板 `Icon` 指向豆包图标、入口只在 `~/Desktop/`（DING 用 `xdg-user-dir DESKTOP`）、缺 `metadata::trusted`。`dreamina/extract-icon.py` 从本机官方 PE 的 `RT_ICON` 提取 7 个 PNG 尺寸写入 hicolor；`install-dreamina.sh --desktop-only` 重建 `Icon=dreamina` 的入口并打 trusted。厂商图标不入库。
 - 安装结果不能只看目录存在：`/S` 返回 0 也要校验主程序 PE 头与 `resources/app.asar`；超时(124)、Abort(2) 要分开报。安装前按 `/proc/<pid>/environ` 精确关闭本前缀进程，不做自动拉起。
 
+### KK 官方对战平台（魔兽争霸 III，Qt5 + QtWebEngine）
+
+- 安装用 `war3/install-kk-platform.sh`（NSIS `/S`、Proton 11 wine-11.0 独立前缀 `~/.deepinwine/kkduizhan-wine11`）；官方 exe 不入库，获取方式与 SHA 见 `war3/README.md`。
+- 裸跑 `Platform.exe` 约 3 秒退出（rc=5、无窗口）：`c0000005` 定位在 `Qt5WebEngineCore.dll+0x82FA45`，应用日志停在 `[PlatformManager:1117] clear cache`。根因是应用强制 `QT_OPENGL=angle`，默认 wined3d/Vulkan 后端在 Wine 11 下没初始化出 GL 设备；与 gf 硬件无关，安装文件也齐全。
+- 已证伪：`QT_OPENGL=software|desktop`（被应用代码覆盖）、`QTWEBENGINE_CHROMIUM_FLAGS` 与命令行 `--disable-gpu` / `--use-gl=desktop`、把工作目录改到安装目录。
+- 有效：`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json` 与 `WINE_D3D_CONFIG=renderer=gl`；消融显示任一单独即可越过崩溃，固化在 `war3/run-kk-platform.sh`（同时带项目软件渲染三件套）。验收 3 次：两个窗口 `IsViewable`、抓图 5674–11113 色、应用日志越过崩溃点并拿到 `status:200`、无 `c0000005`、主进程存活到显式收尾。
+- 图标是独立桌面集成问题：`war3/extract-icon.py` 从本机 `Platform.exe` 的 PE 资源提取 10 个尺寸写入 hicolor，`war3/fix-kk-desktop.sh` 写三个 `.desktop`（`Icon=kkduizhan` / Exec 指向启动器 / `metadata::trusted`），提供 `--status` / `--uninstall` 且幂等可逆；Wine 前缀里的 `.lnk` 不出现在 Linux 桌面。
+- 未验收账号登录、房间匹配与 Warcraft III 本体对战；不要为该应用加自动重启或守护。
+
 ## 9. 日志与验收
 
 - `Player.log` 被 `NotSupportedException` 刷屏时先 `grep -vE` 滤噪，再看最初 20 行。
