@@ -21,9 +21,10 @@
  *      并把弹窗 / 通知等 Depth32 窗口保持 OR、映射后抬到内容层之上
  *      （mutter 把受管窗口排在 OR 窗口之下且忽略客户端 raise 请求），
  *      弹窗按键恢复可点。
- *   B. 被 detach 到 1x1 dummy 的大客户窗口（QtWebEngine 渲染面）重新挂回
- *      主框架 (1,1)，恢复游戏列表显示；导航重建渲染面时同样生效
- *      （SetParent(web 子窗口) 期间主框架客户面被误判 offscreen 所致）。
+ *   B. 拒绝把主框架客户面 detach 到 1x1 dummy：Wine 在 SetParent(web 子窗口)
+ *      期间误判 offscreen 后不再挂回，拒绝 detach 保持原生 UI 镜像可见。
+ *      注意：lobby 的 QtWebEngine 交互面仍因 Wine surface offscreen 锁存不
+ *      呈现（既有缺陷，基线同样存在，见 README §5 限制），垫片不掩盖它。
  *
  * 识别靠创建时的精确尺寸 / 深度 / OR 组合（主框架 1332x945 Depth24、内容层
  * 1332x946 Depth32 OR），且只认第一个匹配者；厂商改尺寸时垫片自动退化为
@@ -92,12 +93,8 @@ static Window w_frame; /* 主框架：Depth24 1332x945 */
 static Window w_layer; /* 内容层：Depth32 1332x946 override-redirect */
 static Window dummies[4]; /* 1x1 OR dummy 父窗口（detach 客户窗口的停车场） */
 static int n_dummies;
-static Window big_clients[8]; /* 创建时 >=1000x700 的客户窗口（web 渲染面等） */
+static Window big_clients[8]; /* 创建时 >=1000x700 的客户窗口（渲染面等） */
 static int n_big;
-/* detach 前的原父窗口与位置：重挂时原样恢复（lobby web 子窗口带导航
-   偏移，不能一律挂 (1,1)） */
-static struct { Window w, parent; int x, y; } saved_pos[8];
-static int n_saved;
 static Window popups[8]; /* Depth32 受管弹窗 / 通知：OR 化并保持在内容层之上 */
 static int n_popups;
 
@@ -128,10 +125,9 @@ typedef int (*XReconfigureWMWindow_t)(Display *, Window, int, unsigned int, XWin
 typedef int (*XMoveWindow_t)(Display *, Window, int, int);
 typedef int (*XMoveResizeWindow_t)(Display *, Window, int, int, unsigned int, unsigned int);
 typedef int (*XReparentWindow_t)(Display *, Window, Window, int, int);
-typedef Status (*XGetGeometry_t)(Display *, Window, Window *, int *, int *, unsigned int *,
-                                 unsigned int *, unsigned int *, unsigned int *);
 typedef int (*XChangeWindowAttributes_t)(Display *, Window, unsigned long, XSetWindowAttributes *);
 typedef int (*XMapWindow_t)(Display *, Window);
+typedef int (*XDestroyWindow_t)(Display *, Window);
 typedef int (*XMapRaised_t)(Display *, Window);
 typedef int (*XRaiseWindow_t)(Display *, Window);
 REAL(XCreateWindow)
@@ -141,9 +137,9 @@ REAL(XReconfigureWMWindow)
 REAL(XMoveWindow)
 REAL(XMoveResizeWindow)
 REAL(XReparentWindow)
-REAL(XGetGeometry)
 REAL(XChangeWindowAttributes)
 REAL(XMapWindow)
+REAL(XDestroyWindow)
 REAL(XMapRaised)
 REAL(XRaiseWindow)
 
@@ -257,33 +253,23 @@ int XChangeWindowAttributes(Display *dpy, Window w, unsigned long mask, XSetWind
 
 int XReparentWindow(Display *dpy, Window w, Window parent, int x, int y)
 {
-    int ret;
-    int i;
-    int is_detach = is_dummy(parent) && is_big_client(w) && w != w_frame && w != w_layer;
-    Window saved_parent = 0; int sx = 0, sy = 0;
-    if (is_detach) {
-        /* 记住 detach 前的原父窗口与位置 */
-        Window r; int ox, oy; unsigned int cw, ch, b, d;
-        if (get_XGetGeometry()(dpy, w, &r, &ox, &oy, &cw, &ch, &b, &d)) {
-            saved_parent = r; sx = ox; sy = oy;
-            for (i = 0; i < n_saved; i++) if (saved_pos[i].w == w) break;
-            if (i == n_saved && n_saved < 8) i = n_saved++;
-            if (i < 8) {
-                saved_pos[i].w = w;
-                saved_pos[i].parent = r;
-                saved_pos[i].x = ox;
-                saved_pos[i].y = oy;
-            }
-        }
+    /* Wine 在 SetParent(web 子窗口) / 视觉切换期间把主框架客户面误判
+       offscreen 并 detach 到 1x1 dummy，之后不再挂回 → 原生 UI / 游戏列表
+       不可见。大客户窗口（渲染面）直接拒绝 detach：留在创建时的 whole
+       窗口下（attach_client_window 后续的正常重挂不受影响）。 */
+    if (is_dummy(parent) && is_big_client(w) && w != w_frame && w != w_layer) {
+        LOG("block detach of client %lx to dummy %lx\n", w, parent);
+        return 1;
     }
-    ret = get_XReparentWindow()(dpy, w, parent, x, y);
-    if (is_detach && saved_parent) {
-        /* Wine 把客户面误判 offscreen 后不会再挂回；立即恢复原位，
-           渲染面保持可见（与手动重挂实验同路径）。 */
-        LOG("reattach client %lx to saved parent %lx (%d,%d)\n", w, saved_parent, sx, sy);
-        get_XReparentWindow()(dpy, w, saved_parent, sx, sy);
-    }
-    return ret;
+    return get_XReparentWindow()(dpy, w, parent, x, y);
+}
+
+int XDestroyWindow(Display *dpy, Window w)
+{
+    /* 登录框架→大厅框架切换时清空识别，避免重定向指向已销毁 XID */
+    if (w == w_frame) w_frame = 0;
+    if (w == w_layer) w_layer = 0;
+    return get_XDestroyWindow()(dpy, w);
 }
 
 int XMapWindow(Display *dpy, Window w)

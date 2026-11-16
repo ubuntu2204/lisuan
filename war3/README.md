@@ -144,26 +144,28 @@ QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大�
   `WINEDLLOVERRIDES=user32=n,b` 仅 KK 进程树；64 位进程回退内置）。除
   `UpdateLayeredWindow` / `UpdateLayeredWindowIndirect` 外全部导出以 PE
   forwarder 转回 `user32_orig.dll`（内置 user32 的重命名副本，unixlib 名字嵌
-  在 PE 里、改名加载已实测）。自实现只换算一种调用：子窗口且
-  `pptDst==(0,0)`（KK 的「父客户区原点」调用）→ `MapWindowPoints` 换屏幕坐标；
-  KK 另有「保持位置」调用传当前全局矩形，原样透传（一律换算会二次偏移成
-  `(588,66)` 振荡，trace 取证）。def 由 `war3/gen-kk-user32-def.py` 从内置
+  在 PE 里、改名加载已实测）。自实现换算子窗口的父客户区坐标 pptDst
+  （含内容层 `(0,0)` 与弹窗关闭按钮的 `(popup_width-42,0)` 等非零相对坐标）
+  → `MapWindowPoints` 换屏幕坐标；「保持位置」调用（pptDst == 当前全局矩形
+  原点且非 `(0,0)`）原样透传（一律换算会二次偏移成 `(588,66)` 振荡，trace
+  取证）。def 由 `war3/gen-kk-user32-def.py` 从内置
   user32 导出表生成（纯标准库；dlltool 不支持纯序号 forwarder，476 个序号
   导出跳过，KK/Qt/Wine 均按名字导入）。
 - **堆叠 / 挂载层 `war3/kk-geometry-shim.c`**：LD_PRELOAD X11 垫片（32 位为主、
   64 位兼容新 WoW64；免系统头文件自声明 X11 类型，本机无 multilib 头文件）。
   剥夺内容层抬升（`XRaiseWindow` / `XMapRaised` / `CWStackMode`）；Depth 32
-  弹窗 / 通知保持 OR 并在映射后抬到内容层之上；被 detach 到 1×1 dummy 的大
-  客户窗口在 detach 完成后立即恢复原父窗口与原位（lobby web 子窗口带导航
-  偏移，不能一律挂 `(1,1)`）。识别靠创建时精确尺寸 / 深度 / OR 组合且只认
+  弹窗 / 通知保持 OR 并在映射后抬到内容层之上；拒绝主框架客户面被 detach
+  到 1×1 dummy（保持原生 UI 镜像可见）；主框架 / 内容层销毁时清空识别
+  （登录→大厅切换）。识别靠创建时精确尺寸 / 深度 / OR 组合且只认
   第一个匹配者，厂商改尺寸自动退化透传，不误伤 Warcraft III 本体。
 - 两层都**不监控、不守护、不自动重启**；启动器按需编译（gcc / mingw /
   dlltool），产物落 `~/.local/share/kkduizhan-wine11/` 与前缀 syswow64，不入库。
 
-**验收**（2026-11-14 21:0x，合成画面 + 合成点击）：内容层 `(294,33)` = 主框架
-客户区原点且不再振荡；登录窗 / 模态 / 活动弹窗几何全部正确；模态「确定」、
-登录页「密码登录」tab（Web 内容点击）、活动弹窗 `X` 均点击生效；登录页 Web
-渲染完整。大厅侧栏选中在登录态过期前未及复验（见限制）。
+**验收**（2026-11-14 夜 + 11-15/16 复验，合成画面 + XSendEvent 合成点击）：
+内容层 `(294,33)` = 主框架客户区原点且不再振荡；登录窗 / 模态 / 活动弹窗几何
+全部正确；模态「确定」、登录页「密码登录」tab（Web 内容点击）、活动弹窗 `X`
+（含大活动弹窗独立的 41×41 关闭按钮窗）均点击生效、遮罩可解除；登录页 Web
+渲染完整。**但大厅交互仍不可用**：见下方限制中的 web 呈现既有缺陷。
 
 ### 已证伪 / 已撤销（排查史料，勿再照抄）
 
@@ -177,7 +179,12 @@ QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大�
   父子矩形再次错开。
 - `KK_WEBENGINE_SOFTWARE` 的软件绘制 / DPR=1 flags、
   `QT_ANGLE_PLATFORM=swiftshader`、Steam Runtime 容器、`LIBGL_DRI3_DISABLE=1`：
-  均无收益或不稳定。`KK_WEBENGINE_SOFTWARE=1` 仅保留为 A/B 诊断开关。
+  对错位 / 遮罩均无收益或不稳定；对大厅 web 不呈现同样无效（11-16 复验）。
+  `KK_WEBENGINE_SOFTWARE=1` 仅保留为 A/B 诊断开关。
+- 大厅 web 不呈现的清除尝试（11-16，均无效）：客户面 dummy→frame 往返重挂、
+  同父微移触发 ConfigureNotify、WM 移动主框架 1px 触发 win32k 位置变更、
+  `KK_WEBENGINE_SOFTWARE=1`。offscreen 锁存仍在（trace 持续
+  `client_surface_update_offscreen ... offscreen 1`）。
 - `_NET_WM_WINDOW_OPACITY`：曾准备给内容层强制不透明，命令被用户中止、
   **未执行**；既然遮罩不是 bug，无需再做这类透明层干预。
 - 早期 X11 抓图全黑曾被误判为「合成层脱节」：`xwd` / `ffmpeg x11grab` /
@@ -193,9 +200,16 @@ QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大�
 
 ### 限制
 
-- 大厅侧栏选中 / 房间匹配 / Warcraft III 本体对战本轮未复验：验收末尾服务端
-  会话过期（登录窗「验证过期」），需用户重新登录后按同样方式取证；不对该应用
-  加自动重启 / 重试 / 守护（见 `.codebuddy/rules/崩溃处理约定.md`）。
+- **未修复（既有缺陷，基线同样存在，11-16 二分定案）**：大厅的 QtWebEngine
+  交互面（侧栏 / 导航 / 游戏列表都在其中）从不呈现：web 子窗口 win32k 矩形
+  卡在屏外 `(880,502)-(2210,1386)`，主框架客户面被持续锁存 offscreen，渲染
+  被转投到 offscreen pixmap；可见的侧栏 / 导航只是原生非交互镜像。因此
+  **选游戏 / 切页签仍不可用**，与遮罩 X 修复无关；登录页 web 面正常（其客户面
+  未经历 offscreen 锁存）。需 Wine 层修复（win32u 子窗口 SetParent/ULW 矩形
+  语义 + winex11 surface offscreen 锁存），脚本层无解；证据见
+  `~/.local/share/kkduizhan-wine11/trace-web.log` / `bisect-*.log`。
+- 房间匹配 / Warcraft III 本体对战未验收；不对该应用加自动重启 / 重试 / 守护
+  （见 `.codebuddy/rules/崩溃处理约定.md`）。
 - 包装层 / 垫片的窗口识别绑定厂商当前尺寸（1332×945 / 1332×946 / Depth 组合），
   厂商改尺寸时自动退化透传（回到未修复行为），需按新尺寸更新识别常量。
 - `KK_GEOMETRY_SHIM=0` 回到未修复原始行为；syswow64 里的包装层 dll 在没有
