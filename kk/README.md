@@ -78,8 +78,11 @@ I 之后未再跑 Steam Runtime 容器组：裸 wine 已稳定，容器非必要
 `WINEPREFIX` / `WINEDLLPATH` / `LD_LIBRARY_PATH` / `WINEDLLOVERRIDES`、
 `GBM_BACKEND=dri`、`LIBGL_ALWAYS_SOFTWARE=1`、`__GLX_VENDOR_LIBRARY_NAME=mesa`、
 `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`、
-`WINE_D3D_CONFIG=renderer=gl`，`cd` 到安装目录后 `exec` wine。两个关键项同时
-设置是冗余保险：消融显示任一单独即可越过崩溃。日志落在
+`WINE_D3D_CONFIG=renderer=vulkan`，`cd` 到安装目录后 `exec` wine。
+历史消融（11-14）显示 lvp / renderer=gl 任一单独即可越过原崩溃，曾同设作冗余
+保险；**11-16 夜服务端上线寻宝活动 web 后 renderer=gl 的 llvmpipe GL 路径忙等
+活锁（~100% CPU、登录/大厅冻死），vulkan 路径同内容正常推进，故撤 GL 单列
+vulkan**（裸 Wine 对照取证）。日志落在
 `~/.local/share/kkduizhan-wine11/launch.log`，可用 `KK_LAUNCH_LOG` 覆盖。
 **没有任何自动重启 / 重试 / 守护逻辑**。
 
@@ -239,6 +242,107 @@ win32u，KK 侧的 `pptDst=(0,0)` 由 trace 已直接可见）。
   （无 Wayland / 未装 KK / 缺依赖）退出 77，`tests/test-kk-ui.sh` 转 SKIP。
 - 运行：`python3 kk/ui-autotest.py`（或 `bash tests/test-kk-ui.sh`）；单次启动、
   显式收尾（自启的 KK 用 wineserver -k 收），不监控不守护。
+- **退出机制验收**（`tests/test-kk-shim-exit.sh` + `tests/fixtures/kk-shim-exit-test.c`）：
+  LD_PRELOAD 垫片到独立 X11 客户端按特征尺寸建窗，确定性断言内容层随主框架
+  隐藏/恢复、非退出路径不误杀、退出路径 watchdog ~5s 推导同目录 wineserver -k。
+  不依赖 KK 安装 / Wayland 会话，仅需 gcc + X11 dev + DISPLAY。
+- **注入通道退化史料（2026-11-17）**：Mutter RemoteDesktop 虚拟设备事件在 KK
+  模态弹窗开着时会被吞（指针/键盘均无反应，真实鼠标不受影响），多次会话后
+  甚至常驻退化。退出链路验收改走不依赖 RD 的通道：托盘图标窗 XSendEvent
+  右键 → 菜单窗 XSendEvent 点退出项 → 挽留弹窗 XSendEvent 点「下次再说」
+  （合成按钮事件直达窗口，绕过 grab；标题栏 X 在 Wine 下点击死，分层命中缺陷）。
+
+### 魔兽争霸3 漂移：活动弹窗关闭按钮窗（2026-11-16 夜定案）
+
+用户报障「魔兽争霸3 漂移」，怀疑与已修 UI 漂移同源——确同族。取证链：
+
+1. 活动弹窗（920×560 寻宝 / 440×360 奖励）的关闭 X 由**独立按钮窗**承载
+   （`Qt5152QWindowToolSaveBits`，41×41 / 94×60 两变体）。其 win32k 矩形落在
+   弹窗中心附近（创建 (913,493)、ULW (912,461)，KK 坐标混算），而视觉 X 在
+   弹窗右上角 → 点视觉 X 无反应（真实点击扫描 11 个偏移均不关窗），点弹窗
+   中心反而关窗（命中区与视觉错开的直接实证）。
+2. X 点不动 → 模态遮罩解除不了 → 魔兽3 侧栏 / 导航点击全被遮罩吞掉
+   （`+event` 取证 ButtonPress 落到内容层、应用日志零反应）——用户感知的
+   「漂移 / 点不动」。
+3. 并发活锁：94×60 按钮窗 Qt 只 ULW 60×60 surface（pptDst=NULL → Wine 居中，
+   bounds (17,0)-(77,60) ≠ 窗口）→ winex11 Expose→重绘→surface 重建循环；
+   叠加服务端寻宝 web 内容在 renderer=gl 路径忙等 → 主线程 ~100% CPU、
+   登录/大厅冻死（基线无 wrapper/shim 同样复现，非本仓库层引入）。
+
+**修复**（双层同策，仅 KK 进程树）：
+
+- `kk-user32-wrapper.c`：按钮窗自身 ULW 触发时登记 hwnd（其在 win32k 树里父窗
+  不定，顶层/子窗枚举均不可靠）；**94×60 登记即缩到 60×60**（bounds≠窗口的
+  Expose 活锁在登录期就空转，缩尺寸不依赖弹窗）；借弹窗本体 ULW 时机
+  `SetWindowPos` 钉死到弹窗右上角（41×41 锚点 `(W-42,0)`；60×60 按 glyph 中心
+  `(W-55,-6)`）；弹窗未出现不做锚点钉死。`KK_WRAP_DEBUG=1` 打印判读决策。
+- `kk-geometry-shim.c`：按钮窗（41×41/94×60/60×60 OR Depth32）跟踪并随弹窗
+  抬升序列最后抬（高于内容层/通知）；通知 315×145 纳入弹窗跟踪（h 阈值
+  150→100）。**detach 拒绝收窄到主框架客户面（1332×945）**：web 子窗
+  （1156×882）的 detach/re-attach 放行，避免阻 vulkan 路径 web surface 重挂。
+- `run-kk-platform.sh`：`renderer=gl` → `renderer=vulkan`（见 §3）。
+
+**验证状态**：响应式会话里视觉 X 真实点击关窗多轮复现；用户实鼠确认**点击黑框
+即选中真实魔兽争霸3**（命中漂移已修）。**黑框本身=渲染堆叠限制**：web 渲染窗是
+嵌套 X 子窗，内容层是顶层 OR 窗恒压其上，仅左侧 ~125px 透明缝露出 web；抬升
+子窗无法越过顶层 OR（需 reparent 到 root，属 Wine 层 win32u/winex11 缺陷，与
+大厅 offscreen 锁存同源），脚本层不强行 reparent。**2026-11-17 进一步证伪**：
+web 宿主 win32k 尺寸实为满幅 1158×884，位置 (172,59) 系父客户区坐标被当屏幕
+（漂移同源）；活体移 web X 窗到 (466,92)、 lowered 内容层、map+抬顶 web 窗，
+绘制区仍只 ~125px 宽 → 黑框是 winex11/QtWebEngine surface 绘制宽度缺陷，非几何/
+堆叠，脚本层无解。**硬件/Wine 层评估（11-17）**：gf ICD 仅 64 位
+（`gf_icd.x86_64.json`→x86_64 `libvulkan_gf.so`），32 位目录无 gf 库；Proton 11
+新 WoW64 unix 侧虽 64 位，但纯硬件 gf 启动在 QtWebEngine 初始化即崩（原始 rc=5
+缺陷，`hw-test.log`）→ 硬件路径不可行。web 位置由 `NtUserSetParent`(syscall) 设置，
+user32 层 SetWindowPos/MoveWindow hook 截不到（KK 仅 SWP_NOMOVE）→ 坐标换算修不了
+黑框。真正修复需改 Wine win32u/winex11 源码（重编 Wine）或厂商补 gf 32 位/修
+Vulkan 初始化，超出脚本层。**随从大师交叉参照（11-17）**：其同矛盾（32 位+仅 64
+位 gf）的硬件解法 = new WoW64 + gf-compat LD_PRELOAD（os-release 绕过+低4GB重映射）
++ 垫片 ICD + DXVK v2.3 + libSC 软链，但**必须经 Steam Runtime 容器**启动才有
+`VK_KHR_surface`；KK 直跑 wine/proton run 报 `VK_KHR_surface not supported`→DXVK
+建不了 device。故 KK 要用硬件需改为经 Steam（非 Steam 游戏+ gf-compat LaunchOptions）
+启动，属启动方式重构，待用户确认。魔兽3 侧栏选中闭环待新登录页
+问题解除后复验。`ui-autotest.py` 已适配两弹窗尺寸、War3 行搜索限上半段、登录
+守卫退 77。
+
+**已证伪 / 未执行杠杆（勿再照抄）**：扩拷贝规范化 psize=94×60/pptSrc=(0,0)
+（源 DC 仅 60×60，越界拷贝触发 GraphicsExpose 风暴）；登录期强制 XMapWindow
+按钮、ULWI 空 pptDst 路径补钉（扰 Qt 初始化；加载卡死主因后经裸 Wine 对照
+证明是环境，仍保留保守触发）；`--host-resolver-rules` 屏蔽活动域名（与登录
+同域 `kkdzpt.com`，风险大未执行）；`KK_WEBENGINE_SOFTWARE=1` 对 GL 活锁无效。
+
+**未修复（vendor/Wine 层，11-16 夜裸 Wine 对照定案）**：服务端新登录页
+（1095×558）在软件渲染（lvp GL/vulkan）下不完成自动登录——无 wrapper/shim
+同样卡；登录表单已渲染、可手动登录。与大厅 web offscreen 锁存同类，需硬件
+渲染路径评估或厂商修复。证据：`~/.local/share/kkduizhan-wine11/drift-trace.log`
+（多会话追加，按 `=== 2026` 分段）、`orig-trace.log`、`plain-vk.log`、`vk-test.log`。
+
+### 退出挽留弹窗「下次再说」（2026-11-17）
+
+点退出弹出的 440×360 挽留弹窗是**受管 d24 or=0** 窗，被顶层 OR 内容层恒压其下
+（mutter 受管窗恒排 OR 之下、忽略客户端 raise），「下次再说」/「立即前往」点击全落
+内容层。与关闭按钮漂移同族、不同变体。`kk-geometry-shim.c` 按尺寸 440×360 跟踪，
+映射时强制 `override_redirect=1` 并随抬升序列置于内容层之上。**不含 920×560**
+（登录窗，强制 OR 扰手动登录；寻宝 920×560 本就 OR d32 走原有跟踪）。合成点击不
+复现该弹窗（需实鼠点退出），待实鼠复验。
+
+### 退出残框与退出卡死兜底（2026-11-17）
+
+**现象**：点退出后 KK 完成 logout、隐藏主框架，但进程不死（取证：主线程
+futex 等待、web renderer/gpu 仍活、wineserver ~18% CPU）；顶层 OR 内容层不随
+父隐藏同步 unmap → 桌面留一个空框。该退出路径此前被挽留弹窗不可点挡住，
+11-17 弹窗修复后首次暴露。
+
+**修复**（`kk-geometry-shim.c` C 项）：
+- 主框架 unmap 时同步 unmap 内容层 / 弹窗 / 按钮，remap 时同步恢复并重建
+  堆叠（最小化 / 恢复同受益）；
+- 以挽留弹窗（440×360）销毁为退出意图信号：5s 内主框架隐藏、再 5s 进程仍
+  活 → 一次性 watchdog 线程从 `/proc/self/exe` 同目录推导 wineserver 跑 `-k`
+  清整前缀；主框架恢复映射即清零放弃。仅退出路径触发，非常驻守护。
+
+**限制**：退出卡死根因是 Wine/CEF shutdown 死锁，脚本层只做清理兜底；厂商改
+挽留弹窗尺寸时意图信号退化失效（残框视觉修复仍生效）。机制验收见
+`tests/test-kk-shim-exit.sh`（8 断言全绿，2026-11-17）。
 
 ### 已证伪 / 已撤销（排查史料，勿再照抄）
 
@@ -287,6 +391,9 @@ win32u，KK 侧的 `pptDst=(0,0)` 由 trace 已直接可见）。
   `~/.local/share/kkduizhan-wine11/trace-web.log` / `bisect-*.log`。
 - 房间匹配 / Warcraft III 本体对战未验收；不对该应用加自动重启 / 重试 / 守护
   （见 `.codebuddy/rules/崩溃处理约定.md`）。
+- **新登录页自动登录在软件渲染下不完成**（11-16 夜，裸 Wine 对照同样卡）：
+  表单可手动登录；登录后大厅/弹窗链路按上方漂移修复生效。需硬件渲染路径
+  评估或厂商修复，脚本层无解。
 - 包装层 / 垫片的窗口识别绑定厂商当前尺寸（1332×945 / 1332×946 / Depth 组合），
   厂商改尺寸时自动退化透传（回到未修复行为），需按新尺寸更新识别常量。
 - 内容层 / 弹窗的 X 窗口 ID 会在运行中重建（视觉切换 / ULW recreate），

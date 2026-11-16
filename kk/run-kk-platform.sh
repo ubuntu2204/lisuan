@@ -2,7 +2,8 @@
 # 至砺算：KK 官方对战平台（Qt5 + QtWebEngine 32 位客户端）在 Wine 下的运行问题
 # 与显卡硬件无关：默认 wined3d/Vulkan 后端初始化失败会让 QtWebEngine 在
 # Qt5WebEngineCore.dll+0x82FA45 空指针读（c0000005）并退出（rc=5）。显式指定
-# Mesa llvmpipe Vulkan ICD 与 wined3d 的 GL 渲染器后，窗口与主进程稳定。
+# Mesa llvmpipe Vulkan ICD 与 wined3d 的 vulkan 渲染器后，窗口与主进程稳定
+# （renderer=gl 曾被用作双保险，2026-11-16 证明其对活动 web 内容触发忙等活锁，已撤）。
 #
 # 只在这一个应用的进程树上注入图形环境，绝不污染全局 shell / Steam 客户端；
 # 不做崩溃后自动重启、重试或守护。图标与桌面入口见 fix-kk-desktop.sh。
@@ -60,13 +61,17 @@ export WINEPREFIX="$PREFIX"
 export WINEDLLPATH="$PROTON/files/lib/vkd3d:$PROTON/files/lib/wine"
 export LD_LIBRARY_PATH="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i386-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export WINEDLLOVERRIDES='mscoree,mshtml='
-# 与项目其它 Wine 应用一致的安全软件渲染基线；两个关键项二选一即可越过崩溃，
-# 同时设置是为了在 Vulkan/GL 任一路径异常时都保持可启动（2026-11-14 消融）。
+# 与项目其它 Wine 应用一致的安全软件渲染基线；lvp ICD + vulkan 渲染器
+# 越过原崩溃（2026-11-14 消融），且对活动 web 内容不触发 GL 路径活锁
+# （2026-11-16 消融）。
 export GBM_BACKEND=dri
 export LIBGL_ALWAYS_SOFTWARE=1
 export __GLX_VENDOR_LIBRARY_NAME=mesa
 export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
-export WINE_D3D_CONFIG='renderer=gl'
+# 2026-11-16：renderer=gl 在服务端上线寻宝活动 web 内容后触发 llvmpipe GL
+# 路径忙等活锁（主线程 ~100% CPU、登录/大厅冻死，用户报障「漂移」的根源之一）；
+# vulkan(lvp) 路径同内容正常推进（消融取证）。原「双保险」改为单列 vulkan。
+export WINE_D3D_CONFIG='renderer=vulkan'
 
 # --- 布局：只清宿主泄漏，不做 ARGB / 虚拟桌面干预 ---
 # 宿主会话的 QT_ACCESSIBILITY / QT_IM_MODULE 会泄漏进 Wine 进程，先清掉。

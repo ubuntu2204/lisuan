@@ -158,7 +158,7 @@ done
 t_assert_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
   'VK_ICD_FILENAMES=.*lvp_icd.json' "KK launcher pins llvmpipe Vulkan ICD"
 t_assert_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
-  "WINE_D3D_CONFIG=.*renderer=gl" "KK launcher pins wined3d GL renderer"
+  "WINE_D3D_CONFIG=.*renderer=vulkan" "KK launcher pins wined3d vulkan renderer (GL 路径对活动 web 活锁，2026-11-16 撤)"
 t_assert_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
   'force-device-scale-factor=1' "KK launcher fixes WebEngine DPR"
 t_assert_grep "${REPO_TOP}/kk/run-kk-platform.sh" \

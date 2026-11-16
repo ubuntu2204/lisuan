@@ -174,6 +174,7 @@ def windows():
     from Xlib import display, X
     d = display.Display()
     out = {}
+    pops = []
     for c in d.screen().root.query_tree().children:
         try:
             g = c.get_geometry()
@@ -184,10 +185,13 @@ def windows():
                 out["frame"] = (g.x, g.y)
             elif g.width >= 1300 and g.height >= 900 and a.override_redirect:
                 out["layer"] = (g.x, g.y)
-            elif g.width == 920 and g.height == 560:
-                out["popup"] = (g.x, g.y)
+            elif (g.width, g.height) in ((920, 560), (440, 360)):
+                pops.append((g.x, g.y, g.width, g.height))
         except Exception:
             continue
+    if pops:
+        out["popup"] = pops[0][:2]
+        out["popups"] = pops
     return out
 
 
@@ -215,11 +219,11 @@ def row_diff(a, b, layer, row: str) -> float:
     return ImageStat.Stat(ImageChops.difference(a.crop(box), b.crop(box))).mean[0]
 
 
-def find_row_by_icon(rgb, layer, pred) -> int:
+def find_row_by_icon(rgb, layer, pred, ymax=None) -> int:
     """按图标颜色定位侧栏行中心 y（不依赖固定行偏移/导航是否存在）。"""
     px = rgb.load()
     ys = []
-    for y in range(layer[1], min(layer[1] + 500, rgb.height)):
+    for y in range(layer[1], min(ymax or layer[1] + 500, rgb.height)):
         for x in range(layer[0] + 25, layer[0] + 55):
             r, g, b = px[x, y][:3]
             if pred(r, g, b):
@@ -240,7 +244,10 @@ def find_row_by_icon(rgb, layer, pred) -> int:
 
 
 def find_war3_row(rgb, layer) -> int:
-    return find_row_by_icon(rgb, layer, lambda r, g, b: r > 170 and g > 120 and b < 110)
+    # 魔兽3 恒为侧栏第二行（y≈层原点+140~180）；反恐精英黄色图标同色系，
+    # 全列搜索会误匹配（2026-11-16 实测 y=314），限定上半段。
+    return find_row_by_icon(rgb, layer, lambda r, g, b: r > 170 and g > 120 and b < 110,
+                            ymax=layer[1] + 230)
 
 
 def find_dota_row(rgb, layer) -> int:
@@ -345,25 +352,44 @@ def main() -> None:
         w = windows()
         layer = w["layer"]
 
-        # 1) 活动弹窗 X：真实点击应关窗解除遮罩
-        if "popup" in w:
-            px, py = w["popup"]
-            h.click(px + 920 - 25, py + 24)
+        # 0) 登录完成守卫：活动 web 在 GL 渲染路径下曾忙等活锁（登录冻死），
+        #    环境不具备时转 SKIP 而非 FAIL（2026-11-16）。
+        t0 = time.time()
+        while time.time() - t0 < 120:
+            try:
+                if "RespUPLogin" in app_log().read_text(errors="replace"):
+                    break
+            except OSError:
+                pass
+            time.sleep(2)
+        else:
+            skip("120 秒未完成登录（活动 web 活锁？见 README §5，renderer=vulkan 已修）")
+
+        def click_popup_x(p):
+            px, py, pw, ph = p
+            if (pw, ph) == (440, 360):
+                h.click(px + pw - 18, py + 17)
+            else:
+                h.click(px + pw - 25, py + 24)
+
+        # 1) 活动弹窗 X：真实点击应关窗解除遮罩（920x560 / 440x360 两种）
+        for p in w.get("popups", []):
+            click_popup_x(p)
             time.sleep(1.5)
-            if "popup" in windows():
-                fail("真实点击活动弹窗 X 后弹窗仍在（X 不可点）")
+        if "popup" in windows():
+            fail("真实点击活动弹窗 X 后弹窗仍在（X 不可点/漂移未修）")
+        if w.get("popups"):
             ok("活动弹窗 X 真实点击关窗、遮罩解除")
-            w = windows()
-            layer = w["layer"]
+        w = windows()
+        layer = w.get("layer", layer)
 
         def dismiss_popup():
             nonlocal layer
             cur = windows()
-            if "popup" in cur:
-                px, py = cur["popup"]
-                h.click(px + 920 - 25, py + 24)
+            for p in cur.get("popups", []):
+                click_popup_x(p)
                 time.sleep(1.2)
-                cur = windows()
+            cur = windows()
             layer = cur.get("layer", layer)
 
         # 2) 悬停反馈：移到魔兽争霸3 行，UI 应变化

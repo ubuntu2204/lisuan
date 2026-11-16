@@ -25,6 +25,13 @@
  *      期间误判 offscreen 后不再挂回，拒绝 detach 保持原生 UI 镜像可见。
  *      注意：lobby 的 QtWebEngine 交互面仍因 Wine surface offscreen 锁存不
  *      呈现（既有缺陷，基线同样存在，见 README §5 限制），垫片不掩盖它。
+ *   C. 退出残框清理（2026-11-17 用户报障「退出了还有一个框」）：退出流程
+ *      卡死（取证：主线程 futex 等待、web renderer/gpu 仍活，进程不死），主框架已
+ *      unmap 但顶层 OR 内容层不随父隐藏 → 桌面残框。垫片在主框架 unmap 时
+ *      同步 unmap 内容层 / 弹窗 / 按钮（最小化同受益），remap 时同步恢复；
+ *      并以「退出挽留弹窗 (440x360) 销毁」为退出意图信号：5s 内主框架隐藏
+ *      且 5s 后进程仍活着 → 一次性 watchdog 线程 wineserver -k 清整前缀。
+ *      仅退出路径触发、非常驻守护，不监控不重启。
  *
  * 识别靠创建时的精确尺寸 / 深度 / OR 组合（主框架 1332x945 Depth24、内容层
  * 1332x946 Depth32 OR），且只认第一个匹配者；厂商改尺寸时垫片自动退化为
@@ -87,6 +94,16 @@ extern int fprintf(void *, const char *, ...);
 extern char *getenv(const char *);
 extern int atoi(const char *);
 extern void *dlsym(void *, const char *);
+extern long time(long *);
+extern unsigned int sleep(unsigned int);
+extern int pthread_create(unsigned long *, const void *, void *(*)(void *), void *);
+extern long readlink(const char *, char *, unsigned long);
+extern int fork(void);
+extern int execv(const char *, char *const[]);
+extern int access(const char *, int);
+extern void _exit(int);
+extern char *strcpy(char *, const char *);
+extern char *strcat(char *, const char *);
 #define RTLD_NEXT ((void *)-1)
 
 static Window w_frame; /* 主框架：Depth24 1332x945 */
@@ -97,6 +114,11 @@ static Window big_clients[8]; /* 创建时 >=1000x700 的客户窗口（渲染�
 static int n_big;
 static Window popups[8]; /* Depth32 受管弹窗 / 通知：OR 化并保持在内容层之上 */
 static int n_popups;
+static Window buttons[4]; /* 弹窗独立关闭按钮窗（41x41 / 94x60 OR Depth32）：
+                             随弹窗抬升，否则被内容层 / 通知盖住点不到 */
+static int n_buttons;
+static Window w_dialog; /* 退出挽留弹窗 440x360：销毁即退出意图信号 */
+static long exit_arm;   /* 挽留弹窗销毁时刻；主框架恢复映射时清零 */
 
 static int debug_on = -1;
 static int dbg(void)
@@ -127,9 +149,12 @@ typedef int (*XMoveResizeWindow_t)(Display *, Window, int, int, unsigned int, un
 typedef int (*XReparentWindow_t)(Display *, Window, Window, int, int);
 typedef int (*XChangeWindowAttributes_t)(Display *, Window, unsigned long, XSetWindowAttributes *);
 typedef int (*XMapWindow_t)(Display *, Window);
+typedef int (*XUnmapWindow_t)(Display *, Window);
 typedef int (*XDestroyWindow_t)(Display *, Window);
 typedef int (*XMapRaised_t)(Display *, Window);
 typedef int (*XRaiseWindow_t)(Display *, Window);
+typedef int (*XGetGeometry_t)(Display *, Window, Window *, int *, int *,
+                              unsigned int *, unsigned int *, unsigned int *, unsigned int *);
 REAL(XCreateWindow)
 REAL(XDefaultRootWindow)
 REAL(XConfigureWindow)
@@ -139,9 +164,11 @@ REAL(XMoveResizeWindow)
 REAL(XReparentWindow)
 REAL(XChangeWindowAttributes)
 REAL(XMapWindow)
+REAL(XUnmapWindow)
 REAL(XDestroyWindow)
 REAL(XMapRaised)
 REAL(XRaiseWindow)
+REAL(XGetGeometry)
 
 /* 主框架识别：Depth24、根窗口之子、1332x945（managed 创建尺寸）；只作 web
    客户窗口的重挂目标，不改其几何（几何由 user32 包装层在 win32k 侧修复）。 */
@@ -156,8 +183,17 @@ static int is_layer_create(int depth, unsigned int w, unsigned int h, int or_fla
 }
 static int is_popup_create(int depth, unsigned int w, unsigned int h, int or_flag)
 {
-    /* 弹窗 / 通知：Depth32 OR、中等尺寸；排除内容层与小_tooltip_ */
-    return depth == 32 && or_flag && w >= 300 && h >= 150 && !(w == 1332 && h == 946);
+    /* 弹窗 / 通知：Depth32 OR、中等尺寸；排除内容层与小_tooltip_。
+       通知 315x145 也要跟踪：它后映射会盖住关闭按钮，需随抬升序列重排。 */
+    return depth == 32 && or_flag && w >= 300 && h >= 100 && !(w == 1332 && h == 946);
+}
+static int is_dialog_create(unsigned int w, unsigned int h)
+{
+    /* 退出挽留弹窗（440x360 受管 d24 or=0）：mutter 恒排 OR 内容层之下且忽略
+       客户端 raise → 「下次再说」点不到。按尺寸跟踪，映射时强制 OR+抬升。
+       不含 920x560（那是登录窗，强制 OR 会扰手动登录）；寻宝 920x560 本就
+       OR d32，走 is_popup_create。2026-11-17。 */
+    return (w == 440 && h == 360);
 }
 static int is_dummy(Window w)
 {
@@ -177,10 +213,29 @@ static int is_popup(Window w)
     for (i = 0; i < n_popups; i++) if (popups[i] == w) return 1;
     return 0;
 }
+static int is_button(Window w)
+{
+    int i;
+    for (i = 0; i < n_buttons; i++) if (buttons[i] == w) return 1;
+    return 0;
+}
+static int is_button_create(int depth, unsigned int w, unsigned int h, int or_flag)
+{
+    return or_flag && depth == 32 && ((w == 41 && h == 41) || (w == 94 && h == 60) ||
+                                      (w == 60 && h == 60));
+}
+static void force_or(Display *dpy, Window w)
+{
+    XSetWindowAttributes a;
+    a.override_redirect = 1;
+    get_XChangeWindowAttributes()(dpy, w, CWOverrideRedirect, &a);
+}
 static void raise_popups(Display *dpy)
 {
     int i;
     for (i = 0; i < n_popups; i++) if (popups[i]) get_XRaiseWindow()(dpy, popups[i]);
+    /* 关闭按钮最后抬：高于弹窗本体与通知，视觉 X 才点得到 */
+    for (i = 0; i < n_buttons; i++) if (buttons[i]) get_XRaiseWindow()(dpy, buttons[i]);
 }
 
 Window XCreateWindow(Display *dpy, Window parent, int x, int y, unsigned int w, unsigned int h,
@@ -206,6 +261,13 @@ Window XCreateWindow(Display *dpy, Window parent, int x, int y, unsigned int w, 
         /* 弹窗 / 通知：保持 OR 才能堆到内容层之上（mutter 受管窗口恒在 OR 之下） */
         popups[n_popups++] = ret;
         LOG("popup %lx tracked\n", ret);
+    } else if (is_dialog_create(w, h) && n_popups < 8) {
+        popups[n_popups++] = ret;
+        w_dialog = ret;
+        LOG("dialog %lx tracked (managed, will force OR)\n", ret);
+    } else if (is_button_create(depth, w, h, or_flag) && n_buttons < 4) {
+        buttons[n_buttons++] = ret;
+        LOG("close-button %lx tracked\n", ret);
     } else if (or_flag && w == 1 && h == 1 && n_dummies < 4) {
         dummies[n_dummies++] = ret;
     } else if (w >= 1000 && h >= 700 && n_big < 8) {
@@ -246,7 +308,7 @@ int XMoveResizeWindow(Display *dpy, Window w, int x, int y, unsigned int cw, uns
 int XChangeWindowAttributes(Display *dpy, Window w, unsigned long mask, XSetWindowAttributes *attr)
 {
     /* Wine 会在 managed 状态变化时改 OR；内容层 / 弹窗锁定 OR 以保持堆叠可控。 */
-    if ((mask & CWOverrideRedirect) && attr && (w == w_layer || is_popup(w)))
+    if ((mask & CWOverrideRedirect) && attr && (w == w_layer || is_popup(w) || is_button(w)))
         attr->override_redirect = 1;
     return get_XChangeWindowAttributes()(dpy, w, mask, attr);
 }
@@ -255,11 +317,16 @@ int XReparentWindow(Display *dpy, Window w, Window parent, int x, int y)
 {
     /* Wine 在 SetParent(web 子窗口) / 视觉切换期间把主框架客户面误判
        offscreen 并 detach 到 1x1 dummy，之后不再挂回 → 原生 UI / 游戏列表
-       不可见。大客户窗口（渲染面）直接拒绝 detach：留在创建时的 whole
-       窗口下（attach_client_window 后续的正常重挂不受影响）。 */
+       不可见。只保护主框架客户面（1332x945）；web 子窗（1156x882 等）的
+       detach/re-attach 必须放行，否则 vulkan 路径下 web surface 重挂被阻
+       → 大厅黑框（2026-11-16 夜取证：SetParent 后 surface->nil 且 X 未重挂）。 */
     if (is_dummy(parent) && is_big_client(w) && w != w_frame && w != w_layer) {
-        LOG("block detach of client %lx to dummy %lx\n", w, parent);
-        return 1;
+        Window root; int gx, gy; unsigned int gw, gh, gb, gd;
+        if (get_XGetGeometry()(dpy, w, &root, &gx, &gy, &gw, &gh, &gb, &gd) &&
+            gw == 1332 && gh == 945) {
+            LOG("block detach of client %lx to dummy %lx\n", w, parent);
+            return 1;
+        }
     }
     return get_XReparentWindow()(dpy, w, parent, x, y);
 }
@@ -270,16 +337,75 @@ int XDestroyWindow(Display *dpy, Window w)
     /* 登录框架→大厅框架切换 / 视觉重建时清空识别，避免指向已销毁 XID */
     if (w == w_frame) w_frame = 0;
     if (w == w_layer) w_layer = 0;
+    if (w == w_dialog) { exit_arm = time(0); w_dialog = 0; LOG("dialog destroyed, exit armed\n"); }
     for (i = 0; i < n_popups; i++) if (popups[i] == w) { popups[i] = 0; break; }
+    for (i = 0; i < n_buttons; i++) if (buttons[i] == w) { buttons[i] = 0; break; }
     for (i = 0; i < n_big; i++) if (big_clients[i] == w) { big_clients[i] = 0; break; }
     for (i = 0; i < n_dummies; i++) if (dummies[i] == w) { dummies[i] = 0; break; }
     return get_XDestroyWindow()(dpy, w);
 }
 
+/* 退出卡死兜底（C 项）：挽留弹窗销毁后 5s 内主框架隐藏 = 用户点了退出；
+   再等 5s 进程仍活着（Wine/CEF shutdown 死锁）就 wineserver -k 清整前缀。
+   wineserver 路径从 /proc/self/exe 同目录推导（Proton files/bin/）；找不到
+   则 _exit 自尽。主框架恢复映射（最小化回弹 / 误报）会清零 exit_arm 放弃。 */
+static void *exit_watchdog(void *unused)
+{
+    char exe[512], sv[560], *slash;
+    long n;
+    (void)unused;
+    sleep(5);
+    if (!exit_arm) return 0;
+    n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n > 0) {
+        exe[n] = 0;
+        slash = exe + n;
+        while (slash > exe && *slash != '/') slash--;
+        *slash = 0;
+        strcpy(sv, exe);
+        strcat(sv, "/wineserver");
+        if (access(sv, 1) == 0 && fork() == 0) {
+            char *av[] = { sv, "-k", 0 };
+            execv(sv, av);
+            _exit(1);
+        }
+    }
+    _exit(0);
+}
+
+int XUnmapWindow(Display *dpy, Window w)
+{
+    int ret = get_XUnmapWindow()(dpy, w);
+    int i;
+    if (w == w_frame && w_frame) {
+        /* 内容层 / 弹窗 / 按钮在 X 侧是顶层 OR 窗，Wine 不随父隐藏同步
+           unmap → 退出 / 最小化后桌面残框。随父隐藏，remap 时随父恢复。 */
+        if (w_layer) get_XUnmapWindow()(dpy, w_layer);
+        for (i = 0; i < n_popups; i++) if (popups[i]) get_XUnmapWindow()(dpy, popups[i]);
+        for (i = 0; i < n_buttons; i++) if (buttons[i]) get_XUnmapWindow()(dpy, buttons[i]);
+        if (exit_arm && time(0) - exit_arm <= 5) {
+            unsigned long thr;
+            LOG("frame hidden after exit dialog, watchdog armed\n");
+            pthread_create(&thr, 0, exit_watchdog, 0);
+        }
+    }
+    return ret;
+}
+
 int XMapWindow(Display *dpy, Window w)
 {
     int ret = get_XMapWindow()(dpy, w);
-    if (is_popup(w)) get_XRaiseWindow()(dpy, w);
+    int i;
+    if (w == w_frame && w_frame) {
+        /* 主框架恢复（最小化回弹）：同步恢复被随隐藏的 OR 窗并重建堆叠 */
+        exit_arm = 0;
+        if (w_layer) get_XMapWindow()(dpy, w_layer);
+        for (i = 0; i < n_popups; i++) if (popups[i]) get_XMapWindow()(dpy, popups[i]);
+        for (i = 0; i < n_buttons; i++) if (buttons[i]) get_XMapWindow()(dpy, buttons[i]);
+        raise_popups(dpy);
+    }
+    else if (is_popup(w)) { force_or(dpy, w); raise_popups(dpy); }
+    else if (is_button(w)) get_XRaiseWindow()(dpy, w);
     else if (w == w_layer) raise_popups(dpy);
     return ret;
 }
@@ -287,6 +413,7 @@ int XMapWindow(Display *dpy, Window w)
 int XMapRaised(Display *dpy, Window w)
 {
     if (w == w_layer) { int ret = get_XMapWindow()(dpy, w); raise_popups(dpy); return ret; }
+    if (is_popup(w)) { int ret = get_XMapWindow()(dpy, w); force_or(dpy, w); raise_popups(dpy); return ret; }
     return get_XMapRaised()(dpy, w);
 }
 

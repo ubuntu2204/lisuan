@@ -6,8 +6,67 @@
 > 历史条目保留当时的命令与路径，照抄前请先看最新条目：**现行** Steam 启动命令见
 > `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
 > 与 `steam/steam-on-lisuan.md` §3 / §3.2；**现行** KK 启动器结论见
-> `2026.11.16 — KK UI 自动化验收落地（真实指针注入 + 合成画面断言）`
+> `2026.11.16 夜 — KK 魔兽争霸3 漂移修复（活动弹窗关闭按钮窗）与 GL 活锁撤除`
 > 与 `kk/README.md` §5。
+
+## 2026.11.17 — KK 退出挽留弹窗「下次再说」可点（受管弹窗强制 OR+抬升）
+
+- 用户报障：点退出弹出的挽留弹窗（440×360）「下次再说」点不中。取证：该弹窗是
+  **受管 d24 or=0** 窗，被顶层 OR 内容层恒压其下（mutter 受管窗恒排 OR 之下且忽略
+  客户端 raise），点击全落内容层。与关闭按钮漂移同族但不同变体（受管 vs OR）。
+- 修复 `kk/kk-geometry-shim.c`：按尺寸 440×360 跟踪挽留弹窗，映射时强制
+  override_redirect=1 并随抬升序列置于内容层之上；**不含 920×560**（登录窗，强制
+  OR 会扰手动登录；寻宝 920×560 本就 OR d32 走原有跟踪）。
+- 验证：shim 32/64 编译通过；repo-health 129/129、syntax 64/64。合成点击不复现
+  挽留弹窗（需实鼠点退出），机制与已确认根因一致，待用户实鼠复验。
+- 硬件/Wine 层评估（用户授权重开 KK）：gf ICD 仅 64 位、32 位无 gf 库；纯硬件 gf
+  启动在 QtWebEngine 初始化即崩（rc=5，hw-test.log）→ 硬件路径不可行。web 位置由
+  NtUserSetParent(syscall) 设置，user32 SetWindowPos/MoveWindow hook 截不到→坐标
+  换算修不了黑框（已试并撤）。黑框真正修复需重编 Wine win32u/winex11 或厂商补 gf
+  32 位/修 Vulkan 初始化，超出脚本层。保留软件 vulkan + 漂移/挽留修复为现行方案。
+- 随从大师交叉参照：其硬件解法（new WoW64+gf-compat+DXVK v2.3+libSC）必须经 Steam
+  Runtime 容器才有 VK_KHR_surface；KK 直跑 wine/proton run 报 VK_KHR_surface not
+  supported→DXVK 建不了 device。KK 用硬件需改经 Steam 启动（非 Steam 游戏+gf-compat
+  LaunchOptions），属启动方式重构，待确认。试验时拷入又删除 DXVK dll 曾误删前缀
+  builtin d3d→exit 53，已从 Proton 恢复修复。
+- 硬件容器实测（kk-hw3，用户选定经 Steam）：proton run + compat 上下文下容器/低4GB
+  重映射/os-release 均生效，但 proton 对**软链的 KK 前缀**做升级报 amdxcffx64.dll
+  缺失、DXVK 未加载即退出→KK 接硬件需**独立 Steam compat 前缀 + 非 Steam 游戏接入**
+  （完整重构，同 fix-minion-masters-7g100-hw.sh 之于 MM），非软链现有前缀可解。
+
+## 2026.11.16 夜 — KK 魔兽争霸3 漂移修复（活动弹窗关闭按钮窗）与 GL 活锁撤除
+
+- 用户报障：KK 平台魔兽争霸3 链路鼠标/点击漂移，怀疑与已修 UI 漂移同源。
+  取证定案两个并发缺陷：
+  1) **漂移**：活动弹窗的独立关闭按钮窗（`Qt5152QWindowToolSaveBits`，
+     41×41 / 94×60 两变体）win32k 落在弹窗中心附近（KK 坐标混算），与视觉 X
+     （弹窗右上角）错开 → X 点不动 → 模态遮罩解除不了 → 魔兽3 侧栏点击全被
+     遮罩吞掉。与内容层漂移同族（Wine 子窗口坐标语义 + 堆叠）。
+  2) **活锁**：服务端当晚上线寻宝活动 web 内容后，`WINE_D3D_CONFIG=renderer=gl`
+     的 llvmpipe GL 路径忙等（主线程 ~100% CPU、登录/大厅冻死）；94×60 按钮窗
+     surface bounds (17,0)-(77,60) ≠ 窗口另触发 Wine winex11 Expose→重绘循环。
+- 修复：`kk/kk-user32-wrapper.c` 登记按钮窗（自身 ULW 触发时记 hwnd，父窗不定
+   枚举不可靠），借弹窗 ULW 时机钉死到弹窗右上角（41×41 锚点 (W-42,0)、
+   60×60 锚点 (W-55,-6)）并把 94×60 缩到 60×60 使 bounds==窗口；弹窗未出现
+   （登录阶段）不动按钮。`kk/kk-geometry-shim.c` 跟踪按钮窗随弹窗抬升（高于
+   内容层/通知），通知 315×145 纳入弹窗跟踪。启动器 `renderer=gl` 改
+   `renderer=vulkan`（lvp 不变；裸 Wine 对照消融：vulkan 同内容正常推进）。
+- 已证伪杠杆：扩拷贝规范化 psize（源 DC 仅 60×60，越界拷贝 GraphicsExpose
+   风暴）；登录期强制映射按钮 / ULWI 空 pptDst 补钉（扰 Qt 初始化，后证明
+   加载卡死主因是环境，仍保留保守触发）；网络层屏蔽活动域名（与登录同域，
+   风险大未执行）。
+- 验证：响应式会话里视觉 X 真实点击关窗多轮复现；用户实鼠确认**点击黑框即选中
+  真实魔兽争霸3**（命中漂移已修）。黑框本身＝渲染堆叠限制：web 渲染窗是嵌套 X
+  子窗、内容层是顶层 OR 恒压其上（仅左 ~125px 透明缝露出），抬升子窗越不过顶层
+  OR，需 reparent 到 root（Wine 层缺陷，与大厅 offscreen 锁存同源），脚本层不强行
+  reparent。本轮细化：94×60 按钮登记即缩 60×60（登录期 Expose 活锁不依赖弹窗）；
+  shim detach 拒绝收窄到主框架客户面 1332×945，web 子窗 detach/re-attach 放行。
+  **新登录页（1095×558）在
+   软件渲染下不完成自动登录**（裸 Wine 无 wrapper/shim 对照同样卡，表单已渲染
+   可手动登录）——_vendor/Wine 层既有缺陷_，与大厅 web offscreen 锁存同类，
+   需硬件渲染路径评估或厂商修复。`ui-autotest.py` 适配两弹窗尺寸、War3 行
+   搜索限上半段（反恐精英黄图标同色误匹配）、登录守卫 120s 退 77 转 SKIP；
+   `tests/test-repo-health.sh` 断言同步改 vulkan。新增 `KK_WRAP_DEBUG` 诊断开关。
 
 ## 2026.11.16 — KK UI 自动化验收落地（真实指针注入 + 合成画面断言）
 
