@@ -95,6 +95,55 @@ vulkan**（裸 Wine 对照取证）。日志落在
 - 主进程持续存活到我们用 `timeout` / `wineserver -k` 显式收尾（rc=124 表示
   主动结束，不是崩溃）；无残留进程。
 
+## 3.1 硬件渲染方案（7G100，2026-11-17，大厅黑块已消除）
+
+**结果**：大厅 web 区（左侧游戏列表、顶部导航、活动弹窗、背景海报）**完整显示，
+黑块消失**；UI 位置与点击命中由移植过来的 wrapper+shim 修正（内容层 `(294,33)`
+= 主框架客户区原点）。合成图颜色数从补丁前 58537 → 补丁后 182282。
+
+**根因（纠正早期判断）**：黑块**不是** CEF GPU 进程崩溃造成（gf 下 GPU 进程稳定、
+登录页 web 完整，但大厅仍黑），而是 Wine `winex11.drv` 的
+`needs_offscreen_rendering()` 把 KK 主框架客户面判为 `offscreen=TRUE`：分层子窗
+`SetParent` 后 SYSRGN 复杂 → `needs_client_window_clipping()` 返回 TRUE →
+client surface 被 `detach_client_window`、渲染转投 offscreen pixmap 从不 present
+到可见 X 窗口。`+x11drv` 取证：大厅状态 363 次 `offscreen 1`，主框架 `0x300ce`
+被 detach。
+
+**修复**：对专用 Proton 副本的 `winex11.so` 打 5 字节二进制补丁，把
+`needs_offscreen_rendering` 的 TRUE 出口（`0x1ddc2` 处 `mov eax,1`）改为
+`xor eax,eax;nop×3`，强制恒返回 FALSE → 所有 client surface 直接绘到可见窗口。
+补丁点绑定 md5 白名单（版本变化即跳过并告警），备份 `.orig-nooffscreen`，
+`setup-kk-hw-proton.sh --restore-offscreen` 可撤销。**只改专用 Proton 副本，
+不改全局 Proton、不触发 Steam 校验。**
+
+**用法**（独立环境，不影响 §3 软件方案）：
+
+```bash
+./kk/setup-kk-hw-proton.sh                 # 一次性：专用 Proton + DXVK v2.3 + offscreen 补丁
+bash kk/run-kk-platform-hw.sh --reset      # 首次：建独立 new WoW64 前缀 + 植入 KK/登录态
+bash kk/run-kk-platform-hw.sh --keep       # 启动后保留进程（手动登录用）
+bash kk/run-kk-platform-hw.sh --status     # 只读体检（含补丁状态）
+bash kk/run-kk-platform-hw.sh              # 常规启动（单次、显式收尾、无守护）
+```
+
+首次在新前缀里自动登录 `token=` 为空（KK token 服务端动态签发、绑定会话），
+在登录页手动登录一次后，会话保存在该前缀，后续可自动进大厅。
+
+关键实现（与 `minion-masters/fix-minion-masters-7g100-hw.sh` 同源）：
+- **独立前缀** `compatdata/481234`：必须让 proton 自己初始化成 new WoW64；
+  直接复制传统 WoW64 前缀会让 32 位 CEF 无法经 thunk 调到 64 位 gf ICD。
+- **专用 Proton `- KK HW`**：DXVK v2.7.1 → v2.3（gf 缺 `VK_KHR_maintenance5`，
+  v2.7.1 会 `Skipping device` → `Failed to initialize DXVK` → KK 两行退出）+
+  offscreen 补丁（本节核心）。
+- **gf-compat**：`osrelease_redirect.so`（发行版白名单 + 低 4GB 重映射）、垫片
+  ICD `gf_icd.json`、`libSC.so` 软链；`VK_LOADER_LAYERS_DISABLE` 关 Steam overlay。
+- **几何修复层**：复用 `kk-user32-wrapper.c` + `kk-geometry-shim.c` 修 UI/按键错位；
+  `KK_GEOMETRY_SHIM=0` 可关。
+- 启动用 `proton waitforexitandrun`（不是裸 `wine`：32 位 loader 会拒载 64 位
+  hook，报 `wrong ELF class`），由 proton 提供容器（`VK_KHR_surface`）。
+
+**不做**：不监控、不守护、不崩溃后自动重启（见崩溃处理约定）。
+
 ## 4. 图标与桌面入口
 
 安装器只在 Wine 前缀里留了 `KK官方对战平台.lnk`，Linux 桌面/应用列表既没有

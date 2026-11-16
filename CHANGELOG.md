@@ -9,6 +9,42 @@
 > `2026.11.16 夜 — KK 魔兽争霸3 漂移修复（活动弹窗关闭按钮窗）与 GL 活锁撤除`
 > 与 `kk/README.md` §5。
 
+## 2026.11.17 — KK 大厅黑块消除（winex11 offscreen 二进制补丁，硬件方案）
+
+- **黑块真正根因定案**：不是 CEF GPU 崩溃（gf 下 GPU 稳定、登录页 web 完整但
+  大厅仍黑），而是 `winex11.drv` 的 `needs_offscreen_rendering()` 把 KK 主框架
+  客户面判为 `offscreen=TRUE`（分层子窗 SetParent 后 SYSRGN 复杂 →
+  `needs_client_window_clipping()` TRUE）→ client surface 被 detach、渲染转投
+  offscreen pixmap 从不呈现。`+x11drv` 取证：大厅状态 363 次 `offscreen 1`、
+  主框架 `0x300ce` 被 detach。此前"GPU 崩溃/绘制宽度缺陷"判断已被证伪。
+- **修复**：对专用 Proton 副本的 `winex11.so` 打 5 字节补丁（`0x1ddc2` 的
+  `mov eax,1` → `xor eax,eax;nop×3`），强制 `needs_offscreen_rendering` 恒 FALSE。
+  补丁点 md5 白名单校验 + `.orig-nooffscreen` 备份 + `--restore-offscreen` 可撤销；
+  只改专用副本不动全局 Proton。`setup-kk-hw-proton.sh` 固化，`--status` 显示补丁态。
+- **验收（合成图）**：补丁前大厅中间纯黑；补丁后左侧游戏列表、顶部导航、"新人
+  寻宝大冒险"活动弹窗、背景海报全部显示，颜色数 58537 → 182282。再移植
+  `kk-user32-wrapper.c`+`kk-geometry-shim.c` 修 UI/按键错位，内容层回 `(294,33)`。
+- 硬件启动器 `kk/run-kk-platform-hw.sh` 同步注入几何层（修 user32.dll 只读权限
+  问题）；DXVK v2.3、libSC、gf-compat、new WoW64 前缀如前条。单次启动无守护。
+- 旧标题留档：KK 7G100 硬件渲染路径打通（登录页验证，大厅待用户手动登录）
+
+- 用户选定硬件路径解决大厅 web 黑块（根因：软件方案下 CEF GPU 进程反复崩
+  `exit_code=8704`/`Context was lost`，web surface 锁存 offscreen）。
+- 复刻随从大师硬件方案，全新独立 new WoW64 前缀（`compatdata/481234`）+ gf-compat
+  （os-release/低4GB/垫片 ICD）+ DXVK v2.3 + 专用 `Proton - KK HW` 副本：
+  - 实测 `LISUAN 7G100 (gf 22.0.4)` 被 DXVK 枚举到、`VK_KHR_surface` 可用；
+  - 登录页 QtWebEngine 复杂 web（海报/表单/二维码/弹窗）完整渲染无黑块，
+    证明 CEF GPU 进程在 gf 下稳定（软件方案里一直崩）。
+  - 关键坑：Proton 自带 DXVK v2.7.1 要 `VK_KHR_maintenance5`（gf 没有）→
+    `Skipping device` → `D3D11CreateDevice failed` → KK 两行退出；降 v2.3 后消失。
+    裸 `wine` 会因 32 位 loader 拒载 64 位 hook（`wrong ELF class`），须用
+    `proton waitforexitandrun`。
+- 新增 `kk/setup-kk-hw-proton.sh`（幂等生成专用 Proton，不改全局）+ 正式启动器
+  `kk/run-kk-platform-hw.sh`（`--reset/--keep/--status`），不守护/不自动重启。
+- **待补**：自动登录 token 由服务端动态签发、换前缀后为空，需用户手动登录一次
+  进大厅，抓合成图确认大厅 web 黑块是否消失。不夸大已验证范围。
+- 软件方案 `kk/run-kk-platform.sh` 仍是默认可用方案，未被替换。
+
 ## 2026.11.17 — KK 退出挽留弹窗「下次再说」可点（受管弹窗强制 OR+抬升）
 
 - 用户报障：点退出弹出的挽留弹窗（440×360）「下次再说」点不中。取证：该弹窗是
