@@ -309,6 +309,9 @@ def kill_kk() -> None:
 
 
 def main() -> None:
+    if "-h" in sys.argv[1:] or "--help" in sys.argv[1:]:
+        print(__doc__)
+        return
     if not shutil.which("gst-launch-1.0"):
         skip("缺 gstreamer1.0-tools")
     try:

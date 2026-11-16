@@ -42,6 +42,11 @@ dreamina/Dreamina-Desktop-*-x64-setup.exe
 # 文件名、版本与获取方式记录在 kk/README.md，仓库只保留脚本与文档。
 kk/4_pf_files_KKDuiZhanDownloader-*.exe
 
+# ---- KK 平台反编译 / 静态逆向产物：厂商专有二进制的派生物，不入库 ----
+# 由 kk/decompile-kk.sh 生成（PE 头 / 节表 / 导入导出表 / 字符串 / 反汇编），
+# 保留在本地供分析 KK 窗口与 CEF 行为；产物清单与获取方式见 kk/README.md §1.1。
+kk/reverse/
+
 # ---- 本地诊断草稿区：构建日志、探针、解包的厂商源码等，整体不入库 ----
 _work/
 

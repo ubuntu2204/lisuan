@@ -13,6 +13,16 @@
 | **为何不能入库** | 厂商专有二进制、升级会改文件名；按 `.codebuddy/rules/仓库组织约定.md` 二，用 `.gitignore` 规则 `kk/4_pf_files_KKDuiZhanDownloader-*.exe` 排除，仓库只保留脚本与文档。文件仍留在本目录供运行时使用，不删除。生成的图标写入 `~/.local/share/icons/hicolor/`，同样不入库。 |
 | **从哪获取** | KK 官方对战平台官网/官方分发页下载 `4_pf_files_KKDuiZhanDownloader-v<版本>.exe`，放到本目录、`~/下载` 或 `~/Downloads`，脚本会自动查找。本机这份 SHA256：`418354d8023686a8d1580c18499fc380b471980eb471f59c33ce6d7566875659`。安装产物在 `~/.deepinwine/kkduizhan-wine11/drive_c/Program Files (x86)/kkduizhan/`，同样不入库。 |
 
+### 1.1 反编译产物（不入库）
+
+| 项 | 内容 |
+| --- | --- |
+| **是什么** | `kk/reverse/` 下 12 个 KK 自有 PE 模块的静态逆向产物，约 190 MB。每个模块一个子目录：`meta.txt`（PE 头 / 节表 / 导入导出表）、`strings-ascii.txt` 与 `strings-utf16.txt`（字符串）、`disasm.txt`（Intel 语法反汇编）。超过 `KK_MAX_DISASM` 的大模块（`Platform.exe`、`NEP2.dll`）只生成元数据与字符串，附 `DISASM-SKIPPED.txt`。由 `kk/decompile-kk.sh` 生成。 |
+| **为何不能入库** | 厂商专有二进制的派生物，含 KK 实现细节与机器相关绝对路径；按 `.codebuddy/rules/仓库组织约定.md` 二，用 `.gitignore` 规则 `kk/reverse/` 整体排除，仓库只保留生成脚本与本文档。本机无 Ghidra / IDA / radare2，产物是**反汇编 + 元数据**级别，不是伪代码级反编译。 |
+| **从哪获取** | 先跑 `./kk/install-kk-platform.sh` 安装到 `~/.deepinwine/kkduizhan-wine11/drive_c/Program Files (x86)/kkduizhan/`，再跑 `./kk/decompile-kk.sh` 生成；`--status` 只读查看清单，`--clean` 删除产物，`--force` 覆盖。依赖 binutils 的 `i686-w64-mingw32-objdump`（32 位 PE32）与 `objdump`（PE32+ 的 `KernelDumpAnalyzer.exe`）。 |
+
+用途：理解 KK 对 `UpdateLayeredWindow` / `SetParent` / CEF 等 API 的调用方式，辅助排查 Wine 下的窗口与 web 内容兼容性问题（§5 未修复项）。不修改软件本身，不联网，无自动重启 / 守护逻辑。
+
 ## 2. 安装（2026-11-14 实测）
 
 ```bash
@@ -137,6 +147,47 @@ QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大�
 另取证：Wine 的 managed / unmanaged 两条路径都**不把 X 几何回写 win32k**
 （`window_update_client_config` 对 unmanaged 直接返回 0，managed 等 WM_STATE
 而 OR 窗口永远等不到），所以任何「外部移主框架」的方案都修不了父子矩形。
+
+#### 源码级复核：`+win,+user32` 取证 + Wine 11.0 win32u 源码（2026-11-16）
+
+用 `KK_WINEDEBUG='+win,+user32'` 单次启动 50 秒（timeout 显式收尾、rc=124
+为主动结束非崩溃、无残留），日志落
+`~/.local/share/kkduizhan-wine11/win-user32-trace.log`（50438 行；不入库）。
+对照 Wine 11.0 `dlls/win32u/window.c`（上游开源、本机临时下载核对，不入库）：
+
+- `NtUserUpdateLayeredWindow`（`window.c:2550-2607`）先以
+  `get_window_rects(hwnd, COORDS_PARENT, &new_rects, ...)` 取矩形，再用
+  `pts_dst - new_rects.window.left/top` 算 offset 平移三块矩形。
+- `get_window_rects` 的 `COORDS_PARENT` 分支（`window.c:1799-1823`）在父窗口
+  存在且非 RTL 时**只校验、不做父客户区原点平移**，故 `new_rects` 仍是含
+  父偏移的窗口矩形。KK 按 Windows 语义传 `pptDst=(0,0)`（父客户区原点）
+  时，offset 等于减掉父原点 → win32k 矩形算回屏幕 `(0,0)`，与上面第 1 条
+  的现象同源。这是 Wine 的坐标语义缺陷，不是 KK 或显卡驱动的问题。
+- `NtUserSetParent`（`window.c:569-668`）用 `COORDS_PARENT` 取子窗口矩形、
+  `COORDS_SCREEN` 取新旧屏幕矩形，再以
+  `set_window_pos(..., new_screen_rect.left - old_screen_rect.left, ...)`
+  保持视觉位置——这正是主框架从 `(293,17)` 挪到 `(293,32)` 时内容层不跟着
+  重算 win32k 父矩形的原因。
+
+本次日志实证（wrapper + shim 均已加载）：
+
+- 主框架 `0x300e2`：1332×945 创建于 `(0,0)` → `MoveWindow(293,17)` →
+  `SetWindowPos(293,32)`，客户区原点 `(294,33)`。
+- **内容层 `0x10172`（1332×946）**：创建于 `(0,0)`，挂到 `0x300e2` 后 17 次
+  `NtUserUpdateLayeredWindow` 的 `new_rects` 全部稳定为
+  `(294,33)-(1626,979)`——`kk-user32-wrapper.c` 的「钉死父客户区原点」
+  已生效，这是侧栏命中零偏移的直接证据。
+- `0x10100`（1156×882）是**登录页 web 子窗口、不是内容层**：它 `SetParent`
+  到弹窗再到主框架，最终 `calc_winpos` 矩形 `(0,59)-(1330,943)`、
+  `client (0,59)-(0,59)`（1×1 dummy）。排查时曾一度把它误认作内容层，
+  据此得出「内容层仍在 (0,0)、按键偏移未修」的错误结论；实际内容层是
+  `0x10172`（精确匹配 wrapper 的 1332×946 判据），偏移早已闭环，勿再照抄
+  该误判。`0x10100` 的 1×1 dummy 对应下方「web 内容面不呈现」的既有缺陷。
+
+**结论**：按键偏移已由双层修复闭环，`ui-autotest.py` 本轮实测仍 PASS
+（真实点击魔兽争霸3 视觉中心即命中选中、命中零偏移）。源码对照用于解释
+根因链条，不构成新增修复项；反编译 KK 的 PE 对此问题无用（根因在 Wine
+win32u，KK 侧的 `pptDst=(0,0)` 由 trace 已直接可见）。
 
 ### 现行解法：双层修复（`kk/run-kk-platform.sh`，`KK_GEOMETRY_SHIM=0` 可关）
 
