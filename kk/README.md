@@ -168,7 +168,26 @@ QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大�
 内容层 `(294,33)` = 主框架客户区原点且不再振荡；登录窗 / 模态 / 活动弹窗几何
 全部正确；模态「确定」、登录页「密码登录」tab（Web 内容点击）、活动弹窗 `X`
 （含大活动弹窗独立的 41×41 关闭按钮窗）均点击生效、遮罩可解除；登录页 Web
-渲染完整。**但大厅交互仍不可用**：见下方限制中的 web 呈现既有缺陷。
+渲染完整。侧栏选中已可用（命中零偏移，见自动化验收）；**但 web 内容面仍不呈现**（游戏列表空白）：见下方限制中的既有缺陷。
+
+### 自动化验收（`kk/ui-autotest.py` + `tests/test-kk-ui.sh`）
+
+用户要求「核心是你要能自动测试」。注入与断言通道：
+
+- **真实指针注入**：`org.gnome.Mutter.RemoteDesktop`（compositor 级 →
+  wl_pointer → XWayland → Wine）。绝对坐标注入需预注册 screencast 会话
+  （"No screen cast active"），故用**相对位移**（查 X 指针位置→差量）；
+  XTEST / XSendEvent 均不走真实命中路径，不用。
+- **画面断言**：同一条 Mutter ScreenCast 流抓帧（嵌入式光标 + 指针微动保证
+  有帧）；断言区域掩掉光标像素。侧栏行用**图标颜色定位**（魔兽争霸3 黄 W /
+  DotA 红 D），不依赖固定行偏移（导航存在与否 / 展开子行 / 窗口最大化都会改偏移）。
+- **强制断言**：活动弹窗 X 真实点击关窗；悬停魔兽争霸3 行 UI 变化；真实点击
+  视觉中心即选中（命中零偏移，未中则扫描偏移并判 FAIL）。选中高亮画在主框架
+  客户面、会被其它窗口遮挡，故辅以应用日志反应（`WndWar3RPGLobby|url->|context create`）。
+- **降级**：DotA 导航闭环受遮挡/日志口径影响记 WARN 不判 FAIL；环境不具备
+  （无 Wayland / 未装 KK / 缺依赖）退出 77，`tests/test-kk-ui.sh` 转 SKIP。
+- 运行：`python3 kk/ui-autotest.py`（或 `bash tests/test-kk-ui.sh`）；单次启动、
+  显式收尾（自启的 KK 用 wineserver -k 收），不监控不守护。
 
 ### 已证伪 / 已撤销（排查史料，勿再照抄）
 

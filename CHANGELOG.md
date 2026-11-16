@@ -6,8 +6,22 @@
 > 历史条目保留当时的命令与路径，照抄前请先看最新条目：**现行** Steam 启动命令见
 > `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
 > 与 `steam/steam-on-lisuan.md` §3 / §3.2；**现行** KK 启动器结论见
-> `2026.11.16 — KK 内容层命中右偏修复（ULW 钉死父客户区原点）`
+> `2026.11.16 — KK UI 自动化验收落地（真实指针注入 + 合成画面断言）`
 > 与 `kk/README.md` §5。
+
+## 2026.11.16 — KK UI 自动化验收落地（真实指针注入 + 合成画面断言）
+
+- 用户要求「核心是你要能自动测试」。新增 `kk/ui-autotest.py` +
+  `tests/test-kk-ui.sh`（套件 12/12）。
+- 注入通道：Mutter RemoteDesktop 相对位移（绝对坐标需预注册 screencast，
+  "No screen cast active"）；XTEST/XSendEvent 不走真实命中路径，弃用。
+- 断言：ScreenCast 抓帧（嵌入式光标+微动保帧、掩光标像素）；侧栏行按图标
+  颜色定位（黄 W / 红 D），不依赖固定偏移；强制断言＝弹窗 X 关窗、悬停行
+  UI 变化、真实点击视觉中心即选中（未中扫描偏移判 FAIL）；选中高亮在被遮挡
+  的主框架客户面上，辅以应用日志反应。
+- 实测：悬停 row diff≈10、魔兽争霸3 视觉中心点击即选中（命中零偏移，
+  证实 ULW 钉死父客户区原点修复有效）；DotA 导航闭环受桌面遮挡/日志口径
+  影响记 WARN；环境不具备退 77 转 SKIP。
 
 ## 2026.11.16 — KK 内容层命中右偏修复（ULW 钉死父客户区原点）
 
