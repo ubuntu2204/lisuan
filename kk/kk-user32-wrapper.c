@@ -63,6 +63,24 @@ static POINT map_dst(HWND hwnd, const POINT *src, POINT *buf)
     return *buf;
 }
 
+/* 内容层（1332x946 分层子窗口）在 Windows 上恒位于父客户区原点；KK 的
+   ULW 调用语义混杂（原点 / 保持位置 / 屏幕坐标），逐一判读仍会振荡出
+   (588,66) 等错误矩形 → 命中区右偏（用户报障：点右面一点才激发）。
+   故对内容层直接钉死在父客户区原点，与 Windows 实际表现一致，
+   win32k 矩形与 X 窗口原点恒等 → 命中零偏移。 */
+static int is_content_layer(HWND hwnd)
+{
+    RECT r;
+    return GetWindowRect(hwnd, &r) && (r.right - r.left) == 1332 &&
+           (r.bottom - r.top) == 946 && GetParent(hwnd) != NULL;
+}
+static POINT layer_origin(HWND hwnd)
+{
+    POINT pt = { 0, 0 };
+    MapWindowPoints(GetParent(hwnd), HWND_DESKTOP, &pt, 1);
+    return pt;
+}
+
 BOOL WINAPI UpdateLayeredWindow(HWND hwnd, HDC hdcDst, POINT *pptDst, SIZE *psize,
                                 HDC hdcSrc, POINT *pptSrc, COLORREF crKey,
                                 BLENDFUNCTION *pblend, DWORD dwFlags)
@@ -71,7 +89,8 @@ BOOL WINAPI UpdateLayeredWindow(HWND hwnd, HDC hdcDst, POINT *pptDst, SIZE *psiz
     POINT *dst = pptDst;
     resolve_orig();
     if (!orig_ulw) return FALSE;
-    if (pptDst) { map_dst(hwnd, pptDst, &buf); dst = &buf; }
+    if (is_content_layer(hwnd)) { buf = layer_origin(hwnd); dst = &buf; }
+    else if (pptDst) { map_dst(hwnd, pptDst, &buf); dst = &buf; }
     return orig_ulw(hwnd, hdcDst, dst, psize, hdcSrc, pptSrc, crKey, pblend, dwFlags);
 }
 
@@ -83,7 +102,8 @@ BOOL WINAPI UpdateLayeredWindowIndirect(HWND hwnd, const UPDATELAYEREDWINDOWINFO
     if (!orig_ulwi) return FALSE;
     if (info && info->pptDst) {
         local = *info;
-        map_dst(hwnd, info->pptDst, &buf);
+        if (is_content_layer(hwnd)) buf = layer_origin(hwnd);
+        else map_dst(hwnd, info->pptDst, &buf);
         local.pptDst = &buf;
         return orig_ulwi(hwnd, &local);
     }
