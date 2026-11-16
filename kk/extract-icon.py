@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""从 Windows PE 的 RT_ICON 资源里提取应用图标（war3 副本）。
+"""从 Windows PE 的 RT_ICON 资源里提取应用图标（kk 副本）。
 
 与 dreamina/extract-icon.py 同源（2026-11-14 复制），逻辑保持一致；
-改动其中一个时请同步另一个。war3 用 --exe Platform.exe --name kkduizhan。
+改动其中一个时请同步另一个。kk 用 --exe Platform.exe --name kkduizhan。
 
 原版背景（2026-11-09）：dreamina-wine.desktop 原先的 Icon 指向豆包图标，而且
 安装脚本从不把官方图标写入图标主题目录，于是桌面/应用列表显示不出即梦图标。

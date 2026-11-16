@@ -7,7 +7,18 @@
 > `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
 > 与 `steam/steam-on-lisuan.md` §3 / §3.2；**现行** KK 启动器结论见
 > `2026.11.16 — KK 遮罩 X 可点复验与大厅 web 呈现缺陷定案`
-> 与 `war3/README.md` §5。
+> 与 `kk/README.md` §5。
+
+## 2026.11.16 — war3/ 目录更名为 kk/
+
+- 应用户要求将 `war3/` 整体更名为 `kk/`（`git mv` 保留历史）；目录内脚本 /
+  文档 / 注释、`.gitignore` 厂商 exe 规则、`tests/test-repo-health.sh` 断言、
+  `packaging/build-deb.sh` 部署列表、技能 `project-map.md` / `troubleshooting.md`
+  同步改为 `kk/`。**本条之前历史条目中的 `war3/` 路径一律映射到 `kk/`**。
+- 桌面入口 Exec 由 `fix-kk-desktop.sh` 按脚本自身位置推导，更名后重跑一次
+  刷新（`./kk/fix-kk-desktop.sh`），旧 `war3/` 路径入口不再残留。
+- 状态目录 / 前缀名不变（`~/.deepinwine/kkduizhan-wine11`、
+  `~/.local/share/kkduizhan-wine11`），用户数据与登录态不受影响。
 
 ## 2026.11.16 — KK 遮罩 X 可点复验与大厅 web 呈现缺陷定案
 
@@ -31,11 +42,14 @@
   `(880,502)-(2210,1386)`，主框架客户面持续 `client_surface_update_offscreen 1`
   锁存，渲染转投 offscreen pixmap；可见侧栏 / 导航仅为原生非交互镜像 →
   选游戏 / 切页签仍不可用。登录页 web 面正常（未经历锁存）。
-- 清除尝试均无效：客户面往返重挂 / 同父微移 / WM 移主框架 1px /
-  `KK_WEBENGINE_SOFTWARE=1`。需 Wine 层修复（win32u 子窗口矩形语义 +
-  winex11 surface offscreen 锁存），脚本层无解；不掩盖、不守护。
+- 清除尝试均无效：客户面往返重挂 / 同父微移 / WM 移框或 resize 1px /
+  `KK_WEBENGINE_SOFTWARE=1` / sandbox+in-process-gpu flags（稍晚崩溃）/
+  包装层保持 web 链顶层（启动 rc=5）/ web 链 SetParent 改挂内容层（无收益）。
+  侧栏镜像点击零应用日志反应，确认交互面只在死掉的 web surface 内。
+  需 Wine 层修复（win32u 子窗口矩形语义 + winex11 surface offscreen 锁存），
+  脚本层无解；不掩盖、不守护。
 - 证据：`~/.local/share/kkduizhan-wine11/trace-web.log`、`bisect-a.log`、
-  `bisect-c.log`、`sw-test.log`；`war3/README.md` §5 限制同步。
+  `bisect-c.log`、`sw-test.log`；`kk/README.md` §5 限制同步。
 
 ## 2026.11.14 — KK UI 错位与按键不可点根因修复（user32 包装层 + X11 垫片）
 

@@ -8,9 +8,9 @@
 # ~/.local/share/applications/wine/Programs/KK官方对战平台，本脚本不动它。
 #
 # 用法：
-#   ./war3/install-kk-platform.sh [安装器.exe]   # 安装（幂等：已装则只做体检）
-#   ./war3/install-kk-platform.sh --status       # 只读体检
-#   ./war3/install-kk-platform.sh --help
+#   ./kk/install-kk-platform.sh [安装器.exe]   # 安装（幂等：已装则只做体检）
+#   ./kk/install-kk-platform.sh --status       # 只读体检
+#   ./kk/install-kk-platform.sh --help
 #
 # 环境变量：KK_PROTON / KK_WINE11_PREFIX / KK_INSTALL_TIMEOUT /
 #   KK_INSTALL_LOG / KK_WINEDEBUG

@@ -9,10 +9,10 @@
 # 不做崩溃后自动重启/守护。
 #
 # 用法：
-#   ./war3/fix-kk-desktop.sh              # 生成图标 + 桌面入口（幂等）
-#   ./war3/fix-kk-desktop.sh --status     # 只读体检
-#   ./war3/fix-kk-desktop.sh --uninstall # 恢复备份、删除图标与新建入口
-#   ./war3/fix-kk-desktop.sh --help
+#   ./kk/fix-kk-desktop.sh              # 生成图标 + 桌面入口（幂等）
+#   ./kk/fix-kk-desktop.sh --status     # 只读体检
+#   ./kk/fix-kk-desktop.sh --uninstall # 恢复备份、删除图标与新建入口
+#   ./kk/fix-kk-desktop.sh --help
 # License: Apache-2.0
 set -euo pipefail
 

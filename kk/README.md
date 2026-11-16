@@ -10,15 +10,15 @@
 | 项 | 内容 |
 | --- | --- |
 | **是什么** | `4_pf_files_KKDuiZhanDownloader-v1.0.2.454.exe`：KK 官方对战平台的 NSIS v3.06.1 PE32 下载器安装器（7.9 MB，`requireAdministrator`）。`/S` 静默安装后落地 `C:\Program Files (x86)\kkduizhan\`（本机实测 1.1 GB / 539 个文件），含 `Platform.exe`（48 MB 主程序）、`PlatformDownloader.exe`、`KKEmulator.exe`、`Uninstall.exe` 以及 Warcraft III 1.28/1.29 补丁文件。 |
-| **为何不能入库** | 厂商专有二进制、升级会改文件名；按 `.codebuddy/rules/仓库组织约定.md` 二，用 `.gitignore` 规则 `war3/4_pf_files_KKDuiZhanDownloader-*.exe` 排除，仓库只保留脚本与文档。文件仍留在本目录供运行时使用，不删除。生成的图标写入 `~/.local/share/icons/hicolor/`，同样不入库。 |
+| **为何不能入库** | 厂商专有二进制、升级会改文件名；按 `.codebuddy/rules/仓库组织约定.md` 二，用 `.gitignore` 规则 `kk/4_pf_files_KKDuiZhanDownloader-*.exe` 排除，仓库只保留脚本与文档。文件仍留在本目录供运行时使用，不删除。生成的图标写入 `~/.local/share/icons/hicolor/`，同样不入库。 |
 | **从哪获取** | KK 官方对战平台官网/官方分发页下载 `4_pf_files_KKDuiZhanDownloader-v<版本>.exe`，放到本目录、`~/下载` 或 `~/Downloads`，脚本会自动查找。本机这份 SHA256：`418354d8023686a8d1580c18499fc380b471980eb471f59c33ce6d7566875659`。安装产物在 `~/.deepinwine/kkduizhan-wine11/drive_c/Program Files (x86)/kkduizhan/`，同样不入库。 |
 
 ## 2. 安装（2026-11-14 实测）
 
 ```bash
 cd ~/project/lisuan
-./war3/install-kk-platform.sh                 # 自动找安装器，NSIS /S 静默安装
-./war3/install-kk-platform.sh --status       # 只读体检
+./kk/install-kk-platform.sh                 # 自动找安装器，NSIS /S 静默安装
+./kk/install-kk-platform.sh --status       # 只读体检
 ```
 
 - 前缀 `~/.deepinwine/kkduizhan-wine11`，Wine 取自
@@ -64,7 +64,7 @@ I 之后未再跑 Steam Runtime 容器组：裸 wine 已稳定，容器非必要
 「容器是稳健默认而非唯一必要条件」的结论一致）。共同基底三个 GL 变量未单独
 消融，保留它们是为了与项目其它 Wine 应用基线一致、且不污染全局。
 
-**现行启动器**：`war3/run-kk-platform.sh`，在应用进程树内设置
+**现行启动器**：`kk/run-kk-platform.sh`，在应用进程树内设置
 `WINEPREFIX` / `WINEDLLPATH` / `LD_LIBRARY_PATH` / `WINEDLLOVERRIDES`、
 `GBM_BACKEND=dri`、`LIBGL_ALWAYS_SOFTWARE=1`、`__GLX_VENDOR_LIBRARY_NAME=mesa`、
 `VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`、
@@ -88,18 +88,18 @@ I 之后未再跑 Steam Runtime 容器组：裸 wine 已稳定，容器非必要
 入口也没有图标（豆包客户端曾遇到同类的 `.lnk` 被 DING 交给 deepin-wine 的坑）。
 
 ```bash
-./war3/fix-kk-desktop.sh                 # 提取图标 + 写入口（幂等）
-./war3/fix-kk-desktop.sh --status       # 只读体检
-./war3/fix-kk-desktop.sh --uninstall   # 恢复备份、删除图标与新建入口
+./kk/fix-kk-desktop.sh                 # 提取图标 + 写入口（幂等）
+./kk/fix-kk-desktop.sh --status       # 只读体检
+./kk/fix-kk-desktop.sh --uninstall   # 恢复备份、删除图标与新建入口
 ```
 
-- `war3/extract-icon.py`（与 `dreamina/extract-icon.py` 同源，纯标准库解析 PE
+- `kk/extract-icon.py`（与 `dreamina/extract-icon.py` 同源，纯标准库解析 PE
   `RT_ICON` / `RT_GROUP_ICON`，不依赖 icoutils / Pillow）从本机 `Platform.exe`
   提取官方图标，写入 `~/.local/share/icons/hicolor/{16..256}.../apps/kkduizhan.png`
   共 10 个尺寸，最大 256×256；厂商图标产物不入库。
 - 桌面项写入 `~/.local/share/applications/kkduizhan.desktop`、XDG 桌面
   (`~/桌面/`) 与历史 `~/Desktop/`，统一 `Icon=kkduizhan`、
-  `Exec="<仓库>/war3/run-kk-platform.sh"`、`Categories=Game;`，并打
+  `Exec="<仓库>/kk/run-kk-platform.sh"`、`Categories=Game;`，并打
   `metadata::trusted=true`。只改 `Icon` / `Exec` 两行、保留用户其它定制；
   改文件前在 `~/.local/share/kkduizhan-wine11/desktop-backups/` 生成 `.bak`。
 - 实测 `--status` 全项 `[OK]`，`desktop-file-validate` 无警告；`--uninstall`
@@ -138,9 +138,9 @@ QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大�
 （`window_update_client_config` 对 unmanaged 直接返回 0，managed 等 WM_STATE
 而 OR 窗口永远等不到），所以任何「外部移主框架」的方案都修不了父子矩形。
 
-### 现行解法：双层修复（`war3/run-kk-platform.sh`，`KK_GEOMETRY_SHIM=0` 可关）
+### 现行解法：双层修复（`kk/run-kk-platform.sh`，`KK_GEOMETRY_SHIM=0` 可关）
 
-- **根因层 `war3/kk-user32-wrapper.c`**：native user32 包装层（mingw 编译，
+- **根因层 `kk/kk-user32-wrapper.c`**：native user32 包装层（mingw 编译，
   `WINEDLLOVERRIDES=user32=n,b` 仅 KK 进程树；64 位进程回退内置）。除
   `UpdateLayeredWindow` / `UpdateLayeredWindowIndirect` 外全部导出以 PE
   forwarder 转回 `user32_orig.dll`（内置 user32 的重命名副本，unixlib 名字嵌
@@ -148,10 +148,10 @@ QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大�
   （含内容层 `(0,0)` 与弹窗关闭按钮的 `(popup_width-42,0)` 等非零相对坐标）
   → `MapWindowPoints` 换屏幕坐标；「保持位置」调用（pptDst == 当前全局矩形
   原点且非 `(0,0)`）原样透传（一律换算会二次偏移成 `(588,66)` 振荡，trace
-  取证）。def 由 `war3/gen-kk-user32-def.py` 从内置
+  取证）。def 由 `kk/gen-kk-user32-def.py` 从内置
   user32 导出表生成（纯标准库；dlltool 不支持纯序号 forwarder，476 个序号
   导出跳过，KK/Qt/Wine 均按名字导入）。
-- **堆叠 / 挂载层 `war3/kk-geometry-shim.c`**：LD_PRELOAD X11 垫片（32 位为主、
+- **堆叠 / 挂载层 `kk/kk-geometry-shim.c`**：LD_PRELOAD X11 垫片（32 位为主、
   64 位兼容新 WoW64；免系统头文件自声明 X11 类型，本机无 multilib 头文件）。
   剥夺内容层抬升（`XRaiseWindow` / `XMapRaised` / `CWStackMode`）；Depth 32
   弹窗 / 通知保持 OR 并在映射后抬到内容层之上；拒绝主框架客户面被 detach
@@ -182,9 +182,13 @@ QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大�
   对错位 / 遮罩均无收益或不稳定；对大厅 web 不呈现同样无效（11-16 复验）。
   `KK_WEBENGINE_SOFTWARE=1` 仅保留为 A/B 诊断开关。
 - 大厅 web 不呈现的清除尝试（11-16，均无效）：客户面 dummy→frame 往返重挂、
-  同父微移触发 ConfigureNotify、WM 移动主框架 1px 触发 win32k 位置变更、
-  `KK_WEBENGINE_SOFTWARE=1`。offscreen 锁存仍在（trace 持续
-  `client_surface_update_offscreen ... offscreen 1`）。
+  同父微移触发 ConfigureNotify、WM 移动主框架 1px / resize 1px 触发 win32k
+  位置变更、`KK_WEBENGINE_SOFTWARE=1`、`QTWEBENGINE_DISABLE_SANDBOX=1` +
+  `--no-sandbox --disable-gpu-sandbox --in-process-gpu`（后者启动后稍晚崩溃）、
+  包装层保持 Chrome_WidgetWin_* 顶层（启动即 rc=5 崩溃）、包装层把 web 链
+  SetParent 改挂内容层（无收益）。offscreen 锁存仍在（trace 持续
+  `client_surface_update_offscreen ... offscreen 1`）；侧栏镜像点击零应用日志
+  反应，确认交互面只在死掉的 web surface 内。
 - `_NET_WM_WINDOW_OPACITY`：曾准备给内容层强制不透明，命令被用户中止、
   **未执行**；既然遮罩不是 bug，无需再做这类透明层干预。
 - 早期 X11 抓图全黑曾被误判为「合成层脱节」：`xwd` / `ffmpeg x11grab` /
@@ -212,6 +216,9 @@ QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，代价大�
   （见 `.codebuddy/rules/崩溃处理约定.md`）。
 - 包装层 / 垫片的窗口识别绑定厂商当前尺寸（1332×945 / 1332×946 / Depth 组合），
   厂商改尺寸时自动退化透传（回到未修复行为），需按新尺寸更新识别常量。
+- 内容层 / 弹窗的 X 窗口 ID 会在运行中重建（视觉切换 / ULW recreate），
+  取证与合成点击必须实时查询窗口 ID，不得缓存旧 ID（垫片靠 XDestroyWindow
+  清空识别自动适应）。
 - `KK_GEOMETRY_SHIM=0` 回到未修复原始行为；syswow64 里的包装层 dll 在没有
   `user32=n,b` override 时不被加载（Wine 默认内置优先），无副作用。
 

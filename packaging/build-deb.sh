@@ -5,7 +5,7 @@
 # 产物布局：
 #   /usr/bin/lisuan-fix                     可执行入口（install.py 副本，无扩展名）
 #   /usr/share/lisuan-fix/{install.py,lisuan_fix_core.py,lisuan_fix_gui.py}  模块
-#   /usr/share/lisuan-fix/{dkms,mesa,steam,underlords,electron,kingdom-rush,audio,left4dead2,doubao,dreamina,war3}/ 修复脚本
+#   /usr/share/lisuan-fix/{dkms,mesa,steam,underlords,electron,kingdom-rush,audio,left4dead2,doubao,dreamina,kk}/ 修复脚本
 #     （dreamina/ 含 extract-icon.py：安装时从本机官方 exe 提取图标，不打包厂商资源）
 #   /usr/share/applications/lisuan-fix.desktop                     终端菜单项
 #
@@ -63,7 +63,7 @@ done
 # 官方安装器（*.exe）属厂商专有产物且体积大（豆包 7MB / 即梦 103MB /
 # KK 下载器 8MB），不进 deb；用户需自行从官网下载后放到对应主题目录
 # （或用 ~/下载），安装脚本会自动查找。
-for d in doubao dreamina war3; do
+for d in doubao dreamina kk; do
   mkdir -p "$T/usr/share/$PKG/$d"
   (cd "$ROOT" && find "$d" -type f \
       ! -name '*.exe' \

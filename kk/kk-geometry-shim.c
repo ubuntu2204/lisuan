@@ -13,7 +13,7 @@
  *   4) SetParent(web 子窗口) 期间主框架客户面被误判 offscreen，客户窗口被
  *      detach 到 1x1 dummy 父窗口下，QtWebEngine 游戏列表整片不可见。
  *
- * 坐标语义根因由 war3/kk-user32-wrapper.c（native user32 包装层）修复：子窗口
+ * 坐标语义根因由 kk/kk-user32-wrapper.c（native user32 包装层）修复：子窗口
  * ULW 的 pptDst 换算成屏幕坐标后，内容层 win32k 矩形 = 主框架客户区原点，
  * 视觉与输入自然重合。本垫片只修剩下两个 X11 堆叠 / 挂载缺陷（不监控、
  * 不守护、不重启进程）：
@@ -180,7 +180,7 @@ static int is_popup(Window w)
 static void raise_popups(Display *dpy)
 {
     int i;
-    for (i = 0; i < n_popups; i++) get_XRaiseWindow()(dpy, popups[i]);
+    for (i = 0; i < n_popups; i++) if (popups[i]) get_XRaiseWindow()(dpy, popups[i]);
 }
 
 Window XCreateWindow(Display *dpy, Window parent, int x, int y, unsigned int w, unsigned int h,
@@ -266,9 +266,13 @@ int XReparentWindow(Display *dpy, Window w, Window parent, int x, int y)
 
 int XDestroyWindow(Display *dpy, Window w)
 {
-    /* 登录框架→大厅框架切换时清空识别，避免重定向指向已销毁 XID */
+    int i;
+    /* 登录框架→大厅框架切换 / 视觉重建时清空识别，避免指向已销毁 XID */
     if (w == w_frame) w_frame = 0;
     if (w == w_layer) w_layer = 0;
+    for (i = 0; i < n_popups; i++) if (popups[i] == w) { popups[i] = 0; break; }
+    for (i = 0; i < n_big; i++) if (big_clients[i] == w) { big_clients[i] = 0; break; }
+    for (i = 0; i < n_dummies; i++) if (dummies[i] == w) { dummies[i] = 0; break; }
     return get_XDestroyWindow()(dpy, w);
 }
 

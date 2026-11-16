@@ -19,13 +19,13 @@
 # 错位、win32k 子窗口命中裁剪丢弃侧栏输入；另有 OR+TOPMOST 内容层盖住弹窗
 # 按键、web 客户窗口被 detach 到 1x1 dummy 下导致游戏列表不可见两个并发缺陷。
 # 修复分两层，均仅注入本应用进程树：
-#   war3/kk-user32-wrapper.c：native user32 包装层，把子窗口 ULW 的 pptDst
+#   kk/kk-user32-wrapper.c：native user32 包装层，把子窗口 ULW 的 pptDst
 #     换算成屏幕坐标（根因修复），其余导出 forwarder 转回内置 user32_orig；
-#   war3/kk-geometry-shim.c：LD_PRELOAD X11 垫片，剥夺内容层抬升 + 弹窗抬到
+#   kk/kk-geometry-shim.c：LD_PRELOAD X11 垫片，剥夺内容层抬升 + 弹窗抬到
 #     内容层之上 + web 客户窗口重挂主框架。
-# 不监控、不守护、不自动重启客户端。取证与消融见 war3/README.md §5。
+# 不监控、不守护、不自动重启客户端。取证与消融见 kk/README.md §5。
 #
-# 用法：./war3/run-kk-platform.sh [传给 Platform.exe 的参数]
+# 用法：./kk/run-kk-platform.sh [传给 Platform.exe 的参数]
 # 环境变量：KK_PROTON / KK_WINE11_PREFIX / KK_LAUNCH_LOG / KK_WINEDEBUG /
 #   KK_GEOMETRY_SHIM（=0 关闭几何垫片，回到未修复的原始行为）/
 #   KK_SHIM_DEBUG（=1 垫片日志进启动日志）/
