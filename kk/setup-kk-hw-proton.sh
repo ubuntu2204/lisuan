@@ -24,10 +24,16 @@ status() {
     [ -x "$DST/proton" ] && echo "  [OK] Proton 副本存在" || { echo "  [--] 副本不存在"; return 1; }
     echo "  DXVK: $(tail -1 "$DE/version" 2>/dev/null || echo 未知)"
     echo "  libSC: $(readlink "$DST/files/lib/x86_64-linux-gnu/libSC.so" 2>/dev/null || echo 未链接)"
-    local so="$DST/files/lib/wine/i386-unix/winex11.so"
-    local done_md5="89c544018d0df630d61260f3ca63ab11"
-    local m; m=$(md5sum "$so" 2>/dev/null | awk '{print $1}')
-    [ "$m" = "$done_md5" ] && echo "  offscreen 补丁: [OK] 已打（黑块修复）" || echo "  offscreen 补丁: [--] 未打/版本变化（跑一次 setup 应用）"
+    local so m arch
+    for arch in i386-unix x86_64-unix; do
+        so="$DST/files/lib/wine/$arch/winex11.so"
+        m=$(md5sum "$so" 2>/dev/null | awk '{print $1}')
+        case "$m" in
+            89c544018d0df630d61260f3ca63ab11|400111a090b8315641d7b00e4e52ecff)
+                echo "  offscreen 补丁($arch): [OK]";;
+            *) echo "  offscreen 补丁($arch): [--] 未打/版本变化";;
+        esac
+    done
 }
 
 case "${1:-}" in
@@ -69,31 +75,40 @@ say "  libSC -> $(readlink "$DST/files/lib/x86_64-linux-gnu/libSC.so")"
 # 窗口，实测活动弹窗/游戏 web 内容恢复显示。
 # 只改专用 Proton 副本，不改全局。补丁点绑定 md5 白名单，版本变化即报错，
 # 不盲目套用字节偏移。备份 .orig-nooffscreen，可用 --restore-offscreen 还原。
-patch_winex11() {
-    local so="$DST/files/lib/wine/i386-unix/winex11.so"
-    local md5_orig="be7ff1a68ac598c5e1b63505edddde50"   # 未打补丁的本版 .so
-    local md5_done="89c544018d0df630d61260f3ca63ab11"   # 已打补丁
-    local off=$((0x1ddc2))                                # mov eax,1 (TRUE) 出口
+# 关键：new WoW64 下 unix 侧是 64 位进程，实际加载 x86_64-unix/winex11.so；
+# 32 位那份（i386-unix）也可能被纯 32 位路径用到。两份都必须打，只打 32 位
+# 会导致大厅 web 面仍 offscreen（2026-11-17 踩坑：弹窗显示但大厅全黑）。
+patch_one() {
+    local so="$1" md5_orig="$2" md5_done="$3" off="$4" label="$5"
+    [ -f "$so" ] || { say "  !! $label 不存在：$so"; return; }
     local m cur
     m=$(md5sum "$so" | awk '{print $1}')
     case "$m" in
-        "$md5_done")
-            say "  winex11.so 已打 offscreen 补丁"; return 0;;
+        "$md5_done") say "  $label 已打 offscreen 补丁";;
         "$md5_orig")
             [ -f "$so.orig-nooffscreen" ] || cp -a "$so" "$so.orig-nooffscreen"
             chmod u+w "$so"
             cur=$(xxd -p -s "$off" -l 5 "$so")
-            [ "$cur" = "b801000000" ] || die "补丁点字节非预期($cur)，拒绝修改"
+            [ "$cur" = "b801000000" ] || die "$label 补丁点字节非预期($cur)，拒绝修改"
             printf '\x31\xc0\x90\x90\x90' | dd of="$so" bs=1 seek="$off" conv=notrunc status=none
-            say "  winex11.so 已打 offscreen 补丁（强制 needs_offscreen_rendering=FALSE）";;
-        *)
-            say "  !! winex11.so md5=$m 非已知版本，跳过补丁（版本升级后需重新定位补丁点）";;
+            say "  $label 已打 offscreen 补丁（needs_offscreen_rendering 恒 FALSE）";;
+        *) say "  !! $label md5=$m 非已知版本，跳过（版本升级后需重新定位补丁点）";;
     esac
+}
+patch_winex11() {
+    patch_one "$DST/files/lib/wine/i386-unix/winex11.so"   \
+        be7ff1a68ac598c5e1b63505edddde50 89c544018d0df630d61260f3ca63ab11 \
+        $((0x1ddc2)) "winex11.so(32位)"
+    patch_one "$DST/files/lib/wine/x86_64-unix/winex11.so" \
+        20f25fdcf32d2b6c6345c3418d6a5b34 400111a090b8315641d7b00e4e52ecff \
+        $((0x2408e)) "winex11.so(64位)"
 }
 case "${1:-}" in
     --restore-offscreen)
-        SO="$DST/files/lib/wine/i386-unix/winex11.so"
-        [ -f "$SO.orig-nooffscreen" ] && { cp -a "$SO.orig-nooffscreen" "$SO"; say "已还原 winex11.so"; } || say "无备份可还原"
+        for SO in "$DST/files/lib/wine/i386-unix/winex11.so" \
+                  "$DST/files/lib/wine/x86_64-unix/winex11.so"; do
+            [ -f "$SO.orig-nooffscreen" ] && { cp -a "$SO.orig-nooffscreen" "$SO"; say "已还原 $(basename $(dirname "$SO"))/winex11.so"; }
+        done
         exit 0;;
 esac
 patch_winex11
