@@ -11,12 +11,18 @@
 # Mesa 软件 GLX：env -u VK_ICD_FILENAMES + LIBGL_ALWAYS_SOFTWARE=1
 # + __GLX_VENDOR_LIBRARY_NAME=mesa；A/B 实测三项同时生效才稳定出窗口。
 #
+# 启动修复（2026-11-18）：默认再传 -noupdate -workdir <安装目录>，跳过
+# Wine 下会长时间停在「正在更新」的 update.exe。用户在此阶段重复点击
+# 触发单实例冲突（第二个进程 0x80010106）后退出；这是绕过，不是修好
+# 厂商更新器。E80_ALLOW_UPDATE=1 可恢复更新检查，显式传参也原样透传。
+#
 # 用法：
 #   ./80/run-80duizhan.sh [参数...]   # 启动平台（参数透传给 80launch.exe）
 #   ./80/run-80duizhan.sh --status    # 只读体检
 #   ./80/run-80duizhan.sh --help
 #
-# 环境变量：E80_PROTON / E80_WINE11_PREFIX / E80_INSTALL_DIR / E80_WINEDEBUG
+# 环境变量：E80_PROTON / E80_WINE11_PREFIX / E80_INSTALL_DIR / E80_WINEDEBUG /
+#   E80_ALLOW_UPDATE=1（恢复默认关闭的更新检查）
 # License: Apache-2.0
 set -euo pipefail
 
@@ -50,11 +56,13 @@ usage() {
     cat <<EOF
 用法：$(basename "$0") [选项] [参数...]
 
-  （无参数） 前台启动 80 对战平台（参数透传给 80launch.exe）
+  （无参数） 前台启动 80 对战平台；默认加 -noupdate -workdir <安装目录>
+              跳过 Wine 下会卡住的更新器，参数可显式覆盖
   --status   只读体检：wine、安装前缀、主程序 PE
   --help     显示本说明
 
-环境变量：E80_PROTON、E80_WINE11_PREFIX、E80_INSTALL_DIR、E80_WINEDEBUG。
+环境变量：E80_PROTON、E80_WINE11_PREFIX、E80_INSTALL_DIR、E80_WINEDEBUG、
+          E80_ALLOW_UPDATE=1 可恢复更新检查。
 崩溃后不会自动重启；请按 .codebuddy/rules/崩溃处理约定.md 取证定位。
 EOF
 }
@@ -73,6 +81,15 @@ esac
 [[ -x "$WINE" ]] || die "找不到 Proton 11 的 wine：$WINE"
 MAIN="$(find_main || true)"
 [[ -s "$MAIN" && "$(head -c2 "$MAIN")" == "MZ" ]] || die "主程序缺失或不是有效 PE：$MAIN"
+
+# 默认跳过厂商更新器：它在 Wine 下会长时间停在「正在更新」，重复点击
+# 触发单实例 COM 冲突后闪退。显式传参或 E80_ALLOW_UPDATE=1 可恢复原行为。
+if [[ $# -eq 0 && "${E80_ALLOW_UPDATE:-0}" != "1" ]]; then
+    rel="${MAIN#"$PREFIX/drive_c/"}"
+    dir_rel="${rel%/*}"
+    dir_rel="${dir_rel//\\//}"
+    set -- -noupdate -workdir "C:/$dir_rel/"
+fi
 
 libs="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i386-linux-gnu"
 [[ -n "${LD_LIBRARY_PATH:-}" ]] && libs="$libs:$LD_LIBRARY_PATH"

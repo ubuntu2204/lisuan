@@ -88,3 +88,34 @@ cd ~/project/lisuan
 - 单次启动实测：X11 窗口 `Map State: IsViewable`，`wmctrl -l` 能看到
   `80对战平台`，启动日志无 `No driver found`；仍是单次前台启动、无守护/自动重启。
 - 登录、房间匹配、Warcraft III 本体联机未验收；不要为这些场景加看门狗。
+
+### 更新阶段闪退（2026-11-18）
+
+- 用户点击桌面入口后的日志：`03:48:39` 第一次启动正常写 `records saved`，
+  `update.exe` 随后运行约 23 秒；`03:49:02` 又启动一次，日志停在
+  `[WindowTool] 初始化com组件失败. 错误码:0x80010106`，没有 `records saved`，
+  进程随即退出。即「正在更新」阶段较长，重复点击触发单实例冲突后闪退。
+- 单次复现确认：无参数启动时 `t=5s` 可见 `update.exe`，`t=10s` 它退出并
+  派生带 `-debug -noupdate` 的第二个 `80launch.exe`；显式传
+  `-noupdate -workdir 'C:/Program Files (x86)/80duizhan/'` 则全程只有**一个**
+  `80launch.exe`，不再出现 `update.exe`，约 4 秒即出 1120x623 窗口。
+- `80/run-80duizhan.sh` 现在在**无参数且未设 `E80_ALLOW_UPDATE=1`** 时默认
+  追加 `-noupdate -workdir <安装目录>`；显式传参原样透传。
+  `E80_ALLOW_UPDATE=1 ./80/run-80duizhan.sh` 可恢复更新检查。
+- 这是**绕过**厂商更新器在 Wine 下的卡住/闪退，不是修好更新器本身；
+  不加重试、守护或自动重启。真正需要升级时用官网完整安装包重新安装。
+
+### 随机 c0000005 闪退（2026-11-18）
+
+- 跳过更新器后仍偶发闪退：WINEDEBUG=+seh 捕获
+  Unhandled exception code c0000005 addr 0xe2e0a7；反汇编落在
+  80launch.exe 的 _chkstk 栈探测循环（test DWORD PTR [eax],eax）。
+- PE 头原为栈保留 1 MiB / 提交 4 KiB，改为 8 MiB / 64 KiB 后，
+  两次单次启动均无 c0000005，窗口 IsViewable。
+- 应用：./80/fix-80-stack.sh（幂等，先备份 .bak-stack）
+  体检：./80/fix-80-stack.sh --status
+  回滚：./80/fix-80-stack.sh --uninstall
+- 只改本地前缀内的 80launch.exe，厂商二进制不入库；
+  本机原版 MD5 be7ce1b16033f59f5252364a0dd9ec94，
+  修复后 MD5 8a6a7235c057874a840aaab349e27cad。
+- 这是绕过厂商栈假设，不是修好 CEF/Wine 栈耗尽；升级重装后需重新应用。
