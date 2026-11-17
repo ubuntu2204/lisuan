@@ -373,12 +373,19 @@ def main() -> None:
                 h.click(px + pw - 25, py + 24)
 
         # 1) 活动弹窗 X：真实点击应关窗解除遮罩（920x560 / 440x360 两种）
-        for p in w.get("popups", []):
-            click_popup_x(p)
-            time.sleep(1.5)
-        if "popup" in windows():
-            fail("真实点击活动弹窗 X 后弹窗仍在（X 不可点/漂移未修）")
-        if w.get("popups"):
+        # 弹窗是服务端活动 web，常在登录响应之后才映射；登录守卫前抓的 w 是旧
+        # 快照（2026-11-17 实测 captured popups=None，但登录完成后出现 920x560）。
+        # 必须在守卫之后重新取窗口，否则会对空列表不做任何点击就判定失败。
+        w = wait_window("popup", 20)
+        if "popup" not in w:
+            print("[WARN] 登录完成后 20 秒内未出现活动弹窗，跳过 X 关闭断言"
+                  "（服务端活动未推送？不是渲染故障）")
+        else:
+            for p in w.get("popups", []):
+                click_popup_x(p)
+                time.sleep(1.5)
+            if "popup" in windows():
+                fail("真实点击活动弹窗 X 后弹窗仍在（X 不可点/漂移未修）")
             ok("活动弹窗 X 真实点击关窗、遮罩解除")
         w = windows()
         layer = w.get("layer", layer)
@@ -430,7 +437,12 @@ def main() -> None:
         lb = log_len()
         h.click(layer[0] + ROW_CX, wy)
         time.sleep(1.2)
-        reacted = log_reaction(lb, r"WndWar3RPGLobby|context create|url->")
+        # 只认导航到 War3 大厅首页（根路径）的 url->，不认宽泛的 url->/context
+        # create：web 内容区任意链接（活动 / SVIP 商城）和 context 创建都会打那些，
+        # 曾据此把命中右偏误判为 0（2026-11-17 取证：+128 点中 web 链接同样打
+        # 1810 context create 与 .../activity?p=3 的 url->）。
+        war3_hit = r"WndWar3RPGLobby:1077\].*url->https?://kk\.kkdzpt\.com/?\s*$"
+        reacted = log_reaction(lb, war3_hit)
         h.move(layer[0] + 600, layer[1] + 500)  # 移开光标再抓帧，避免光标像素干扰
         time.sleep(0.3)
         sel = h.frame(tmp / "sel0.png")
@@ -441,7 +453,7 @@ def main() -> None:
                 lb2 = log_len()
                 h.click(layer[0] + ROW_CX + dx, wy)
                 time.sleep(1.0)
-                hit = log_reaction(lb2, r"WndWar3RPGLobby|context create|url->")
+                hit = log_reaction(lb2, war3_hit)
                 h.move(layer[0] + 600, layer[1] + 500)
                 time.sleep(0.2)
                 f = h.frame(tmp / f"sel{dx}.png")
@@ -449,7 +461,8 @@ def main() -> None:
                     offset = dx
                     break
             fail(f"点击视觉中心未选中魔兽争霸3；实测命中右偏 {offset}px"
-                 f"（win32k 矩形与 X 原点错配，需修包装层/垫片）")
+                 f"（真实缺口：侧栏可见原生镜像在内容层，交互 web 面锁在另窗，"
+                 f"见 README §5「web 内容面不呈现」；非简单 win32k 原点错配）")
         ok("真实点击魔兽争霸3 视觉中心即选中（命中零偏移）")
 
         # 4) 交互闭环：点 DotA 行（红色 D 图标定位）应触发导航日志反应。
@@ -464,7 +477,7 @@ def main() -> None:
         lb3 = log_len()
         h.click(layer[0] + ROW_CX, dy)
         time.sleep(1.5)
-        reacted2 = log_reaction(lb3, r"url->|context create|WndDota|fold:")
+        reacted2 = log_reaction(lb3, r"WndDota|fold:")
         if not reacted2:
             print("[WARN] 点击 DotA 行未见导航日志（可能已被选中/日志口径差异）；"
                   "核心断言（悬停反馈 + 魔兽争霸3 命中选中）已强制通过")

@@ -9,6 +9,12 @@
 # 级别，不生成高级语言伪代码。目的是理解 KK 的窗口 / CEF 行为，辅助排查
 # Wine 下的兼容性问题；不修改软件本身，不联网，不做崩溃后自动恢复。
 #
+# 除原始 meta/strings/disasm 外，每个模块还生成若干「索引」小文件，便于直接
+# grep 源码级线索：symbols.txt（导入导出符号）、source-paths.txt（构建机源码
+# 路径，来自 __FILE__）、env-refs.txt（读取/写入的环境变量）、qrc-paths.txt
+# （Qt 资源路径）、chromium-flags.txt、pdb.txt（CodeView 符号路径）。
+# 这些是对已有产物的再加工，不引入 Ghidra/IDA，也不生成伪代码。
+#
 # 用法：./kk/decompile-kk.sh [--status | --clean | --force]
 # 环境变量：KK_WINE11_PREFIX / KK_OBJDUMP / KK_MAX_DISASM
 # License: Apache-2.0
@@ -46,7 +52,9 @@ usage() {
 
 对 KK 官方对战平台安装目录里 KK 自有的 PE 做静态逆向分析，产物写入
 kk/reverse/（不入库，见 .gitignore）。本机无 Ghidra/IDA，只做反汇编
-与元数据提取，不生成伪代码，不修改软件本身。
+与元数据提取，不生成伪代码，不修改软件本身。每个模块另生成 symbols.txt /
+source-paths.txt / env-refs.txt / qrc-paths.txt / chromium-flags.txt / pdb.txt
+六个可 grep 的索引小文件，便于定位源码级线索。
 
 选项：
   --status   只读列出已有产物及大小
@@ -120,6 +128,58 @@ dump_one() {
         echo "PE 超过 ${MAX_DISASM} 字节，仅生成元数据与字符串（避免巨型反汇编文本）" \
             > "$dir/DISASM-SKIPPED.txt"
     fi
+
+    extract_indices "$dir"
+}
+
+# 从 meta.txt / strings-ascii.txt 再加工出可直接 grep 的索引文件。
+# 全部使用 grep/sed/sort（本机已有），无新依赖；即便某个索引为空也生成空文件，
+# 避免 --status 里出现「文件缺失」的歧义。
+extract_indices() {
+    local dir="$1"
+    local meta="$dir/meta.txt" sa="$dir/strings-ascii.txt"
+
+    # 导入/导出符号：objdump -x 的表格里「DLL Name:」后接若干成员行，导出在
+    # [Ordinal/Name Pointer] Table 之后。只保留名字，去掉 vma/hint 等噪音。
+    {
+        echo "# imports (DLL :: member)"
+        awk '
+            /DLL Name:/ { dll=$0; sub(/^.*DLL Name: /,"",dll); next }
+            dll && /^[[:space:]]+[0-9a-f]+[[:space:]]+[0-9]+[[:space:]]/ {
+                line=$0
+                sub(/^[[:space:]]+[0-9a-f]+[[:space:]]+[0-9]+[[:space:]]+/,"",line)
+                sub(/[[:space:]].*$/,"",line)
+                if (line != "" && line != "<none>") print dll " :: " line
+            }
+            /^The Export Tables/ { dll=""; print "\n# exports (ordinal :: name)" }
+            /^[[:space:]]*\[[[:space:]]*[0-9]+\][[:space:]]+[A-Za-z_?]/ {
+                line=$0; sub(/^[[:space:]]*\[[[:space:]]*[0-9]+\][[:space:]]+/,"",line)
+                print line
+            }
+        ' "$meta" 2>/dev/null
+    } > "$dir/symbols.txt" || true
+
+    # 构建机源码路径：MSVC 的 __FILE__ 常量，泄露模块/源码目录结构。
+    grep -aoE '[A-Z]:\\.*\.(cpp|hpp|h|c|cc)' "$sa" 2>/dev/null \
+        | sort -u > "$dir/source-paths.txt" || true
+
+    # 环境变量引用：QT_/QTWEBENGINE_*/WINE_/VK_/LIBGL_/GBM_/DXVK_/PROTON_/KK_ 前缀。
+    # 注意 QTWEBENGINE 后紧跟的是大写名而非下划线（如 QTWEBENGINE_CHROMIUM_FLAGS），
+    # 故前缀后允许若干大写字母再接下划线。
+    grep -aoE '\b(QT|WINE|VK|LIBGL|GBM|DXVK|PROTON|KK)[A-Z_]*_[A-Z0-9_]+\b' "$sa" 2>/dev/null \
+        | sort -u > "$dir/env-refs.txt" || true
+
+    # Qt 资源路径（qrc）：:/... 形式，可据此用 WebEngine/CDP 直接读取内容。
+    grep -aoE ':/[A-Za-z0-9_./-]+' "$sa" 2>/dev/null \
+        | sort -u > "$dir/qrc-paths.txt" || true
+
+    # Chromium/命令行开关：--xxx，含应用自定义的 --disable-nep 等。
+    grep -aoE -- '--[a-z][a-z0-9-]{2,}' "$sa" 2>/dev/null \
+        | sort -u > "$dir/chromium-flags.txt" || true
+
+    # CodeView/PDB：RSDS GUID + 构建机 pdb 路径（本机通常无该 pdb）。
+    grep -aiE 'RSDS signature|CodeView|pdb' "$meta" 2>/dev/null \
+        | head -20 > "$dir/pdb.txt" || true
 }
 
 main() {
