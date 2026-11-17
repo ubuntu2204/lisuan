@@ -30,8 +30,10 @@ cd ~/project/lisuan
 
 ## 3. 运行与验收状态
 
-- 本目录**只负责安装**；平台 GUI 启动 / 登录 / 魔兽3 联机尚未在砺算 7G100 上验收。
-- 如需运行，参照 `doubao/run-doubao-wine11.sh` 的 wine 进程树隔离方式，不污染 Steam 客户端。
+- 安装与「启动到可见窗口」已于 2026-11-17 验收；平台登录 / 魔兽3 联机仍未在砺算
+  7G100 上验收，见第 5 节。
+- 运行请用 `./80/run-80duizhan.sh`（桌面入口已指向它）：只在 wine 进程树上隔离环境，
+  不污染 Steam 客户端或全局 shell。
 - 崩溃处理：不加剧、不掩盖。采集日志 / dump / journal 后再定位，不加看门狗或自动重启
   （见 `.codebuddy/rules/崩溃处理约定.md`）。
 
@@ -58,4 +60,31 @@ cd ~/project/lisuan
   （见 `.codebuddy/rules/崩溃处理约定.md`）。
 - 覆盖已有 `.desktop` 前先备份到
   `~/.local/share/80duizhan-wine11/desktop-backups/`；`--uninstall` 可恢复。
-- 平台 GUI 启动 / 登录 / 魔兽3 联机尚未验收；图标生成成功不代表联机可用。
+- 图标生成成功不代表平台已启动；启动问题见第 5 节。
+
+## 5. 启动修复（2026-11-17 实测）
+
+### 现象与根因
+
+- 点桌面入口后 `80launch.exe` 进程仍在、CPU 有占用，但 X11 只有
+  `80对战平台` 648x514 窗口且 `Map State: IsUnMapped`，`wmctrl -l` 看不到；
+  再次点击只在 `Log/*/ferry_*.txt` 里追加 `Already exist an instance.`。
+- 启动日志关键证据：
+  - `failed to get driver name for fd ... pci id 4c54:5006, driver (null)` →
+    `No driver found` → `failed to load driver: (null)`：winex11 探测 OpenGL 时
+    DRI 驱动没起来，窗口停在未映射状态；
+  - 宿主继承给 32 位 `80launch.exe` 的 `VK_ICD_FILENAMES` 指向 **64 位**
+    `gf_icd.x86_64.json`，架构不匹配；
+  - 二级 UI 进程里可见 `0x80010106`（RPC_E_CHANGED_MODE，COM apartment 冲突），
+    但在成功出窗的运行中也出现过，A/B 显示它与「是否出窗」无稳定因果，按非阻塞噪音处理。
+- A/B 结论：**只**去掉 `VK_ICD_FILENAMES` 或**只**加软件 GLX 都不能稳定出窗；
+  三项同时生效才稳定（约 6 秒内 `IsViewable`，日志不再有 `No driver found`）。
+
+### 修复与验收
+
+- `80/run-80duizhan.sh` 只在目标 wine 进程树执行
+  `env -u VK_ICD_FILENAMES LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa`；
+  不改驱动文件、不污染 Steam 客户端或全局 shell。
+- 单次启动实测：X11 窗口 `Map State: IsViewable`，`wmctrl -l` 能看到
+  `80对战平台`，启动日志无 `No driver found`；仍是单次前台启动、无守护/自动重启。
+- 登录、房间匹配、Warcraft III 本体联机未验收；不要为这些场景加看门狗。

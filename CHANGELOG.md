@@ -7,6 +7,24 @@
 > `2026.11.13 — Steam 启动弹「GLX context is not using direct rendering」修复`
 > 与 `steam/steam-on-lisuan.md` §3 / §3.2。
 
+## 2026.11.17 — 80 对战平台桌面图标与启动修复
+
+- 图标：新增 `80/fix-80-desktop.sh`，从 `80launch.exe` 的 PE 资源提取 8 个尺寸写入
+  hicolor；新增 `80/run-80duizhan.sh` 作为桌面入口启动器；修复
+  `80/install-80duizhan.sh --status` 因 `find` 收到不存在目录而在 `pipefail` 下误报
+  「未安装」。
+- 启动：32 位 `80launch.exe` 继承宿主 64 位 `VK_ICD_FILENAMES`（gf ICD），同时
+  winex11 探测 `4c54:5006` 的 DRI/OpenGL 失败（`No driver found`），窗口停在
+  `IsUnMapped`、再次点击只追加 `Already exist an instance.`。A/B 显示只删 ICD 或
+  只加软件 GLX 都不够；`80/run-80duizhan.sh` 现在只在目标 wine 进程树执行
+  `env -u VK_ICD_FILENAMES LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa`。
+- 验收：单次启动约 6 秒内出现 `80对战平台` 窗口，`Map State: IsViewable` 且
+  `wmctrl -l` 可见，启动日志无 `No driver found`。二级 UI 进程的
+  `0x80010106`（RPC_E_CHANGED_MODE）在成功出窗的运行中也存在，按非阻塞噪音记录。
+  登录 / 房间匹配 / Warcraft III 本体联机未验收；无守护或自动重启。
+- 快速 A/B 强杀测试曾触发一次 `wineserver crashed`，已用一次性 `wineserver -k`
+  清理前缀状态并复测通过；未加入任何自动恢复逻辑。
+
 ## 2026.11.14 — 打通 Wayland 合成画面的非交互抓图通道
 
 ### 问题与误判纠正

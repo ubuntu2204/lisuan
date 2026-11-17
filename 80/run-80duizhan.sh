@@ -5,6 +5,12 @@
 # 不污染全局 shell、不修改 Steam 自身文件。单次前台启动，
 # 不做存活监控、自动重启或守护；退出码原样透传。
 #
+# 启动修复（2026-11-17）：32 位 80launch.exe 不能吃继承来的 64 位
+# VK_ICD_FILENAMES（gf ICD），且 winex11 探测 OpenGL 时会因 4c54:5006
+# 找不到 DRI 驱动而卡在未映射窗口。这里只在此进程树移除该变量并强制
+# Mesa 软件 GLX：env -u VK_ICD_FILENAMES + LIBGL_ALWAYS_SOFTWARE=1
+# + __GLX_VENDOR_LIBRARY_NAME=mesa；A/B 实测三项同时生效才稳定出窗口。
+#
 # 用法：
 #   ./80/run-80duizhan.sh [参数...]   # 启动平台（参数透传给 80launch.exe）
 #   ./80/run-80duizhan.sh --status    # 只读体检
@@ -71,9 +77,12 @@ MAIN="$(find_main || true)"
 libs="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i386-linux-gnu"
 [[ -n "${LD_LIBRARY_PATH:-}" ]] && libs="$libs:$LD_LIBRARY_PATH"
 cd "$(dirname "$MAIN")"
-exec env WINEPREFIX="$PREFIX" \
+exec env -u VK_ICD_FILENAMES \
+    WINEPREFIX="$PREFIX" \
     WINEDLLPATH="$PROTON/files/lib/vkd3d:$PROTON/files/lib/wine" \
     LD_LIBRARY_PATH="$libs" \
     WINEDLLOVERRIDES='mscoree,mshtml=' \
+    LIBGL_ALWAYS_SOFTWARE=1 \
+    __GLX_VENDOR_LIBRARY_NAME=mesa \
     WINEDEBUG="${E80_WINEDEBUG:--all}" \
     "$WINE" "$MAIN" "$@"
