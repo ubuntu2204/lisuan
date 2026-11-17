@@ -99,6 +99,9 @@ unset QT_ACCESSIBILITY QT_IM_MODULE
 # user32 wrapper（native 坐标换算）+ geometry shim（X11 堆叠）。
 # 仅注入本应用进程树；KK_GEOMETRY_SHIM=0 可关，回到未修复行为。
 SHIM_DIR="$(dirname "$LOG")"
+# 几何层修 UI/按键错位；与 offscreen 补丁一起才是完整方案。
+# 早期"wrapper 导致启动崩"的真因是 cp 跟随软链污染了 Proton 内置 user32.dll
+# （已改为先 rm 软链再 cp），与 new WoW64 本身无关。
 if [ "${KK_GEOMETRY_SHIM:-1}" = 1 ]; then
     REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
     SHIM_SRC="$REPO_DIR/kk-geometry-shim.c"
@@ -123,6 +126,7 @@ if [ "${KK_GEOMETRY_SHIM:-1}" = 1 ]; then
     [ -d "$SYSWOW" ] || die "前缀缺 syswow64：$SYSWOW"
     [ -f "$BUILTIN_U32" ] || die "找不到内置 user32：$BUILTIN_U32"
     if [ ! -f "$SYSWOW/user32_orig.dll" ] || [ "$BUILTIN_U32" -nt "$SYSWOW/user32_orig.dll" ]; then
+        rm -f "$SYSWOW/user32_orig.dll" 2>/dev/null || true   # builtin 常是 444 只读
         cp "$BUILTIN_U32" "$SYSWOW/user32_orig.dll" || exit 1
         rm -f "$WRAP_DLL"
     fi
@@ -134,7 +138,10 @@ if [ "${KK_GEOMETRY_SHIM:-1}" = 1 ]; then
         i686-w64-mingw32-gcc -shared -O2 -o "$WRAP_DLL" "$WRAP_SRC" \
             "$SHIM_DIR/kk-user32-exp.o" -luser32 -lkernel32 || exit 1
     fi
-    chmod u+w "$SYSWOW/user32.dll" 2>/dev/null || true   # 前缀内 builtin 可能是 444 只读
+    # 关键：前缀里 user32.dll 是指向 Proton 内置 DLL 的软链。直接 cp 会
+    # [跟随软链] 覆盖 Proton 自带文件（next launch user32 forward 找不到
+    # user32_orig → LoadStringW 未实现 → KK 启动即崩）。必须先 rm 软链再 cp。
+    rm -f "$SYSWOW/user32.dll" 2>/dev/null || true
     cp "$WRAP_DLL" "$SYSWOW/user32.dll" || exit 1
     export WINEDLLOVERRIDES="$WINEDLLOVERRIDES;user32=n,b"
     say "几何修复层已注入（wrapper + shim）"
@@ -157,12 +164,19 @@ cd "$PFX/drive_c/Program Files (x86)/kkduizhan" || die "无安装目录"
 "$P11/proton" waitforexitandrun Platform.exe >"$LOG" 2>&1 &
 PID=$!
 
-# 单次等待登录/大厅就绪（最多 70s），则不依赖看门狗
+# 单次等待登录/大厅就绪（最多 70s），不依赖看门狗。
+# 注意：proton 的 $! 会很快失效（它 fork/exec），判活必须用真正的 Platform.exe；
+# KK 应用日志写在前缀内 platform.log，不在 proton 的 stdout（$LOG）里。
+APPLOG_DIR="$PFX/drive_c/Program Files (x86)/kkduizhan/log"
 READY=0
 for i in $(seq 1 35); do
     sleep 2
-    if grep -qE 'WndLobby|GameLobby|Boardcast|status:200' "$LOG" 2>/dev/null; then READY=1; break; fi
-    if ! kill -0 "$PID" 2>/dev/null; then say "进程提前退出（第 ${i} 次检查）"; break; fi
+    if grep -rlqE 'WndLobby|GameLobby|Boardcast' "$APPLOG_DIR"/platform.log 2>/dev/null; then READY=1; fi
+    # wine 进程命令行是 Windows 路径，不含 $PFX；只按 exe 名判活
+    if ! pgrep -f 'Platform\.exe' >/dev/null 2>&1; then
+        say "KK 进程不存在（第 ${i} 次检查）"; break
+    fi
+    [ "$READY" = 1 ] && break
 done
 say "就绪标志=$READY 循环结束（$(date +%T)）"
 

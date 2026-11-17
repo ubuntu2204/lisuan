@@ -10,6 +10,8 @@
 #
 # 用法：
 #   ./kk/fix-kk-desktop.sh              # 生成图标 + 桌面入口（幂等）
+#   ./kk/fix-kk-desktop.sh --hw         # 桌面入口指向硬件方案 run-kk-platform-hw.sh
+#                                       # （7G100 + offscreen 补丁，消除大厅黑块）
 #   ./kk/fix-kk-desktop.sh --status     # 只读体检
 #   ./kk/fix-kk-desktop.sh --uninstall # 恢复备份、删除图标与新建入口
 #   ./kk/fix-kk-desktop.sh --help
@@ -17,7 +19,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUNNER="$SCRIPT_DIR/run-kk-platform.sh"
+# 默认软件方案；--hw 切到硬件方案（黑块已修复）。两方案入口可来回切。
+RUNNER_NAME="${KK_RUNNER:-run-kk-platform.sh}"
+RUNNER="$SCRIPT_DIR/$RUNNER_NAME"
 EXTRACTOR="$SCRIPT_DIR/extract-icon.py"
 PREFIX="${KK_WINE11_PREFIX:-$HOME/.deepinwine/kkduizhan-wine11}"
 PREFIX="${PREFIX/#\~/$HOME}"
@@ -40,6 +44,9 @@ usage() {
 用法：$(basename "$0") [--status|--uninstall|--help]
 
   （无参数）   从 Platform.exe 提取官方图标到 hicolor，创建/修正桌面入口并打 trusted
+                （指向软件方案 run-kk-platform.sh）
+  --hw         桌面入口改指向硬件方案 run-kk-platform-hw.sh（7G100 + offscreen
+                补丁，大厅黑块已修复）；再次无参数运行可切回软件方案
   --status     只读体检：图标、入口 Icon/Exec/trusted、启动器与主程序
   --uninstall  恢复 .desktop 备份（新建的删除）、移除生成的图标
   --help       显示本说明
@@ -192,6 +199,7 @@ case "${1:-}" in
     --help|-h) usage; exit 0 ;;
     --status) status; exit $? ;;
     --uninstall) uninstall; exit 0 ;;
+    --hw) RUNNER="$SCRIPT_DIR/run-kk-platform-hw.sh"; EXPECTED_EXEC="\"$RUNNER\""; install_icons; exit 0 ;;
     --*) echo "错误：未知参数：$1（用 --help 查看用法）" >&2; exit 1 ;;
     *) install_icons ;;
 esac

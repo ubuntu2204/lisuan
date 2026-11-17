@@ -138,7 +138,11 @@ bash kk/run-kk-platform-hw.sh              # 常规启动（单次、显式收�
 - **gf-compat**：`osrelease_redirect.so`（发行版白名单 + 低 4GB 重映射）、垫片
   ICD `gf_icd.json`、`libSC.so` 软链；`VK_LOADER_LAYERS_DISABLE` 关 Steam overlay。
 - **几何修复层**：复用 `kk-user32-wrapper.c` + `kk-geometry-shim.c` 修 UI/按键错位；
-  `KK_GEOMETRY_SHIM=0` 可关。
+  `KK_GEOMETRY_SHIM=0` 可关。实测 wrapper 在 new WoW64 下可用，之前"启动即崩"
+  的真凶是部署 wrapper 时 `cp` **跟随软链**覆盖了 Proton 自带的
+  `i386-windows/user32.dll`（→ forwarder 找不到 `user32_orig` → `LoadStringW`
+  未实现 → 启动退出）。修法：先 `rm -f` 前缀 user32.dll 软链再 `cp`，只替换
+  前缀内文件、不动 Proton 源。若曾污染，从全局 Proton 11 复制同名 dll 恢复。
 - 启动用 `proton waitforexitandrun`（不是裸 `wine`：32 位 loader 会拒载 64 位
   hook，报 `wrong ELF class`），由 proton 提供容器（`VK_KHR_surface`）。
 

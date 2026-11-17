@@ -9,7 +9,21 @@
 > `2026.11.16 夜 — KK 魔兽争霸3 漂移修复（活动弹窗关闭按钮窗）与 GL 活锁撤除`
 > 与 `kk/README.md` §5。
 
-## 2026.11.17 — KK 大厅黑块消除（winex11 offscreen 二进制补丁，硬件方案）
+## 2026.11.17 — KK 硬件方案交付：桌面入口切换 + user32 软链覆盖坑
+
+- 用户反馈"仍黑/按键错位"：取证发现桌面三个入口 `Exec` 全指向软件方案
+  `run-kk-platform.sh`（黑块修复在硬件方案里，用户从图标启动根本没走到）。
+  `kk/fix-kk-desktop.sh` 加 `--hw`：入口切到 `run-kk-platform-hw.sh`，可来回切。
+- 排障中硬件方案一度启动即退（`LoadStringW` 未实现）。真凶：给用户32包装层
+  `cp` 到前缀 `syswow64/user32.dll`（指向 Proton 内置 dll 的软链）时**跟随软链
+  写穿**，污染了专用 Proton 的 `i386-windows/user32.dll`；forwarder 找不到
+  `user32_orig` → 崩。修法：`rm -f` 软链再 `cp`（只改前缀内文件）；从全局
+  Proton 11 恢复被污染的 dll。纠正此前"wrapper 在 new WoW64 不可用"的误判。
+- 修脚本判活误报：proton 的 `$!` 会失效、KK 日志在前缀内 platform.log，
+  改用 `pgrep -f 'Platform\.exe'` + 前缀内日志判就绪。
+- 最终验收（合成图，--reset 后需手动登录一次）：内容层 `(294,33)` 归位、
+  左侧游戏列表 + 活动弹窗 + 背景海报全部显示、颜色数 180221（黑块版 57308）。
+- 旧标题留档：KK 大厅黑块消除（winex11 offscreen 二进制补丁，硬件方案）
 
 - **黑块真正根因定案**：不是 CEF GPU 崩溃（gf 下 GPU 稳定、登录页 web 完整但
   大厅仍黑），而是 `winex11.drv` 的 `needs_offscreen_rendering()` 把 KK 主框架
