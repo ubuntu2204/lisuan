@@ -145,8 +145,7 @@ t_assert_grep "${REPO_TOP}/dreamina/powershell-stub.c" \
 t_assert_grep "${REPO_TOP}/dreamina/run-dreamina.sh" \
   'AppData/Local/Programs/dreamina-desktop' "launcher locates install dir"
 # 官方安装器属厂商专有产物，不得入库
-for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.exe' \
-           'kk/4_pf_files_KKDuiZhanDownloader-*.exe'; do
+for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.exe'; do
   if git -C "$REPO_TOP" ls-files -z -- "$pat" 2>/dev/null | grep -qz .; then
     t_fail "vendor installer must not be tracked: $pat"
   else
@@ -154,31 +153,6 @@ for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.e
   fi
 done
 
-# --- 7b2. KK 对战平台：运行修复与图标 ---------------------------------------
-t_assert_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
-  'VK_ICD_FILENAMES=.*lvp_icd.json' "KK launcher pins llvmpipe Vulkan ICD"
-t_assert_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
-  "WINE_D3D_CONFIG=.*renderer=vulkan" "KK launcher pins wined3d vulkan renderer (GL 路径对活动 web 活锁，2026-11-16 撤)"
-t_assert_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
-  'force-device-scale-factor=1' "KK launcher fixes WebEngine DPR"
-t_assert_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
-  'KK_GEOMETRY_SHIM' "KK launcher has a geometry-fix switch (user32 wrapper + X11 shim)"
-t_assert_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
-  'user32=n,b' "KK launcher scopes the native user32 wrapper override"
-t_assert_grep "${REPO_TOP}/kk/kk-user32-wrapper.c" \
-  'MapWindowPoints' "KK user32 wrapper converts child ULW pptDst"
-t_assert_grep "${REPO_TOP}/kk/kk-geometry-shim.c" \
-  'CWStackMode' "KK X11 shim suppresses content-layer raises"
-t_assert_not_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
-  'export XLIB_SKIP_ARGB_VISUALS' "KK launcher does not inject harmful ARGB override"
-t_assert_not_grep "${REPO_TOP}/kk/run-kk-platform.sh" \
-  'xdotool windowmove' "KK launcher no longer moves windows behind Wine's back"
-t_assert_grep "${REPO_TOP}/kk/fix-kk-desktop.sh" \
-  'ICON_NAME=kkduizhan' "KK desktop fix uses extracted icon name"
-t_assert_grep "${REPO_TOP}/kk/fix-kk-desktop.sh" \
-  'uninstall' "KK desktop fix is reversible"
-t_assert_grep "${REPO_TOP}/kk/extract-icon.py" \
-  'RT_GROUP_ICON' "KK icon extractor parses PE icon resources"
 # --- 7b3. Wayland 合成画面取证通道 -----------------------------------------
 CAPTURE="${REPO_TOP}/.codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py"
 t_assert_grep "$CAPTURE" 'PipeWireStreamAdded' \

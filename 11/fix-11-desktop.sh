@@ -1,41 +1,39 @@
 #!/usr/bin/env bash
-# 至砺算：图标与桌面集成和显卡无关。KK 平台安装器只在 Wine 前缀里留了
-# Windows .lnk，Linux 桌面没有任何图标/入口；本脚本从本机 Platform.exe 的
-# PE 资源提取官方图标写入 hicolor，并把桌面项指向 run-kk-platform.sh
-# （该脚本负责绕开 QtWebEngine 的 wined3d 初始化崩溃）。
+# 至砺算：图标与桌面集成和显卡无关。11 平台安装器只在 Wine 前缀里留了
+# Windows .lnk，Linux 桌面没有图标；本脚本从本机 11loader.exe 的 PE 资源
+# 提取官方图标写入 hicolor，并把桌面项指向隔离启动器 run-11duizhan.sh。
 #
-# 厂商图标产物不入库（写入 ~/.local/share/icons），只保留脚本与文档。
+# 厂商图标产物不入库（写入 ~/.local/share/icons），复用已有的
+# dreamina/extract-icon.py，只保留脚本与文档。
 # 默认只改 Exec / Icon 两行并保留用户其它定制；改文件前生成 .bak；
 # 不做崩溃后自动重启/守护。
 #
 # 用法：
-#   ./kk/fix-kk-desktop.sh              # 生成图标 + 桌面入口（幂等）
-#   ./kk/fix-kk-desktop.sh --hw         # 桌面入口指向硬件方案 run-kk-platform-hw.sh
-#                                       # （7G100 + offscreen 补丁，消除大厅黑块）
-#   ./kk/fix-kk-desktop.sh --status     # 只读体检
-#   ./kk/fix-kk-desktop.sh --uninstall # 恢复备份、删除图标与新建入口
-#   ./kk/fix-kk-desktop.sh --help
+#   ./11/fix-11-desktop.sh              # 提取图标 + 生成桌面入口（幂等）
+#   ./11/fix-11-desktop.sh --status     # 只读体检
+#   ./11/fix-11-desktop.sh --uninstall  # 恢复备份、删除生成的图标与入口
+#   ./11/fix-11-desktop.sh --help
 # License: Apache-2.0
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# 默认软件方案；--hw 切到硬件方案（黑块已修复）。两方案入口可来回切。
-RUNNER_NAME="${KK_RUNNER:-run-kk-platform.sh}"
-RUNNER="$SCRIPT_DIR/$RUNNER_NAME"
-EXTRACTOR="$SCRIPT_DIR/extract-icon.py"
-PREFIX="${KK_WINE11_PREFIX:-$HOME/.deepinwine/kkduizhan-wine11}"
+RUNNER="$SCRIPT_DIR/run-11duizhan.sh"
+EXTRACTOR="$SCRIPT_DIR/../dreamina/extract-icon.py"
+PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-wine11}"
 PREFIX="${PREFIX/#\~/$HOME}"
-MAIN_EXE="$PREFIX/drive_c/Program Files (x86)/kkduizhan/Platform.exe"
-ICON_NAME=kkduizhan
-ICON_ROOT="${KK_ICON_ROOT:-$HOME/.local/share/icons}"
-APP_ENTRY="${KK_APP_ENTRY:-$HOME/.local/share/applications/kkduizhan.desktop}"
+INSTALL_DIR_REL="${E11_INSTALL_DIR:-11duizhan}"
+INSTALL_DIR_REL="${INSTALL_DIR_REL#/}"
+MAIN_EXE="$PREFIX/drive_c/$INSTALL_DIR_REL/11loader.exe"
+ICON_NAME=11duizhan
+ICON_ROOT="${E11_ICON_ROOT:-$HOME/.local/share/icons}"
+APP_ENTRY="${E11_APP_ENTRY:-$HOME/.local/share/applications/11duizhan.desktop}"
 DESKTOP_DIR="$(xdg-user-dir DESKTOP 2>/dev/null || true)"
 [[ -n "$DESKTOP_DIR" && "$DESKTOP_DIR" != "$HOME" ]] || DESKTOP_DIR="$HOME/Desktop"
-DESKTOP_ENTRY="$DESKTOP_DIR/kkduizhan.desktop"
-BACKUP_DIR="$HOME/.local/share/kkduizhan-wine11/desktop-backups"
+DESKTOP_ENTRY="$DESKTOP_DIR/11duizhan.desktop"
+BACKUP_DIR="$HOME/.local/share/11duizhan-wine11/desktop-backups"
 ENTRIES=("$APP_ENTRY" "$DESKTOP_ENTRY")
 if [[ "$HOME/Desktop" != "$DESKTOP_DIR" && -d "$HOME/Desktop" ]]; then
-    ENTRIES+=("$HOME/Desktop/kkduizhan.desktop")
+    ENTRIES+=("$HOME/Desktop/11duizhan.desktop")
 fi
 EXPECTED_EXEC="\"$RUNNER\""
 
@@ -43,15 +41,12 @@ usage() {
     cat <<EOF
 用法：$(basename "$0") [--status|--uninstall|--help]
 
-  （无参数）   从 Platform.exe 提取官方图标到 hicolor，创建/修正桌面入口并打 trusted
-                （指向软件方案 run-kk-platform.sh）
-  --hw         桌面入口改指向硬件方案 run-kk-platform-hw.sh（7G100 + offscreen
-                补丁，大厅黑块已修复）；再次无参数运行可切回软件方案
+  （无参数）   从 11loader.exe 提取官方图标到 hicolor，创建/修正桌面入口并标记 trusted
   --status     只读体检：图标、入口 Icon/Exec/trusted、启动器与主程序
   --uninstall  恢复 .desktop 备份（新建的删除）、移除生成的图标
   --help       显示本说明
 
-环境变量：KK_WINE11_PREFIX / KK_ICON_ROOT / KK_APP_ENTRY
+环境变量：E11_WINE11_PREFIX / E11_INSTALL_DIR / E11_ICON_ROOT / E11_APP_ENTRY
 备份目录：$BACKUP_DIR
 EOF
 }
@@ -72,7 +67,7 @@ entry_ok() {
 }
 
 status() {
-    local rc=0
+    local rc=0 s p f
     if [[ -x "$RUNNER" ]]; then
         echo "  [OK] 启动器：$RUNNER"
     else
@@ -84,7 +79,7 @@ status() {
         echo "  [--] 主程序缺失或不是有效 PE：$MAIN_EXE"; rc=1
     fi
     for s in 16x16 48x48 128x128 256x256; do
-        local p="$ICON_ROOT/hicolor/$s/apps/$ICON_NAME.png"
+        p="$ICON_ROOT/hicolor/$s/apps/$ICON_NAME.png"
         if [[ -s "$p" ]]; then
             echo "  [OK] 图标：$s ($(stat -c%s "$p") 字节)"
         else
@@ -116,8 +111,8 @@ write_entry() {
         cat > "$f" <<EOF
 [Desktop Entry]
 Type=Application
-Name=KK官方对战平台
-Comment=KK 官方对战平台（魔兽争霸 III，Proton 11 / Wine 11）
+Name=11对战平台
+Comment=11 对战平台（魔兽争霸 III / Dota，Proton 11 / Wine 11）
 Exec=$EXPECTED_EXEC
 Icon=$ICON_NAME
 Terminal=false
@@ -157,6 +152,7 @@ PY
         fi
         rm -f "$tmp"
     fi
+    chmod +x "$f"
     if command -v gio >/dev/null 2>&1; then
         gio set "$f" metadata::trusted true 2>/dev/null || \
             echo "  警告：无法标记 trusted：$f" >&2
@@ -165,13 +161,15 @@ PY
     fi
 }
 
-install_icons() {
+install_desktop() {
     [[ -x "$RUNNER" ]] || { echo "错误：启动器缺失：$RUNNER" >&2; exit 1; }
-    [[ -s "$MAIN_EXE" ]] || { echo "错误：主程序不存在：$MAIN_EXE" >&2; exit 1; }
+    [[ -s "$MAIN_EXE" ]] || { echo "错误：主程序不存在：$MAIN_EXE（请先安装平台）" >&2; exit 1; }
     [[ -f "$EXTRACTOR" ]] || { echo "错误：图标提取器缺失：$EXTRACTOR" >&2; exit 1; }
-    echo "[1/2] 从 Platform.exe 提取官方图标 -> $ICON_ROOT/hicolor"
+    echo "[1/2] 从 11loader.exe 提取官方图标 -> $ICON_ROOT/hicolor"
     python3 "$EXTRACTOR" --exe "$MAIN_EXE" --name "$ICON_NAME" \
-        --icons-dir "$ICON_ROOT/hicolor" --largest "${TMPDIR:-/tmp}/kk-icon-largest.png"
+        --icons-dir "$ICON_ROOT/hicolor"
+    command -v gtk-update-icon-cache >/dev/null 2>&1 && \
+        gtk-update-icon-cache -q -f -t "$ICON_ROOT/hicolor" 2>/dev/null || true
     echo "[2/2] 写入桌面入口"
     mkdir -p "$(dirname "$APP_ENTRY")"
     for f in "${ENTRIES[@]}"; do write_entry "$f"; done
@@ -179,27 +177,26 @@ install_icons() {
 }
 
 uninstall() {
+    local f bak
     for f in "${ENTRIES[@]}"; do
-        local bak; bak="$(backup_of "$f")"
+        bak="$(backup_of "$f")"
         if [[ -f "$bak" ]]; then
-            cp -p "$bak" "$f"
-            echo "  已从备份还原：$f"
-        elif [[ -f "$f" ]]; then
+            mv -f "$bak" "$f"
+            echo "  已恢复：$f"
+        elif [[ -f "$f" ]] && grep -qF "Icon=$ICON_NAME" "$f" && \
+             grep -qF "Exec=$EXPECTED_EXEC" "$f"; then
             rm -f "$f"
-            echo "  已删除新建入口：$f"
+            echo "  已删除：$f"
         fi
     done
-    local n=0
-    while IFS= read -r -d '' p; do rm -f "$p"; n=$((n + 1)); done < <(
-        find "$ICON_ROOT/hicolor" -type f -path "*/apps/$ICON_NAME.png" -print0 2>/dev/null || true)
-    echo "  已移除 $n 个生成的图标文件（备份保留在 $BACKUP_DIR）"
+    find "$ICON_ROOT/hicolor" -type f -name "$ICON_NAME.png" -delete 2>/dev/null || true
+    echo "  已移除生成的图标；启动器与安装目录未改动。"
 }
 
 case "${1:-}" in
     --help|-h) usage; exit 0 ;;
     --status) status; exit $? ;;
     --uninstall) uninstall; exit 0 ;;
-    --hw) RUNNER="$SCRIPT_DIR/run-kk-platform-hw.sh"; EXPECTED_EXEC="\"$RUNNER\""; install_icons; exit 0 ;;
     --*) echo "错误：未知参数：$1（用 --help 查看用法）" >&2; exit 1 ;;
-    *) install_icons ;;
+    *) install_desktop ;;
 esac

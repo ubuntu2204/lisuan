@@ -37,15 +37,15 @@ doubao/doubao_client_*.exe
 # 实际安装器路径与 SHA 记录在 dreamina/README.md；需要复现时由用户自行从官网下载。
 dreamina/Dreamina-Desktop-*-x64-setup.exe
 
-# ---- KK 对战平台下载器（魔兽争霸 3 用）：厂商专有二进制，不入库 ----
-# 官网/对战平台分发的 NSIS PE 安装器（约 8MB），换版本号会改文件名；
-# 文件名、版本与获取方式记录在 kk/README.md，仓库只保留脚本与文档。
-kk/4_pf_files_KKDuiZhanDownloader-*.exe
+# ---- 80 对战平台官网完整安装包：厂商专有二进制，不入库 ----
+# NSIS 安装包（约 180MB，含 OBS 录制器），换版本号会改文件名；
+# 文件名、版本与 SHA 记录在 80/README.md，仓库只保留脚本与文档。
+80/80duizhan_*.exe
 
-# ---- KK 平台反编译 / 静态逆向产物：厂商专有二进制的派生物，不入库 ----
-# 由 kk/decompile-kk.sh 生成（PE 头 / 节表 / 导入导出表 / 字符串 / 反汇编），
-# 保留在本地供分析 KK 窗口与 CEF 行为；产物清单与获取方式见 kk/README.md §1.1。
-kk/reverse/
+# ---- 11 对战平台官网安装包：厂商专有二进制，不入库 ----
+# Inno Setup 5.4.2 自解压 PE32 安装包（约 235MB），换版本号会改文件名；
+# 文件名、版本与 SHA 记录在 11/README.md，仓库只保留脚本与文档。
+11/5211Setup_*.exe
 
 # ---- 本地诊断草稿区：构建日志、探针、解包的厂商源码等，整体不入库 ----
 _work/
