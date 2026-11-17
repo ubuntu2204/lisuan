@@ -34,3 +34,28 @@ cd ~/project/lisuan
 - 如需运行，参照 `doubao/run-doubao-wine11.sh` 的 wine 进程树隔离方式，不污染 Steam 客户端。
 - 崩溃处理：不加剧、不掩盖。采集日志 / dump / journal 后再定位，不加看门狗或自动重启
   （见 `.codebuddy/rules/崩溃处理约定.md`）。
+
+## 4. 桌面图标与启动入口（2026-11-17 实测）
+
+安装器只在 Wine 前缀里留了 Windows `.lnk`，Linux 桌面没有图标；`install-80duizhan.sh`
+的 `--status` 曾因 `find` 收到不存在的候选目录，在 `pipefail` 下把已安装的主程序
+误报为「未找到」，现已修复。
+
+```bash
+cd ~/project/lisuan
+./80/fix-80-desktop.sh              # 提取官方图标 + 生成桌面入口（幂等）
+./80/fix-80-desktop.sh --status     # 只读体检
+./80/fix-80-desktop.sh --uninstall  # 恢复备份、删除生成的图标与入口
+```
+
+- 从 `80launch.exe` 的 PE 资源提取 16/24/32/48/64/96/128/256 共 8 个尺寸，
+  写入 `~/.local/share/icons/hicolor`，图标名 `80duizhan`；复用
+  `dreamina/extract-icon.py`，**厂商图标产物不入库**。
+- 入口位置：`~/.local/share/applications/80duizhan.desktop`、XDG 桌面目录
+  （本机为 `~/桌面`）以及 `~/Desktop`，均已标记 `trusted`。
+- 桌面项 `Exec` 指向 `80/run-80duizhan.sh`：单次前台启动、隔离前缀、
+  参数透传、退出码原样透传；不做存活监控或崩溃后自动重启
+  （见 `.codebuddy/rules/崩溃处理约定.md`）。
+- 覆盖已有 `.desktop` 前先备份到
+  `~/.local/share/80duizhan-wine11/desktop-backups/`；`--uninstall` 可恢复。
+- 平台 GUI 启动 / 登录 / 魔兽3 联机尚未验收；图标生成成功不代表联机可用。

@@ -5,12 +5,16 @@
 # 不污染全局 shell、不修改 Steam 自身文件。单次前台启动，
 # 不做存活监控、自动重启或守护；退出码原样透传。
 #
+# 平台主窗口是 Depth 32/ARGB 窗口，在 Wayland/XWayland 下会被合成成完全不可见；
+# 默认注入 XLIB_SKIP_ARGB_VISUALS=1 让它使用 Depth 24（已实测窗口变为可见）。
+#
 # 用法：
 #   ./11/run-11duizhan.sh [参数...]   # 启动平台（参数透传给 11loader.exe）
 #   ./11/run-11duizhan.sh --status    # 只读体检
 #   ./11/run-11duizhan.sh --help
 #
-# 环境变量：E11_PROTON / E11_WINE11_PREFIX / E11_INSTALL_DIR / E11_WINEDEBUG
+# 环境变量：E11_PROTON / E11_WINE11_PREFIX / E11_INSTALL_DIR / E11_WINEDEBUG /
+#   E11_SKIP_ARGB_VISUALS（=0 可关闭 ARGB 规避，用于 A/B 对照）
 # License: Apache-2.0
 set -euo pipefail
 
@@ -34,7 +38,8 @@ usage() {
   --status   只读体检：wine、安装前缀、主程序 PE
   --help     显示本说明
 
-环境变量：E11_PROTON、E11_WINE11_PREFIX、E11_INSTALL_DIR、E11_WINEDEBUG。
+环境变量：E11_PROTON、E11_WINE11_PREFIX、E11_INSTALL_DIR、E11_WINEDEBUG、
+          E11_SKIP_ARGB_VISUALS（默认 1，规避 Depth 32 窗口不可见）。
 崩溃后不会自动重启；请按 .codebuddy/rules/崩溃处理约定.md 取证定位。
 EOF
 }
@@ -59,5 +64,6 @@ exec env WINEPREFIX="$PREFIX" \
     WINEDLLPATH="$PROTON/files/lib/vkd3d:$PROTON/files/lib/wine" \
     LD_LIBRARY_PATH="$libs" \
     WINEDLLOVERRIDES='mscoree,mshtml=' \
+    XLIB_SKIP_ARGB_VISUALS="${E11_SKIP_ARGB_VISUALS:-1}" \
     WINEDEBUG="${E11_WINEDEBUG:--all}" \
     "$WINE" "$MAIN" "$@"

@@ -48,20 +48,26 @@ EOF
 }
 
 # 返回主程序完整路径；未找到返回非零。
+# 只把存在的候选目录传给 find：pipefail 下不存在的目录会让 find 返回 1，
+# 即使另一个目录已经找到主程序也会被误判为未安装（2026-11-17 图标修复时实测）。
 find_main() {
-    local d
+    local d found roots=()
     if [[ -n "$CUSTOM_DIR" ]]; then
         d="$DRIVE_C/${CUSTOM_DIR#/}"
         [[ -f "$d/$MAIN_NAME" ]] && { printf '%s\n' "$d/$MAIN_NAME"; return 0; }
         return 1
     fi
     [[ -d "$DRIVE_C" ]] || return 1
-    find "$DRIVE_C/Program Files" "$DRIVE_C/Program Files (x86)" \
-        "$DRIVE_C/80duizhan" -maxdepth 3 -type f -name "$MAIN_NAME" \
-        -print 2>/dev/null | sed -n '1p' | grep -q . || return 1
-    find "$DRIVE_C/Program Files" "$DRIVE_C/Program Files (x86)" \
-        "$DRIVE_C/80duizhan" -maxdepth 3 -type f -name "$MAIN_NAME" \
-        -print 2>/dev/null | sed -n '1p'
+    for d in "$DRIVE_C/Program Files (x86)" \
+             "$DRIVE_C/Program Files" \
+             "$DRIVE_C/80duizhan"; do
+        [[ -d "$d" ]] && roots+=("$d")
+    done
+    [[ ${#roots[@]} -gt 0 ]] || return 1
+    found="$(find "${roots[@]}" -maxdepth 3 -type f -name "$MAIN_NAME" \
+        -print -quit 2>/dev/null)"
+    [[ -n "$found" ]] || return 1
+    printf '%s\n' "$found"
 }
 
 wine_env() {
