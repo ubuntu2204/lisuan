@@ -110,6 +110,7 @@ right headers.
 | `audio/` | 显卡音频 | 7G100 伴生 HDA（`4c54:5010`）绑 `snd_hda_intel` 的 INTx 修复、开机自绑、BAR0 诊断探针；根因与证据见 [`audio/README.md`](./audio/README.md) |
 | `doubao/` | 豆包 Windows 客户端 | 官方 2.32.6 在 Wine 11（Proton 11.0）下的安装/启动/排障；托盘菜单「关一次即永久失效」的反编译定案；根因与证据见 [`doubao/README.md`](./doubao/README.md) |
 | `dreamina/` | 即梦 AI Windows 客户端 | 官方 1.0.59 在 Wine 11 下的安装/启动；NSIS 安装器需替换 Wine 的 powershell 空壳 stub；Electron 黑屏根因（ANGLE 要求 `WGL_NV_DX_interop2`）；见 [`dreamina/README.md`](./dreamina/README.md) |
+| `war3/` | 魔兽争霸 III（1.24 冰封王座） | 32 位 War3 在 7G100 上跑通：必须改用 **32 位 llvmpipe ICD**（继承 64 位 gf ICD 会 `eip=0x35800000` 崩溃），并禁止同一 wine 前缀并发实例（否则弹 `was unable to initialize`）；含启动器、桌面入口与存档目录可写修复；见 [`war3/README.md`](./war3/README.md) |
 
 其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）。
 

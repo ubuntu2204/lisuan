@@ -55,7 +55,7 @@ python3 install.py -h
 | `Plants-vs-Zombies/` | 32 位 PVZ、wined3d GL、Steam 启动选项修复 |
 | `doubao/` | 豆包 2.32.6 的 Steam Runtime 容器启动器、桌面入口修复、安装器与排障记录；菜单 26/27 |
 | `dreamina/` | 即梦 AI 1.0.59 的 NSIS 安装/升级、powershell 替身、PE 图标提取、桌面入口与渲染记录；菜单 28/29 |
-| `kk/` | KK 官方对战平台（魔兽争霸 III）：NSIS 安装、QtWebEngine 崩溃修复启动器、PE 图标提取与桌面入口；未接入菜单 |
+| `war3/` | 魔兽争霸 III 1.24（32 位，Proton 11 / wine-11.0）：必须用 32 位 llvmpipe ICD（继承 64 位 gf ICD 会 `eip=0x35800000` 崩溃），同一 wine 前缀并发实例会弹 `was unable to initialize`；含启动器、桌面入口、存档目录可写修复；未接入菜单 |
 | `packaging/` | 核心模块、GUI、deb 构建脚本 |
 | `tests/` | 离线回归套件与 fixtures |
 | `.codebuddy/rules/` | 仓库组织约定、崩溃处理约定 |
@@ -93,7 +93,7 @@ deb 构建：`packaging/build-deb.sh <VER>`，输出 `packaging/dist/lisuan-fix_
 | 项 | README/注释旧描述 | 代码实际 |
 |---|---|---|
 | 菜单 | 10 组 23 项 | 29 项 12 组，`tests/test-repo-health.sh` 断言 29 |
-| 主题目录 | 9 个 | 12 个，`kingdom-rush/`、`doubao/`、`dreamina/` 未列入旧表 |
+| 主题目录 | 9 个 | 13 个，`kingdom-rush/`、`doubao/`、`dreamina/`、`war3/` 未列入旧表 |
 | 测试套件 | 6 / 7 个 | 11 个 |
 | deb 覆盖 | core 注释称不含 `minion-masters/` | `build-deb.sh` 已精简打包 `doubao/` 与 `dreamina/`（不含厂商 exe）；真正未打包的是 `Plants-vs-Zombies/` |
 | Steam 方案 | 旧脚本头仍描述注入和 `chattr +i` | 当前只改桌面 `Exec` 注入四项：`GBM_BACKEND=dri`、`LIBGL_ALWAYS_SOFTWARE=1`、`__GLX_VENDOR_LIBRARY_NAME=mesa`、`-cef-disable-gpu`；旧脚本仅用于清理残留 |

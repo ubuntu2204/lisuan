@@ -160,6 +160,13 @@ dkms status
 - 已证伪：一次性/多次 xdotool 对齐（只修视觉不修输入且被重置）、外部移主框架 + OR 化 + Managed=N + serial 错开（win32k 不回写）、Wine 虚拟桌面 1920x1080 与 1332x945（主框架仍被居中/钳制）、WebEngine 软件绘制 / DPR flags、SwiftShader、容器、`LIBGL_DRI3_DISABLE=1`。`_NET_WM_WINDOW_OPACITY` 尝试被用户中止、未执行。XTEST 合成点击在本机 XWayland 不投递 ButtonPress，点击验收用 XSendEvent（`_work/xsend-click.py`）或真实鼠标。
 - 未验收账号登录、房间匹配与 Warcraft III 本体对战；不要为该应用加自动重启或守护。
 
+### 魔兽争霸 III 1.24 本体（`/opt/apps/war3/files`，32 位）
+
+- 32 位 `War3.exe`（1.24.6.387）在本机只能配同架构的 32 位 Vulkan 实现。继承宿主 `VK_ICD_FILENAMES`（`gf_icd.x86_64.json`，64 位）时，D3D8 → vkd3d → Vulkan 链初始化失败，进程跳到野地址 `0x35800000`（`c0000005`，伴随 `Storm Error : memory never released`），窗口一闪即灭；改用 `/usr/share/vulkan/icd.d/lvp_icd.json`（32 位 llvmpipe）后正常出窗。固化在 `war3/run-war3.sh`（变量只注入目标进程树）。
+- **同一 wine 前缀并发实例** → 后启动者弹 `Warcraft III was unable to initialize.` 并挂住（双击桌面图标最常见）。受控消融证明注册表 `HKCU\Software\Blizzard Entertainment\Warcraft III\Video`（含 `lockfb`）**不是**根因。启动前用 `/proc/<wineserver-pid>/environ` 里的 `WINEPREFIX` 判占用并显式报错退出；不监控、不守护、不自动重启。
+- 验收：干净启动出现 1920×1080 窗口（`IsViewable`），XWayland 单窗口抓帧显示 Frozen Throne 主菜单完整渲染（12.6 万色、非黑像素 72.9%）；9 次受控启动 0 次崩溃、0 次错误框。联机与单局对战未验收。
+- 该场景下 Wayland 合成抓图（`capture-wayland-screen.py`）建流成功但取不到帧（`gst-launch` 25 秒超时）；改用 XWayland 单窗口抓帧作补充证据。
+
 ## 9. 日志与验收
 
 - `Player.log` 被 `NotSupportedException` 刷屏时先 `grep -vE` 滤噪，再看最初 20 行。
