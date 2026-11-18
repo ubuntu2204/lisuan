@@ -119,3 +119,27 @@ cd ~/project/lisuan
   本机原版 MD5 be7ce1b16033f59f5252364a0dd9ec94，
   修复后 MD5 8a6a7235c057874a840aaab349e27cad。
 - 这是绕过厂商栈假设，不是修好 CEF/Wine 栈耗尽；升级重装后需重新应用。
+- 2026-11-18 晚复测：**栈补丁并非必需**。前缀内 80launch.exe 已回滚为原版
+  （MD5 `be7ce1b16033f59f5252364a0dd9ec94`），`./80/fix-80-stack.sh` 保留备查。
+
+### 现行方案：默认 +seh 绕过渲染竞态（2026-11-18 晚）
+
+- 现象：默认 `WINEDEBUG=-all` 时约 4 秒退出（wine 退出码 5）、窗口从未出现。
+  `E80_WINEDEBUG=+err,+fixme` 抓到决定性证据：
+  `0128:err:seh:NtRaiseException Unhandled exception code c0000005 flags 0 addr 0xe2e0a7`。
+  反汇编 `0xe2e0a7`（RVA `0xa2e0a7`）落在 80launch.exe `.text` 的 int3 填充区。
+- 已排除（A/B 均无稳定效果）：改 wine `combase.dll` 让 `RPC_E_CHANGED_MODE`
+  返回 S_OK（ferry 日志的 `0x80010106` 确实消失，但仍退出码 5）；PE 栈提交
+  改 8 MiB、`ulimit -s 65536`；CEF `--disable-gpu`、`--use-angle=swiftshader`、
+  `--use-gl=swiftshader`；显式 32 位 llvmpipe `VK_ICD_FILENAMES=lvp_icd.json`；
+  清理残留 wine 服务进程；新建前缀重装；回滚 exe 版本。
+- 有效项只有 `WINEDEBUG=+seh`：它改变初始化时序。实测原版 exe + 系统
+  Proton 11.0 连续 2/2 出窗、无 `Unhandled exception`、存活至超时；专用
+  Proton 副本（含 combase 补丁）下 3/3 同样成立。
+- 实现：`80/run-80duizhan.sh` 默认 `WINEDEBUG=+seh`，trace 写入
+  `~/.local/state/80duizhan/wine.log`，不刷桌面/终端；
+  `E80_WINEDEBUG=-all ./80/run-80duizhan.sh` 可关闭做 A/B。
+- 验收：`wmctrl -l | grep 80对战平台` 能看到窗口，进程稳定存活，
+  `wine.log` 无 `Unhandled exception`。
+- **这是绕过，不是修好根因**：CEF/ANGLE 在 wine 下的渲染初始化竞态/内存
+  破坏仍未定位；没有看门狗、自动重启或重试。登录与联机未验收。

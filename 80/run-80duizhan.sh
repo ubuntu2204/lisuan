@@ -23,6 +23,14 @@
 #
 # 环境变量：E80_PROTON / E80_WINE11_PREFIX / E80_INSTALL_DIR / E80_WINEDEBUG /
 #   E80_ALLOW_UPDATE=1（恢复默认关闭的更新检查）
+#
+# 启动修复（2026-11-18 晚）：默认 WINEDEBUG=+seh。wine-11.0 与平台内置 CEF
+# （ANGLE/Vulkan）存在时序竞态：默认 -all 下约 4 秒在 32 位线程抛出未处理的
+# c0000005 @0xe2e0a7（落在 80launch.exe .text 的 int3 填充区）后退出，窗口
+# 从未出现；+seh 改变初始化时序，原版 exe + 系统 Proton 11.0 连续实测均出窗
+# 并稳定存活。这是绕过，根因（CEF/Wine 的渲染初始化）未修复；
+# E80_WINEDEBUG=-all 可关闭此绕过来做 A/B。trace 写入状态目录下的 wine.log，
+# 不刷桌面/终端。崩溃后不自动重启，见 .codebuddy/rules/崩溃处理约定.md。
 # License: Apache-2.0
 set -euo pipefail
 
@@ -62,7 +70,8 @@ usage() {
   --help     显示本说明
 
 环境变量：E80_PROTON、E80_WINE11_PREFIX、E80_INSTALL_DIR、E80_WINEDEBUG、
-          E80_ALLOW_UPDATE=1 可恢复更新检查。
+          E80_ALLOW_UPDATE=1 恢复更新检查；E80_WINEDEBUG=-all 关闭 +seh 绕过做 A/B。
+wine trace 写入 ${XDG_STATE_HOME:-$HOME/.local/state}/80duizhan/wine.log。
 崩溃后不会自动重启；请按 .codebuddy/rules/崩溃处理约定.md 取证定位。
 EOF
 }
@@ -93,6 +102,8 @@ fi
 
 libs="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i386-linux-gnu"
 [[ -n "${LD_LIBRARY_PATH:-}" ]] && libs="$libs:$LD_LIBRARY_PATH"
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/80duizhan"
+mkdir -p "$LOG_DIR"
 cd "$(dirname "$MAIN")"
 exec env -u VK_ICD_FILENAMES \
     WINEPREFIX="$PREFIX" \
@@ -101,5 +112,5 @@ exec env -u VK_ICD_FILENAMES \
     WINEDLLOVERRIDES='mscoree,mshtml=' \
     LIBGL_ALWAYS_SOFTWARE=1 \
     __GLX_VENDOR_LIBRARY_NAME=mesa \
-    WINEDEBUG="${E80_WINEDEBUG:--all}" \
-    "$WINE" "$MAIN" "$@"
+    WINEDEBUG="${E80_WINEDEBUG:-+seh}" \
+    "$WINE" "$MAIN" "$@" 2>"$LOG_DIR/wine.log"
