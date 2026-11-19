@@ -343,7 +343,7 @@ Player.log 之前就退出（**无 Player.log**）。
 
   `libSC.so`（gf 着色器编译器伴侣库）悬空是直接致命原因，表现为
   `Failed to initialize graphics ... InitializeEngineGraphics failed`。
-  详见 CHANGELOG `2026.08.31`。
+  详见 `minion-masters/CHANGELOG.md` 的 `2026.08.31` 条目。
 
 - ⚠️ **版本号易混淆**：`Proton Experimental` 版本号含 "11.0" 字样
   （如 `experimental-11.0-20260826`），但与独立安装的稳定版《**Proton 11.0**》

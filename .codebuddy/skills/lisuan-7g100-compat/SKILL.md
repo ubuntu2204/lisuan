@@ -24,6 +24,7 @@ description: This skill should be used when working on the lisuan 7G100 Ubuntu c
 - 将 gf 环境变量仅注入目标应用进程树，绝不污染 Steam 客户端或全局 shell。
 - 不修改 Steam 自身文件；当前 Steam 修复只改用户桌面启动器的 `Exec` 行，注入 `GBM_BACKEND=dri`。
 - 不把 `.codebuddy/` 当作临时缓存删除；项目规则和项目技能位于其中并随仓库分发。
+- 任何可能不自行退出的命令必须显式 `timeout`（wineserver、wine GUI、SSH、抓图等）；规则见 `.codebuddy/rules/命令超时约定.md`。
 
 ## 首次响应流程
 
