@@ -257,3 +257,146 @@ GitHub/Gitee、ProtonDB、Lutris 均无 80 平台条目；Wine AppDB 只有暴�
 - 可低成本尝试：在 80 前缀补 `mfc42/msxml3/vcrun2019/corefonts`（`ie8` 待定，
   80 用 CEF 而非 IE 内核）；若仍不可见，再考虑带 Wayland 驱动的新 wine 做 A/B。
 - 不要照搬 11 平台的 DXVK 开关或 Eurobattle 的注册表键到 80 前缀。
+
+## 8. 换兼容层探索（2026-11-19 晚）
+
+> 用户明确：不强制 Proton 11，可以换兼容层。目标是验证 Wine 11.x 原生
+> Wayland 驱动的 remote OpenGL swapchain presentation（修复 CEF 空白窗口）
+> 能否让 80 窗口在 Wayland 下可见。
+
+- 本机系统 Wine 9.0（Ubuntu 9.0~repack）自带 `winewayland.so`，但用它跑 80
+  直接 `Unhandled exception 0x80000003`（断点异常），退出码 3；跑 notepad
+  则 explorer 启动失败。Wine 9 的 Wayland 驱动不足以承载 80 的 CEF。
+- 本机无 sudo 权限（FTP 配置里的密码不是 sudo 密码），无法安装 WineHQ 系统包。
+  改为免 root 方案：下载 WineHQ 11.22 staging 的 amd64 deb 解包到
+  `~/tools/wine-11.22-hq/`（141 MB，下载中）；或用 Kron4ek 11.22 构建
+  （GitHub 大文件下载被阻断，ghproxy 极慢）。
+- WineHQ 11.22 的 amd64 包不含 i386/WoW64；能否跑 32 位 `80launch.exe`
+  待验证——可能需要同时解包 `wine-staging-i386` 包，或直接用 Kron4ek
+  wow64 构建。
+- 11.23 尚未发布（Wine master 仍为 11.22）；11.22 是否已包含 CEF Wayland
+  修复待查。若 11.22 不含，需等 11.23 或自行构建。
+
+### 8.1 换兼容层探索结论（2026-11-19 晚）
+
+- **Wine 11.23 尚未发布**：截至 2026-11-19，Wine master 的 VERSION 仍是
+  `Wine version 11.22`，git tag `wine-11.23` 返回 404，WineHQ 源和
+  Kron4ek 构建最新稳定版均为 11.22。新闻（2026-11-18）说修复已合并进
+  git、预计「下周」发布；现在拿不到包含修复的官方构建。
+- **11.22 不含该修复**：确认 remote OpenGL swapchain presentation
+  （CEF 在 Wine 原生 Wayland 下空白窗口的修复）只进入 11.23，
+  不在 11.22，停止下载 11.22 的 deb（已取消，未安装任何系统包）。
+- **本机没有可用升级路径**：无 sudo 权限，无法 `apt install winehq-*`；
+  GitHub 大文件和 ghproxy 下载 Wine 11.22 均极慢/被阻断。
+- **Wine 9.0 原生 Wayland 驱动不够用**：系统 Wine 9.0 自带
+  `winewayland.so`，但用它跑 80 得到 `Unhandled exception 0x80000003`
+  （退出码 3），加 `WINEDEBUG=+seh` 也直接退出；notepad 同样 explorer
+  启动失败。
+- **当前 80 仍靠 Proton 11.0 + XWayland 运行**：X11 层有窗口、
+  进程存活、无未处理异常，但合成画面不可见；换兼容层的路被版本未发布
+  和权限卡住，暂无可用构建。
+- **下一步可选路径**（均未执行）：
+  1. 等 Wine 11.23 发布后，下载 Kron4ek 11.23 wow64 构建到
+     `~/tools/`，用原生 Wayland 驱动（`env -u DISPLAY
+     WAYLAND_DISPLAY=wayland-0 WINEPREFIX=... wine 80launch.exe`）
+     跑一次，再抓图验证；
+  2. 若有 sudo，装 WineHQ 11.23 + wine-staging-i386/amd64；
+  3. 继续在 Proton 11 / XWayland 路径上查 CEF/ANGLE 的窗口呈现问题。
+
+### 8.2 关键纠正：不能认定是 remote OpenGL swapchain 问题
+
+- 用户追问「目前 80 遇到的问题是远程 OpenGL Swapchain 图像呈现吗」——
+  **答案是否定的，不能这样认定**：
+  1. 当前 80 跑在 Proton 11 + **XWayland**（`winex11.drv`），
+     Wine 11.23 的 remote OpenGL swapchain presentation 修复针对的是
+     **原生 Wayland 驱动**（`winewayland.drv`），代码路径不同，
+     即便拿到 11.23 也不作用于当前 XWayland 场景。
+  2. 症状相似（CEF + OpenGL 呈现）只能说明「同源可能性存在」，
+     不能当作根因结论。之前 §8 开头「目标是验证 11.23 修复能否让 80
+     可见」的措辞过于武断，以本节为准。
+- **判决性实验（2026-11-19）**：
+  - 把 80 在 X11 里 raise 到堆叠最上层、设为 `_NET_ACTIVE_WINDOW`；
+    合成画面里仍是 CodeBuddy 最大化铺满 → X11 层置顶不影响 Wayland 合成。
+  - `xdotool windowmove 2200 150` 后 `xwininfo` 仍显示 `+800+150`
+    （窗口没真移到另一屏）。
+  - 短暂最小化 CodeBuddy 后抓图：屏幕上只有终端、文件管理器、钉钉，
+    **完全没有 80 窗口** → 排除「被遮挡」，确认 80 窗口没被合成到屏幕。
+- 结论：当前问题应描述为「X11 层有窗口、Wayland 合成画面缺失」，
+  根因未定位；不要再把它等同于 11.23 的 CEF/Wayland 修复。
+
+### 8.3 深入调查（2026-11-19 晚）
+
+**渲染架构（+win/+opengl/+x11drv trace 证实）**
+
+- 主进程是 **Qt 5.15.2** 应用（`Qt5152*` 窗口类），CEF **109.1.18**
+  （`QCefSetting::setHardwareAccelerationEnabled was introduced since
+  CEF version 125` 警告确认版本）。
+- CEF 用独立子进程渲染：`CefViewWing --type=gpu-process` 与
+  `--type=renderer`（`--remote-debugging-port=9000`，但 devtools HTTP
+  服务启动失败：`Cannot start http server for devtools` / `bind()
+  returned an error 0x2740`，CDP 不可用）。
+- CEF 目录带 `libEGL.dll` / `libGLESv2.dll`（ANGLE）+ `vk_swiftshader.dll`。
+- GPU 进程有真实绘制：`+opengl` trace 里 678 次 `glDraw*/glClear/
+  glTexImage*`，但**没有任何 `SwapBuffers` / `wglSwapLayerBuffers`**。
+  GLX 初始化正常（`GLX is up and running`），EGL 被禁用
+  （`EGL support is disabled`），大量 `GL_APPLE_*`/`GL_ARB_*` 扩展缺失
+  警告属噪音。
+- `+x11drv` trace 里主窗口 hwnd `0x100a6`/X11 `4e0000c`
+  （`style 960a0000`，`shaped 0`），创建了两次（先 `4e0000a` 后
+  `4e0000c`）；**没有任何 `XPutImage`/`XCopyArea` 对主窗口的调用**，
+  客户区似乎从未被绘制。
+- `strings` 确认导入 `SetLayeredWindowAttributes`，但 `+win` trace 里
+  **没有** `NtUserSetLayered*` 调用；主窗口 `ex_style` 非 layered。
+  之前怀疑的分层窗口 alpha 路径不成立。
+- **Xlib 读取主窗口 backing pixels 全 0**，但 XWayland 下 `XGetImage`
+  对 redirected 窗口拿不到合成内容（项目规则已注明），此证据不作为
+  "alpha 全 0"的判据。
+
+**已排除（本轮）**
+
+- 遮挡：最小化其它窗口后合成画面仍无 80（§8.2）。
+- CEF 软件渲染：传 `--disable-gpu --use-gl=swiftshader` 后窗口仍在 X11
+  存在、无致命异常，但合成画面仍无 80。
+- 分层窗口 API：无实际调用。
+- SwapBuffers 缺失：CEF 109 在 Wine 下可能用其它呈现路径
+  （离屏 + 合成器），不能单凭此项定性。
+
+**当前结论**
+
+- 80 是 Qt5 + CEF109 多进程架构，主窗口的 X11 backing store 没有被
+  绘制/提交，导致合成器看不到内容；根因仍未定位。
+- 最可能的方向是 **CEF GPU 进程 → 主窗口的跨进程呈现**（共享内存/
+  DIB/DC 提交）在 Wine+Wayland 下失效，但尚缺直接证据。
+- 反编译：`objdump` 无法解析 PE 延迟导入的 API 调用点；未安装
+  radare2/ghidra。如需继续需装反编译工具或改用 hook 方式
+  （`LD_PRELOAD` native user32 包装 `SetLayeredWindowAttributes` /
+  `UpdateLayeredWindow` / `SwapBuffers` 记录参数）。
+
+### 8.4 native user32 hook 诊断（2026-11-19 晚）
+
+新增诊断资产 `80/diag-user32-wrapper.c`（仿 `kk/kk-user32-wrapper.c` 模式）：
+以 native user32 包装层记录 `SetLayeredWindowAttributes` /
+`UpdateLayeredWindow` / `SetWindowRgn` 的参数。编译命令：
+
+```bash
+PROTON="$HOME/.local/share/Steam/steamapps/common/Proton 11.0"
+ORIG="$PROTON/files/lib/wine/i386-windows/user32.dll"
+python3 kk/gen-kk-user32-def.py "$ORIG" /tmp/e80-user32.def
+i686-w64-mingw32-dlltool --def /tmp/e80-user32.def --dllname user32.dll \
+    --output-lib /tmp/libe80user32.a
+i686-w64-mingw32-gcc -shared -o /tmp/user32.dll 80/diag-user32-wrapper.c \
+    /tmp/libe80user32.a -luser32 -lkernel32
+```
+
+部署到前缀 `drive_c/windows/syswow64/{user32.dll,user32_orig.dll}`，
+启动时 `WINEDLLOVERRIDES='mscoree,mshtml=,user32=n,b'`，
+日志由 `E80_WRAP_LOG` 指定（部署前需停 wine 进程，dll 只读）。
+
+**结果（判决性）**：wrapper 正常加载（DevTools 这次成功监听），
+但日志里 **零次 SLWA / ULW / SWR 调用**。结合 `+win` trace 里也没有
+`NtUserSetLayered*`，**确认 80 不使用分层窗口 / 区域 API**，
+之前"分层窗口 alpha 导致透明"的假说彻底排除。
+
+诊断完成后已把 `user32.dll` 恢复为 Proton 内置原版
+（SHA256 `2a9ea190…ed02` 与内置一致），并恢复正常 80 实例。
+**本 wrapper 是诊断资产，非修复，不在默认启动路径。**
