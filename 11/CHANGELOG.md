@@ -2,6 +2,25 @@
 
 > 从仓库根 `CHANGELOG.md` 拆分而来（2026-11-19）。按时间倒序；历史条目保留当时的命令与路径。
 
+## 2026.11.19 — 11 对战平台：War3 拉起验收通过（禁用 DxRender/DxWorker 渲染替换层）
+
+- 验收：禁用 `gp_1290/DxRender.dll`/`DxWorker.dll` 后，平台 20:47:17 拉起
+  `C:\war3\YY\war3.exe`（win32_error=0），出窗进入游戏，游玩约 18 分钟后
+  21:05:08 正常 gameexit，无崩溃 dump；用户确认「可以从 11 平台正常进魔兽争霸3」。
+- 根因链（本日取证）：① 注册表 `InstallPath` 缺失 → `fix-11-war3path.sh` 写入；
+  ② 游戏目录 root 不可写、平台 `YY\` 补丁部署失败 → 复制到前缀 `drive_c/war3`
+  指 `C:\war3\`；③ 注入的渲染替换层 DxRender/DxWorker 在 Wine 下挂死游戏
+  （存活、IPC 握手成功、无窗、主线程 futex 等待）→ `fix-11-render.sh` 改名禁用，
+  游戏回退原生 D3D8→DXVK(lvp)。对照：YY exe+补丁 Game.dll 不注入 shell 单独启动
+  正常出窗；原装 War3 独立启动器正常。
+- 证伪记录：导入独立前缀的 Video/Misc 键值（含 seenintromovie=1）单独不能解决挂死；
+  `FollowMapRenderModeV2=false` 后 `GAME_PARAM_USE_VULKAN` 日志仍打印（该日志无条件
+  打印，不反映 flag 值），均非根因。
+- 性质：绕过平台渲染替换层，不是修好它；War3Shell/assocket/IPCProxyEx 仍注入，
+  联机 IPC 保留。联机对战逐项细节未验收。`fix-11-render.sh --uninstall` 可还原。
+- 配套：`run-11duizhan.sh` 默认注入 `VK_ICD_FILENAMES=lvp_icd.json`（`E11_VK_ICD`
+  覆盖 / `=skip` 关），32 位 War3 不再继承 gf 64 位-only ICD。详见 `11/README.md` §10。
+
 ## 2026.11.19 — 11 对战平台：War3 拉不起根因（游戏目录不可写）与修复
 
 - 现象：注册表 `InstallPath` 已指 `Z:\opt\apps\war3\files\` 后平台仍拉不起 War3。

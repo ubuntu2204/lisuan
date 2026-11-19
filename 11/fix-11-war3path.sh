@@ -36,7 +36,15 @@ PROTON="${E11_PROTON:-$HOME/.local/share/Steam/steamapps/common/Proton 11.0}"
 PROTON="${PROTON/#\~/$HOME}"
 PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-263}"
 PREFIX="${PREFIX/#\~/$HOME}"
-GAME_DIR="${E11_WAR3_DIR:-/opt/apps/war3/files}"
+GAME_DIR="${E11_WAR3_DIR:-}"
+if [[ -z "$GAME_DIR" ]]; then
+    # 默认优先前缀内可写副本（平台 YY\ 部署需要可写目录），否则原装目录
+    if [[ -s "$PREFIX/drive_c/war3/War3.exe" ]]; then
+        GAME_DIR="$PREFIX/drive_c/war3"
+    else
+        GAME_DIR=/opt/apps/war3/files
+    fi
+fi
 GAME_DIR="${GAME_DIR%/}"
 WINE="$PROTON/files/bin/wine"
 KEY='Software\Blizzard Entertainment\Warcraft III'
