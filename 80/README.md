@@ -209,3 +209,51 @@ cd ~/project/lisuan
 - `wineserver -w`、注册表操作后跟裸 `wineserver -w`、GUI 安装器探测均会挂住会话；
   三次卡死均由缺少 `timeout` 引起。已新增
   `.codebuddy/rules/命令超时约定.md`，所有易卡命令必须带 `timeout` 并保留退出码。
+
+## 7. 网上资料检索（2026-11-19）
+
+### 7.1 结论：没有 80 平台的 Wine/Proton 专项资料
+
+用中英文多组关键词检索（80对战平台 + Wine/Proton/Linux/deepin/统信/麒麟，
+`80duizhan` + `80launch.exe` + Wine/Proton，以及
+`site:github.com` / `site:protondb.com` / `site:lutris.net` / Wine AppDB），
+**没有找到任何专门讲 80 对战平台在 Wine 或 Proton 下运行的资料**：
+GitHub/Gitee、ProtonDB、Lutris 均无 80 平台条目；Wine AppDB 只有暴雪
+「魔兽争霸官方对战平台」（`iId=37606`，版本 1.7.85，Wine 4.0，评分 Garbage）
+和 Warcraft III 本体条目，都不是 80 平台，且结果过于陈旧。
+网上能搜到的“80 对战平台”内容全是下载站和游戏资讯，无 Linux 适配记录。
+
+### 7.2 可借鉴的同类平台资料（都不是 80 平台）
+
+1. **11 对战平台 / War3（CSDN，2026-05-09，Ubuntu 26.04）**
+   `https://blog.csdn.net/east4ming/article/details/160912889`
+   - 11 平台需要 `winetricks corefonts vcrun2019 mfc42 msxml3 ie8`；
+     其中 `mfc42` 是平台 UI 框架、`msxml3` 用于加载对战列表、`ie8` 供部分 HTML 内容。
+   - 11 平台 UI 开 DXVK 会严重闪烁（登录界面、房间列表），关闭 DXVK 可解；
+     作者最终没关，表示“不影响正常使用”。
+   - 原文未给出 Wine 版本号、独立 prefix 路径前后矛盾、无 DLL override 细节。
+   - 对我们的意义：可尝试**补齐运行库**（`mfc42/msxml3/ie8`）作为可见性/UI 下一步；
+     但“关 DXVK 防闪”不适用于我们——我们的问题不是闪烁，是窗口根本没合成出来。
+
+2. **Eurobattle.net（Wine 11.0 Staging + Debian 13，2026-01 修订）**
+   `https://wiki.eurobattle.net/index.php?title=Linux_guide&oldid=2538`
+   - 安装时接受 wine-mono，且**不要**勾 “I already have Visual C++”，让安装器装 VC++。
+   - `HKCU\Software\Blizzard Entertainment\Warcraft III\Misc` 下
+     `seenintromovie=1` 禁用开场动画；卡 “checking for updates” 时
+     `HKCU\Software\Eurobattle.net` 下 `patch=15`（十进制）。
+   - 已知问题：News 标签页（Qt WebEngine）不工作，其它功能正常。
+   - 对我们的意义：同类对战平台的**内嵌 Web 页在 Wine 下不工作**是已知痛点，
+     但表现为“主窗口在、某个标签页废”，和我们“整个窗口不可见”不同，不能直接套用。
+
+3. **Wine 原生 Wayland 驱动的 CEF 修复（新闻，2026-11-18）**
+   Wine 11.23 合入 remote OpenGL swapchain presentation，修复 CEF 应用在
+   Wine 原生 Wayland 驱动下画空白窗口的问题。本机 Proton 11.0（wine-11.0）
+   的 `files/` 下没有任何 `wayland` 驱动文件，走的是 XWayland 路径，
+   这个修复**当前不可用**；若要验证需换带该驱动的 wine 版本做 A/B。
+
+### 7.3 结论与下一步
+
+- 网上没有现成配置可抄；80 平台在 Wine 下目前属于本项目自己的探索。
+- 可低成本尝试：在 80 前缀补 `mfc42/msxml3/vcrun2019/corefonts`（`ie8` 待定，
+  80 用 CEF 而非 IE 内核）；若仍不可见，再考虑带 Wayland 驱动的新 wine 做 A/B。
+- 不要照搬 11 平台的 DXVK 开关或 Eurobattle 的注册表键到 80 前缀。

@@ -57,4 +57,4 @@ python3 .codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py 
 - 技能：`SKILL.md` 验证命令、`references/troubleshooting.md` §10、
   `references/conventions.md` 图形取证条目、脚本本体。
 - 规则：本文件；测试：`tests/test-repo-health.sh` 的通道断言；
-  变更记录：`CHANGELOG.md` 2026.11.14 条目。
+  变更记录：`.codebuddy/skills/lisuan-7g100-compat/CHANGELOG.md` 2026.11.14 条目。
