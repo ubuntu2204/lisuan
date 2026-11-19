@@ -58,7 +58,7 @@ python3 install.py -h
 | `war3/` | 魔兽争霸 III 1.24（32 位，Proton 11 / wine-11.0）：必须用 32 位 llvmpipe ICD（继承 64 位 gf ICD 会 `eip=0x35800000` 崩溃），同一 wine 前缀并发实例会弹 `was unable to initialize`；含启动器、桌面入口、存档目录可写修复；未接入菜单 |
 | `packaging/` | 核心模块、GUI、deb 构建脚本 |
 | `tests/` | 离线回归套件与 fixtures |
-| `.codebuddy/rules/` | 仓库组织约定、崩溃处理约定 |
+| `.codebuddy/rules/` | 仓库组织约定、崩溃处理约定、命令超时约定、Wayland 抓图约定 |
 | `.codebuddy/skills/` | 项目级技能（本技能所在目录） |
 
 ## 关键脚本
@@ -102,7 +102,7 @@ deb 构建：`packaging/build-deb.sh <VER>`，输出 `packaging/dist/lisuan-fix_
 
 - `README.md`：总索引；重点搜索 `驱动包|坑|GBM_BACKEND|Vulkan|Player.log|测试`。
 - `CHANGELOG.md`：按日期记录每次验证结论。
-- `.codebuddy/rules/仓库组织约定.md`、`.codebuddy/rules/崩溃处理约定.md`。
+- `.codebuddy/rules/仓库组织约定.md`、`.codebuddy/rules/崩溃处理约定.md`、`.codebuddy/rules/命令超时约定.md`。
 - `dkms/vendor-src/README.md`、`dkms/vendor-bug-report-gf-gbm-crash.md`。
 - `mesa/system-mesa-analysis.md`、`steam/steam-on-lisuan.md`。
 - 各主题目录 README；`doubao/README.md` 记录 2.32.6 经 Steam Runtime 容器跑通的

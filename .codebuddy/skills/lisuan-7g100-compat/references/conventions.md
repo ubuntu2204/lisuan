@@ -1,6 +1,6 @@
 # 仓库约定与禁止事项
 
-权威规则在 `.codebuddy/rules/仓库组织约定.md` 与 `.codebuddy/rules/崩溃处理约定.md`。本文件是供技能快速加载的提炼版；冲突时以规则原文和当前代码为准。
+权威规则在 `.codebuddy/rules/仓库组织约定.md`、`.codebuddy/rules/崩溃处理约定.md` 与 `.codebuddy/rules/命令超时约定.md`。本文件是供技能快速加载的提炼版；冲突时以规则原文和当前代码为准。
 
 ## 组织与路径
 
@@ -45,6 +45,13 @@
 - `underlords/fix-underlords-native.sh` 默认自动重启与用户要求冲突，必须保持 `--no-autorestart`。
 - 用 `systemd-run --wait` 传真实退出码，不 `reset-failed`，不隐式重启。
 - 优先定位根因；若需兜底，采用用户可感知、可控制的方式，并先征求同意。
+
+## 命令超时
+
+- 所有可能不自行退出的命令必须显式 `timeout`，尤其 `wineserver -k/-w`、
+  `wine reg ...`、`wine <gui.exe>`、SSH 远程 Windows 与抓图脚本。
+- 超时按退出码 `124` 记录，先精确清理本次进程树再重跑 `--status`，不把超时当成功。
+- 完整约定见 `.codebuddy/rules/命令超时约定.md`。
 
 ## 图形环境隔离
 

@@ -171,6 +171,19 @@ else
   t_fail "Wayland capture rule missing"
 fi
 
+# --- 7b1. 命令超时约定 ------------------------------------------------------
+t_assert_grep "${REPO_TOP}/.codebuddy/rules/命令超时约定.md" \
+  'timeout 20' "command timeout rule documents wineserver guard"
+t_assert_grep "${REPO_TOP}/.codebuddy/skills/lisuan-7g100-compat/SKILL.md" \
+  '命令超时约定.md' "skill baseline references command timeout rule"
+if git -C "$REPO_TOP" ls-files --error-unmatch \
+    '.codebuddy/rules/命令超时约定.md' >/dev/null 2>&1 || \
+   [ -f "${REPO_TOP}/.codebuddy/rules/命令超时约定.md" ]; then
+  t_ok "command timeout rule is present in repo"
+else
+  t_fail "command timeout rule missing"
+fi
+
 # --- 7c. Steam 系统信息闪退 / GLX 弹窗修复 ---------------------------------
 t_assert_grep "${REPO_TOP}/packaging/lisuan_fix_core.py" \
   'LIBGL_ALWAYS_SOFTWARE=1' "Steam fix forces software GL"

@@ -1,7 +1,12 @@
 # 80 对战平台（魔兽争霸 III）安装包
 
 > 至砺算：安装链路与显卡无关。本目录用 Proton 11.0 的 wine-11.0 在独立前缀里
-> 跑官网 NSIS 静默安装器；只验收安装产物，不做崩溃后自动重启/守护。
+> 跑官网 NSIS 安装器；只验收安装产物，不做崩溃后自动重启/守护。
+
+## 路径说明（2026-11-19）
+
+本文档第 1–5 节记录 2026-11-17/18 原始路径与结论；本版新增第 6 节记录
+2026-11-19 重装时的下载源、安装器行为与 Wayland 可见性坑。
 
 ## 1. 厂商专有二进制（不入库）
 
@@ -143,3 +148,64 @@ cd ~/project/lisuan
   `wine.log` 无 `Unhandled exception`。
 - **这是绕过，不是修好根因**：CEF/ANGLE 在 wine 下的渲染初始化竞态/内存
   破坏仍未定位；没有看门狗、自动重启或重试。登录与联机未验收。
+
+## 6. 2026-11-19 重装与可见性排障（踩坑记录）
+
+### 6.1 安装包获取
+
+- 官网 `https://www.80dzgame.com/` 首页“下载客户端”由 JS 绑定，静态 HTML 没有直链；
+  直链写在 `static/js/http.js`：`DL_DOMAIN_URL`。当前该文件仍写死旧版本
+  `80duizhan_1.9.9.15_guanwang.exe`，但 CDN 上已有 `1.9.9.60`：
+  `https://dl.80dzgame.com/war3online/80duizhan_1.9.9.60_guanwang.exe`。
+- **坑 1**：`dl.80dzgame.com` 对 `curl`/无浏览器指纹请求返回 WAF
+  「Page Verification」HTML（`X-Tengine-Error: denied by custom_acl`），
+  带 `Referer`/UA 也一样；`HEAD` 看似正常（Content-Length 187779288），
+  `GET` 只拿到 10 KB HTML。若只校验 HTTP 200/Content-Length 会把 HTML 当安装包。
+  官网备用域名 `https://dl.hfnuola.com/war3online/80duizhan_1.9.9.60_guanwang.exe`
+  可直接下载完整 NSIS PE，SHA256 与第 1 节一致（`dc3e6a55…952d2b`）。
+- **坑 2**：`80/` 里同时存在 `80duizhan_1.9.9.60_guanwang3_VOID_…exe`（哈希不同、
+  180 MB），`install-80duizhan.sh` 无参数时按文件名排序会优先选中它；该安装包
+  在当前 wine 下 `/S` 返回 0 但不落盘。重装务必显式传安装包路径，或先清理多余文件。
+
+### 6.2 安装器 `/S` 返回 0 但不落盘
+
+- `./80/install-80duizhan.sh [安装包]` 使用 NSIS `/S`，实测约 3 秒返回 0，
+  日志只有 `wineserver: using server-side synchronization.`，前缀里没有任何
+  `80launch.exe`；脚本正确报「返回码 0 但未找到 80launch.exe」。
+- `/S /NCRC /D=...` 同样无效。交互式启动 `wine <安装包>`（不带 `/S`）
+  约 16 秒自动完成安装并退出，得到 515 MB 安装目录和 36 MB 主程序。
+- 结论：该安装包在 Proton 11.0 wine-11.0 下静默参数不可靠。**不要**为“返回 0”
+  加自动重试或守护；`--status` 校验主程序 PE 头才是安装成功判据。
+
+### 6.3 Wayland 可见性：X11 有窗口但屏幕看不到
+
+- `xwininfo -root -children` 能看到 `80对战平台` 1120×623 `IsViewable`，
+  `xprop` 也显示 `_NET_WM_STATE` 正常、`_NET_WM_DESKTOP=0`；
+  但用 `capture-wayland-screen.py` 抓合成画面时完全看不到窗口。
+- **坑 3（显示模式相关）**：排障当时本机是双屏扩展，X11 root 3840×1080
+  （`xrandr`：HDMI-1 左 +*，DP-1 右），抓图脚本默认 connector 取到 DP-1，
+  抓到的是空桌面；当时必须显式 `--connector HDMI-1` 才能抓到主屏。
+  2026-11-19 晚用户已改为**双屏镜像**（`xrandr` 两个输出都 1920x1080+0+0），
+  两个 connector 内容相同，看任一屏即可，不必再指定 connector；
+  但若改回扩展模式，必须重新显式指定。
+- 显式抓主屏后仍看不到 80 窗口；随后把窗口移到另一块屏、抬到堆叠顶层、
+  设为 `_NET_ACTIVE_WINDOW` 仍不可见。对照实验：同前缀的 `notepad` 窗口
+  Depth 24 正常显示，80 窗口 Depth 32（ARGB visual），最初怀疑
+  alpha 通道全 0 被合成器透掉。
+- **假说已证伪（2026-11-19）**：用 `E80_WINEDEBUG=+seh,+x11drv` 短时启动抓日志，
+  主窗口 `X11DRV_WindowPosChanging ... shaped 0`，各子窗口
+  `needs_offscreen_rendering ... surface->alpha_mask 0`，`init_visuals`
+  显示默认 visual 25 / ARGB visual 72；即窗口不是 layered/shaped，
+  alpha mask 也没被设成 0，Depth 32 只是 Wine 的默认 visual 选择。
+- 两次注册表尝试均无效且已撤销：`UseShape=N`（驱动里并无此键）与
+  `ShapeLayeredWindows=N`（驱动确实读取，但实测窗口仍不可见）。
+  不要再试这两个偏方；这不是安装或分层窗口问题。
+- 当前验收只能到“X11 窗口存在 + 进程存活 + 日志无未处理异常”，
+  **合成后视觉可见尚未通过**；需要进一步核对 Wine/XWayland 与 CEF 的
+  OpenGL swapchain 呈现路径。
+
+### 6.4 命令超时
+
+- `wineserver -w`、注册表操作后跟裸 `wineserver -w`、GUI 安装器探测均会挂住会话；
+  三次卡死均由缺少 `timeout` 引起。已新增
+  `.codebuddy/rules/命令超时约定.md`，所有易卡命令必须带 `timeout` 并保留退出码。
