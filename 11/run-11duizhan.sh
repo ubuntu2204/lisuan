@@ -22,7 +22,8 @@
 # 环境变量：E11_PROTON / E11_WINE11_PREFIX / E11_INSTALL_DIR / E11_WINEDEBUG /
 #   E11_SKIP_ARGB_VISUALS（=0 可关闭 ARGB 规避，用于 A/B 对照）/
 #   E11_ALLOW_UPDATE（=1 恢复自更新）/
-#   E11_GDI_WRAP（=1 注入 GDI 诊断/回收包装层，需先跑 fix-11-gdi.sh）
+#   E11_GDI_WRAP（=1 注入 GDI 诊断/回收包装层，需先跑 fix-11-gdi.sh）/
+#   E11_VK_ICD（覆盖 Vulkan ICD；=skip 不注入，用于 A/B）
 # License: Apache-2.0
 set -euo pipefail
 
@@ -81,6 +82,15 @@ fi
 dlloverrides='mscoree,mshtml='
 [[ "${E11_GDI_WRAP:-0}" == "1" ]] && dlloverrides="$dlloverrides;user32=n"
 
+# 平台拉起 War3（32 位 D3D8→DXVK→Vulkan）继承本进程树环境；本机 gf 驱动只有
+# 64 位 ICD，32 位链必须用 llvmpipe（根因与修法同 war3/run-war3.sh，2026-11-18 实测）。
+# 平台自身 UI 走 CEF/GL（GL 已禁用），不受 Vulkan ICD 影响。E11_VK_ICD=skip 可关。
+vk_icd="${E11_VK_ICD:-/usr/share/vulkan/icd.d/lvp_icd.json}"
+vk_env=()
+if [[ "$vk_icd" != "skip" && -f "$vk_icd" ]]; then
+    vk_env=(VK_ICD_FILENAMES="$vk_icd")
+fi
+
 libs="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i386-linux-gnu"
 [[ -n "${LD_LIBRARY_PATH:-}" ]] && libs="$libs:$LD_LIBRARY_PATH"
 cd "$(dirname "$MAIN")"
@@ -90,4 +100,5 @@ exec env WINEPREFIX="$PREFIX" \
     WINEDLLOVERRIDES="$dlloverrides" \
     XLIB_SKIP_ARGB_VISUALS="${E11_SKIP_ARGB_VISUALS:-1}" \
     WINEDEBUG="${E11_WINEDEBUG:--all}" \
+    "${vk_env[@]}" \
     "$WINE" "$MAIN" "$@"

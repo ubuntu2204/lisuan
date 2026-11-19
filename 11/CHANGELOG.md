@@ -2,6 +2,39 @@
 
 > 从仓库根 `CHANGELOG.md` 拆分而来（2026-11-19）。按时间倒序；历史条目保留当时的命令与路径。
 
+## 2026.11.19 — 11 对战平台：War3 拉不起根因（游戏目录不可写）与修复
+
+- 现象：注册表 `InstallPath` 已指 `Z:\opt\apps\war3\files\` 后平台仍拉不起 War3。
+  取证：平台自存 `YiYi/11client/game.ini` 的 `War3ExePath` 已从注册表生成，但
+  `PureWar3ExePath=<游戏目录>\YY\war3.exe` 指向的 `YY\` 子目录不存在——平台拉起前
+  要在游戏目录部署补丁版 war3.exe 与注入件，而 `/opt/apps/war3/files` 属主 root、
+  本机无 sudo，部署永远失败。只改注册表不够。
+- 修复：游戏复制到前缀内 `drive_c/war3`（用户可写）；`fix-11-war3path.sh` 增加
+  drive_c → `C:` 盘映射，注册表改指 `C:\war3\`；平台退出时同步 `game.ini`
+  （备份 `.bak-zpath`）。重启平台后 `YY\` 立即部署成功（补丁版 War3.exe + MPQ）。
+- 渲染配套：`run-11duizhan.sh` 默认注入 `VK_ICD_FILENAMES=lvp_icd.json`
+  （`E11_VK_ICD` 覆盖 / `=skip` 关），平台拉起的 32 位 War3 不再继承 gf 64 位-only
+  ICD 环境；根因同 `war3/run-war3.sh`（2026-11-18 实测）。
+- 验收状态：`YY\` 部署成功已确认；进房间点「启动游戏」实际拉起 War3 待用户点击验收，
+  不写成「联机可用」。详见 `11/README.md` §10。
+
+## 2026.11.19 — 11 对战平台：设置魔兽争霸 III 路径
+
+- 机制取证：`bins/11Client.exe` 与 `W3L/core/War3Lobby.exe` 的 PE 字符串均含
+  `Software\Blizzard Entertainment\Warcraft III` + `InstallPath`（另有
+  `AutoSearchWar3Enabled` / `IPC2HFPlat::saveWar3PathToClient`），即平台走官方
+  暴雪注册表键定位 War3；11 前缀默认无该键。
+- 新增 `11/fix-11-war3path.sh`：把本机 War3 目录 `/opt/apps/war3/files`（Wine 路径
+  `Z:\opt\apps\war3\files\`）写入 11 前缀的 `InstallPath` / `InstallPathX`，
+  HKCU 与 HKLM 32 位视图（Wow6432Node）都写；幂等、备份原值、`--status` /
+  `--uninstall` 齐全。平台客户端占用前缀时拒写；仅剩 CEF 渲染残留时取证后
+  可 `E11_FORCE=1`。只改注册表，不动厂商二进制。
+- 验证：四个值已写入并落盘（`user.reg` / `system.reg`）；幂等重跑不重写备份；
+  卸载→体检报缺失→再写入的往返通过。平台内识别 War3 / 联机尚未验收。
+- 遗留提醒：平台拉起 War3 不带 `war3/run-war3.sh` 的 32 位 llvmpipe ICD，
+  渲染崩溃风险见 `war3/README.md`；`Save/` `Replay/` 不可写时先跑
+  `./war3/fix-war3-writable.sh`。详见 `11/README.md` §10。
+
 ## 2026.11.19 — 11 对战平台：正式版登录后卡死已修复（Wine 系统字体）
 
 - 最终根因：前缀 `NONCLIENTMETRICS` 系统字体为 Tahoma（本机未安装）。下载 CEF

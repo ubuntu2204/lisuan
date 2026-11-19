@@ -305,3 +305,45 @@ cd ~/project/lisuan
 `e11gdi.dll` + `user32_orig.dll`，让包装层真正进入客户端再抓 GetDC 调用者。
 `gen-11-user32-def.py` 已支持第三个参数指定库名，`fix-11-gdi.sh` 尚仍生成
 `user32.dll` 包装层；IAT 方案未实现，勿误认为已交付。全程禁止看门狗/自动重启。
+
+## 10. 设置魔兽争霸 III 路径（2026-11-19）
+
+**机制（厂商 PE 字符串取证）**：`bins/11Client.exe` 与 `W3L/core/War3Lobby.exe`
+都通过官方暴雪注册表键 `Software\Blizzard Entertainment\Warcraft III` 的
+`InstallPath` 定位 War3（另有 `AutoSearchWar3Enabled` / `saveWar3PathToClient`
+走同一路径）。11 前缀默认没有该键，平台会提示找不到魔兽。
+
+本机 War3（1.24 冰封王座）原装在 `/opt/apps/war3/files`（见 `war3/`），属主 root。
+**只写注册表还不够**：平台拉起前要在游戏目录里建 `YY\` 子目录放补丁版
+`war3.exe`（`game.ini` 的 `PureWar3ExePath`）并复制注入件，root 目录不可写且
+本机无 sudo → `YY\war3.exe` 永远生成不出来，表现为「无法拉起 War3」。
+故把游戏复制到前缀内 `drive_c/war3`（用户可写，1.1GB），注册表指 `C:\war3\`：
+
+```bash
+cd ~/project/lisuan
+cp -a --reflink=auto /opt/apps/war3/files ~/.deepinwine/11duizhan-263/drive_c/war3
+E11_WAR3_DIR=~/.deepinwine/11duizhan-263/drive_c/war3 ./11/fix-11-war3path.sh
+./11/fix-11-war3path.sh --status     # 只读体检
+./11/fix-11-war3path.sh --uninstall  # 按备份还原（原无值则删除）
+```
+
+- `E11_WAR3_DIR` 在前缀 `drive_c` 下时自动映射 `C:` 盘路径，其余绝对路径映射 `Z:`。
+- 备份：`~/.local/share/11duizhan-wine11/war3path-backup.tsv`；只改注册表两个值，
+  不动厂商二进制。平台自存的 `YiYi/11client/game.ini` 若残留旧路径，需在平台
+  退出时同步修改（本次已改，备份 `.bak-zpath`）。
+- 平台客户端在跑时拒绝写入（退出时可能用内存旧值覆盖注册表）；主进程已退出、
+  仅剩阻塞在 `anon_pipe_read` 的 CEF 渲染残留时，取证后可用 `E11_FORCE=1`。
+- 实测（2026-11-19）：注册表指向 root 目录时平台能读到路径（`game.ini`
+  `War3ExePath` 已生成）但 `YY\` 部署失败、拉不起；改指 `C:\war3\` 后平台启动即
+  成功部署 `YY\`（补丁版 War3.exe + MPQ）。幂等重跑不重写备份；卸载→再写入往返通过。
+  进房间实际拉起 War3 的验收见 CHANGELOG 同日条目。
+- 渲染：`run-11duizhan.sh` 现在默认注入 `VK_ICD_FILENAMES=lvp_icd.json`
+  （`E11_VK_ICD` 覆盖、`=skip` 关闭做 A/B）——平台拉起的 War3 是 32 位
+  D3D8→DXVK→Vulkan，本机 gf 只有 64 位 ICD，根因与修法同 `war3/run-war3.sh`。
+  平台自身 UI 走 CEF/GL（GL 已禁用），不受影响。
+- 视频/动画注册表：平台以 `$ReplaceRender` 拉起 War3，11 前缀默认没有
+  `Warcraft III\Video` / `Misc` 键；首次拉起实测 war3.exe 存活、IPC 握手成功但
+  无窗挂住。把独立前缀 `war3-wine11` 实测可用的 Video/Misc 键值导入 11 前缀
+  （含 `Misc\seenintromovie=1` 跳过开场动画，Wine 下 DirectShow 动画可挂死）：
+  从 `war3-wine11/user.reg` 提取两键生成 REGEDIT4 `.reg`（UTF-16LE）后
+  `wine regedit <file.reg>` 导入。导入后需重启 War3 才生效。
