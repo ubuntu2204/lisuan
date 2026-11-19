@@ -2,6 +2,39 @@
 
 > 从仓库根 `CHANGELOG.md` 拆分而来（2026-11-19）。按时间倒序；历史条目保留当时的命令与路径。
 
+## 2026.11.19 — 11 对战平台：正式版登录后卡死已修复（Wine 系统字体）
+
+- 最终根因：前缀 `NONCLIENTMETRICS` 系统字体为 Tahoma（本机未安装）。下载 CEF
+  `105.3.38+g2a6a54b` 官方 release PDB 后，用 `llvm-pdbutil` 把崩溃环映射到源码：
+  `gfx::win::GetDefaultSystemFont / GetSystemFont / AdjustFontSize`、
+  `PlatformFontSkia::EnsuresDefaultFontIsInitialized / InitFromDetails`、
+  `PlatformFont::CreateFromNameAndSize`，断言点为 `base::debug::CollectGDIUsageAndDie`。
+  Chromium 105 源码显示 `SystemFonts::Initialize()` 在 `AddFont()` 全部完成后才置
+  `is_initialized_=true`；期间 Skia 用 Tahoma 创建字体失败会回调
+  `GetDefaultSystemFont()`，看到“未初始化”后再次 `Initialize()`，无限重入，
+  每轮取 DC/建字体，先耗尽 GDI 表再触发断言/栈溢出。
+- 修复：新增 `11/fix-11-fonts.sh` + `11/system-font-helper.c`，用
+  `SPI_SETNONCLIENTMETRICS` 把 caption / smcaption / menu / message / status 五类系统字体
+  改为本机存在的 Arial（可用 `E11_SYSTEM_FONT` 覆盖）；脚本幂等，先 `reg export`
+  备份 `HKCU\Control Panel\Desktop\WindowMetrics`，`--status` 只读体检，
+  `--uninstall` 用 `.reg` 备份还原。只改当前 WINEPREFIX 注册表，不动厂商二进制。
+- 验证：登录后主窗口从登录框变为 `11对战平台 - 2.6.3.48`（`1243×720`）；
+  资源更新、服务器测速完成并可确认；大厅完整渲染；Wine 日志
+  `out of GDI object handles` 0、`stack overflow` 0、`0x80000003` 0，
+  进程稳定存活。证据 `11/_work/font-fix-arial-20261119-1925/`（`.gitignore` 排除 `_work/`）。
+- 官方 PDB 用于取证，保存在 `11/_work/cef-official/`（约 4 GB，未入库）；本机
+  `libcef.dll` 与官方同版本所有 PE 节区 SHA1 完全一致，差异仅在文件尾 overlay，
+  故 PDB 地址映射有效。未下载/构建 Chromium 全量源码。
+
+## 2026.11.19 — 11 对战平台：正式版登录后卡死取证（未修复）
+
+- 复现：正式版 `2.6.3.48` 启动可见，但点击登录后窗口无响应。带 `E11_WINEDEBUG='+err+seh+process+thread'` 单次取证，Wine stderr 出现 `stack overflow ... addr 0x4836d2`，栈范围 `0xdc0000-0x11b0000`；应用日志停在 `CLoginLogic::onLoginSucceed` / `DoWebPageLogin: 1`，`11Client.exe` 主线程退出，窗口 PID 变僵尸 CEF 进程，三个 CEF 子进程阻塞在 `anon_pipe_read`。
+- 栈证据：`bins/11Client.exe` 的函数 `0x4836b0` 每帧 `sub $0xfc4,%esp`；进一步反汇编确认它是注册到异常处理链的崩溃回调（内部加载 `dbghelp`），不是普通业务递归。把 PE 栈从 4MB 加到 16MB/64MB 只能推迟溢出；进程存活更久后仍在 64MB 栈上溢出。临时把回调注册改成 NULL 后，暴露的是 Wine 内部 `Unhandled stack overflow at address 7BC59450`，仍未修复。栈与回调补丁均已还原。
+- GDI 根因：新增 `11/redirect-11-gdi-iat.sh` 把 `11Client.exe` 与 `bins/cef/libcef.dll` 的 `USER32.dll` 导入名等长替换为 `e11gdi.dll`，让 `user32-gdi-wrapper.c` 进入进程。`11Client.exe` 仅 1 次 `GetDC` 且成对释放；`libcef.dll` 的 `GetDC(NULL)` 固定来自 `+0x300060a`，约 2.1 万次，`ReleaseDC` 固定来自 `+0x30087ed`，约 1.05 万次，HDC 不配对 → Wine GDI 句柄表耗尽、`libcef.dll` `0x80000003`。
+- minidump 最终证据：`winedbg <.../11client_*.dmp>` 重载显示崩溃调用栈是 `libcef.dll` 内固定回调环反复压栈（`+0x30096f8 → +0x3bbb771 → +0x3bbbc70 → +0x3bbbb48 → +0x3bbcd80 → +0x3009c90 → +0x3009dbe → +0x300981c → +0x30096f8`），端点为断言 `+0x3adc9dd` 的 `int3`。加大栈、缓存 DC 只能延后崩溃；需在 CEF/Wine 交互层打断重入。
+- 定点二进制 A/B 已证伪：对 `libcef.dll` 重入环 thunk `+0x30096f8`（文件偏移 `0x3008af3`）分别试过 `xor eax,eax`、`mov eax,1`、`mov eax,edi`，以及把下游解引用调用 `+0x3bbb773`（文件偏移 `0x3bbab73`）整体 NOP。五组中 GDI/栈溢出均降为 0，但登录仍停在 `onLoginSucceed` 后，并分别转为 `0xc0000005` 空指针/非法地址写入或转移到新的 CEF 访问违规；说明该 thunk 是对象构造链的一环，不能单点跳过。`libcef.dll` 已按 `11/_work/cef-loop-ab/libcef.dll.orig` 还原，SHA256 `beb7a9e0f1f3e525e949aa83c14938600caf510e6d825b1fa6712512b3a73eed`，两处补丁偏移均恢复原字节。
+- 失败方向：Wine 9、Wine 11、`QT_ACCESSIBILITY=0`、`XLIB_SKIP_ARGB_VISUALS=0` 均不能消除 GDI 耗尽。包装层的「回收上一枚 DC」和「屏幕 DC 缓存」都能把 `out of GDI object handles` 降为 0，但登录仍停在“正在验证账号…”并最终栈溢出，**不是可用修复**。当前所有厂商二进制已还原；不加看门狗/自动重启。证据在 `11/_work/incident-20261119-1713/`、`11/_work/verify-20261119-1745/`、`11/_work/gdi-ab-*`、`11/_work/gdi-iat-*`、`11/_work/no-crashhandler-*`（`.gitignore` 已排除 `_work/`）。
+
 ## 2026.11.19 — 11 对战平台：改用官网正式版 2.6.3.48，启动问题定案
 
 - 网上成功案例指向官网**正式版 2.6.3.x**；本机此前装的 `3.0.0.68` 是公测版，两者进程结构完全不同：正式版为 `11Loader.exe` + `bins/11Client.exe`，公测版为 `11loader.exe` + `yybins/YYClient.exe`。

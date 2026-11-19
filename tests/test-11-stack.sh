@@ -53,11 +53,11 @@ OUT="$(bash "$FIX" --status 2>&1)"
 t_assert_grep <(printf '%s' "$OUT") "默认栈" "status reports default 1MB stack"
 t_assert_eq 1048576 "$(reserve_of "${INST}/yybins/YYClient.exe")" "fixture starts at 1MB reserve"
 
-# --- 2. apply：备份 + 补丁到 16MB ----------------------------------------
+# --- 2. apply：备份 + 补丁到 64MB ----------------------------------------
 OUT="$(bash "$FIX" 2>&1)"
 t_assert_grep <(printf '%s' "$OUT") "已补丁" "apply reports patched"
-t_assert_eq 16777216 "$(reserve_of "${INST}/yybins/YYClient.exe")" "YYClient reserve grown to 16MB"
-t_assert_eq 16777216 "$(reserve_of "${INST}/11loader.exe")" "11loader reserve grown to 16MB"
+t_assert_eq 67108864 "$(reserve_of "${INST}/yybins/YYClient.exe")" "YYClient reserve grown to 64MB"
+t_assert_eq 67108864 "$(reserve_of "${INST}/11loader.exe")" "11loader reserve grown to 64MB"
 t_assert_eq 65536 "$(python3 -c "import struct,sys;d=open('${INST}/yybins/YYClient.exe','rb').read();e=struct.unpack_from('<I',d,0x3c)[0];print(struct.unpack_from('<I',d,e+24+76)[0])")" "commit grown to 64KB"
 [[ -f "${BACKUP}/YYClient.exe.orig" ]]
 t_assert_eq 0 $? "backup created for YYClient.exe"
@@ -94,7 +94,7 @@ cp "${INST}/yybins/YYClient.exe" "${WORK}/YYClient.v2"
 cp "${INST}/11loader.exe" "${WORK}/11loader.v2"
 OUT="$(bash "$FIX" 2>&1)"
 t_assert_grep <(printf '%s' "$OUT") "版本已变化" "self-update triggers backup rotation"
-t_assert_eq 16777216 "$(reserve_of "${INST}/yybins/YYClient.exe")" "updated YYClient gets stack patch"
+t_assert_eq 67108864 "$(reserve_of "${INST}/yybins/YYClient.exe")" "updated YYClient gets stack patch"
 cmp -s "${BACKUP}/YYClient.exe.orig" "${WORK}/YYClient.v2"
 t_assert_eq 0 $? "backup now matches updated (unpatched) YYClient"
 OUT="$(bash "$FIX" --uninstall 2>&1)"

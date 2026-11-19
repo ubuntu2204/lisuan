@@ -169,7 +169,7 @@ dkms status
 
 ### 11 对战平台（Proton 11 / wine-11.0）
 
-- **现行方案：官网正式版 2.6.3.48**，默认前缀 `~/.deepinwine/11duizhan-263`，主程序 `11Loader.exe` + `bins/11Client.exe`。安装包走 `go.5211game.com/?id=10`（需 Referer）；`11/install-11duizhan.sh`、`run-11duizhan.sh`、`fix-11-desktop.sh` 已默认指向它并兼容大小写主程序名。实测窗口可见、栈溢出 0、GDI 耗尽 0、句柄峰值 142；无需栈补丁/GDI 垫片/winetricks。
+- **现行方案：官网正式版 2.6.3.48**，默认前缀 `~/.deepinwine/11duizhan-263`，主程序 `11Loader.exe` + `bins/11Client.exe`。安装包走 `go.5211game.com/?id=10`（需 Referer）；安装/桌面/启动脚本已默认指向它。**登录后卡死已修复**：先运行 `./11/fix-11-fonts.sh`（把 Wine 五类系统字体从 Tahoma 改为 Arial，幂等、备份、可 `--uninstall`），再 `./11/run-11duizhan.sh`。根因是 Wine 返回本机不存在的 Tahoma，CEF 105 的 `SystemFonts::Initialize()` 在 `AddFont()` 期间创建 SkTypeface 失败，回退调用 `GetDefaultSystemFont()` 时 `is_initialized_` 仍为 false，导致无限重入、GDI 耗尽和断言；用官方 CEF 105 PDB + Chromium 105 源码确认。实测登录后主窗口 `1243×720`、服务器测速完成、大厅完整渲染，GDI/栈/异常均为 0。`fix-11-stack.sh`（栈）、`redirect-11-gdi-iat.sh`（IAT 抓调用点）、CEF thunk 定点 A/B 均为历史取证/证伪路径，不是修复；厂商二进制已还原。不做看门狗/自动重启。
 - 下文全是 `3.0.0.x` 公测版（历史前缀 `~/.deepinwine/11duizhan-wine11`）的遗留问题，不要拿它当正式版结论。
 - 安装是 Inno Setup（`/VERYSILENT`，不是 NSIS `/S`）；桌面图标从主程序 PE 资源提取。窗口 `Depth 32` 在 Wayland 合成下不可见，`XLIB_SKIP_ARGB_VISUALS=1` 可修可见性，但不代表平台可用。
 - 启动崩溃真凶是 `yybins/YYClient.exe`（不是拉起器 `11loader.exe`）：频道序列化递归帧约 4KB，PE 栈仅 1MB，`stack overflow ... addr 0x48de11`（3.0.0.68）/ `0x48e441`（3.0.0.79）。`11/fix-11-stack.sh` 改 16MB/64KB，按忽略栈字段的 SHA256 轮转备份。

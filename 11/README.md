@@ -5,9 +5,13 @@
 
 ## 0. 现行推荐方案：官网正式版 2.6.3.48（2026-11-19 实测）
 
-**结论：之前所有栈溢出 / 自更新 / GDI 句柄泄漏都只发生在 `3.0.0.x` 公测版；
-官网正式版 `2.6.3.48` 用完全不同的进程结构（`11Loader.exe` + `bins/11Client.exe`），
-在本机 Proton 11 / wine-11.0 下直接可启动，不需要栈补丁、GDI 垫片或 winetricks。**
+**结论（2026-11-19 最终）：官网正式版 `2.6.3.48`（`11Loader.exe` + `bins/11Client.exe`）
+已可登录并进入大厅。** 根因是 Wine 前缀的系统字体为 Tahoma、本机没有该字体：CEF 105.3.38
+的 `SystemFonts::Initialize()` 在 `AddFont()` 期间创建 SkTypeface 失败，回退调用
+`GetDefaultSystemFont()` 时 `is_initialized_` 尚未置位，于是再次 `Initialize()`，无限重入；
+每轮取 DC/建字体，先耗尽 GDI 表，再触发 CEF 断言或栈溢出。修复：`./11/fix-11-fonts.sh`
+把五类系统字体改为本机存在的 Arial（可用 `E11_SYSTEM_FONT` 指定），幂等、备份、可卸载。
+实测登录后主窗口 `1243×720` 完整渲染、服务器测速完成且可确认，GDI/栈/异常均为 0。
 
 - 获取：`https://go.5211game.com/?id=10` →
   `https://download.5211game.com/11/download/5211Setup_2.6.3.48.exe`
@@ -21,14 +25,48 @@ cd ~/project/lisuan
 ./11/install-11duizhan.sh 11/5211Setup_2.6.3.48.exe   # 默认新前缀 ~/.deepinwine/11duizhan-263
 ./11/install-11duizhan.sh --status
 ./11/fix-11-desktop.sh                                # 从 11Loader.exe 提取图标并生成桌面入口
+./11/fix-11-fonts.sh                                  # 修复 Wine 系统字体（登录后卡死的根因）
+./11/fix-11-fonts.sh --status                         # 只读体检
 ./11/run-11duizhan.sh                                 # 单次前台启动，无守护
 ```
 
+- **2026-11-19 取证链（历史；已由系统字体修复解决）**。点击登录后应用日志停在
+  `CLoginLogic::onLoginSucceed` / `DoWebPageLogin: 1`，Wine stderr 出现
+  `stack overflow ... addr 0x4836d2`。反汇编确认 `0x4836b0` 每帧 `sub $0xfc4,%esp`，
+  但它是注册给异常处理链的回调（内部加载 `dbghelp`），不是普通业务函数；把 PE 栈从
+  4MB 加到 16MB/64MB 只能把溢出推迟，进程存活更久后仍在 64MB 栈上溢出。
+  `11/fix-11-stack.sh` 保留为诊断/缓解工具，但不是修复。
+- **GDI 泄漏调用点已抓到**：新增 `11/redirect-11-gdi-iat.sh` 把 `11Client.exe` 和
+  `bins/cef/libcef.dll` 的 `USER32.dll` 导入名等长替换为 `e11gdi.dll`，让
+  `11/user32-gdi-wrapper.c` 进入进程。日志（`11/_work/gdi-iat-both-*`）显示：
+  `11Client.exe` 只有 1 次 `GetDC` 且成对释放；`libcef.dll` 的 `GetDC(NULL)` 固定来自
+  `+0x300060a`，约 2.1 万次，`ReleaseDC` 固定来自 `+0x30087ed`，约 1.05 万次，
+  且 HDC 不配对。这解释了 Wine GDI 句柄表耗尽和 `libcef.dll` `0x80000003`。
+  包装层的屏幕 DC 缓存可把 GDI 耗尽降为 0，但登录仍停在“正在验证账号…”并最终栈溢出；
+  提前回收 DC 同样卡在验证页。两者均为历史证伪路径，真正修复见 `11/fix-11-fonts.sh`。
+- **minidump 最终证据**：用 `winedbg <.../11client_*.dmp>` 重载崩溃转储，调用栈不是普通
+  业务递归，而是 `libcef.dll` 内一个固定回调环反复压栈：
+  `+0x30096f8 → +0x3bbb771 → +0x3bbbc70 → +0x3bbbb48 → +0x3bbcd80 →
+  +0x3009c90 → +0x3009dbe → +0x300981c → +0x30096f8`，崩溃点是断言
+  `+0x3adc9dd` 的 `int3`。这解释了为何加大栈、缓存 DC 都只能延后崩溃；
+  需要在 CEF/Wine 交互层打断该重入，而不是继续加栈。
+- **定点二进制 A/B 已证伪**：对 `libcef.dll` 的 `+0x30096f8` thunk 试过返回 0 / 1 / `EDI`，
+  并把下游解引用调用 `+0x3bbb773` NOP 掉。GDI 耗尽和栈溢出确实都降为 0，但登录仍停在
+  `onLoginSucceed` 后，崩溃变成 CEF 的 `0xc0000005` 空指针/非法地址访问或转移到别处；
+  该 thunk 是对象构造链的一环，不能单点跳过。`libcef.dll` 已按备份还原。
+- 以上 IAT/栈/崩溃回调实验均可通过 `./11/redirect-11-gdi-iat.sh --uninstall`、
+  `./11/fix-11-stack.sh --uninstall` 还原；本机当前已全部还原为原始厂商二进制。
+  最终修复是 `./11/fix-11-fonts.sh` 改 Wine 系统字体，不动任何厂商二进制。
+  禁止看门狗/自动重启；不把绕开包装成修复。
 - 主程序文件名大小写与 3.0 不同：正式版是 `11Loader.exe`，公测版是 `11loader.exe`；
   安装/启动/桌面脚本已同时兼容两者。
-- 验收（默认启动器 + `+err,+gdi,+seh`，单次运行）：
+- 启动阶段验收（未登录，默认启动器 + `+err,+gdi,+seh`，单次运行）：
   `wmctrl -lpG` 在 t=10s / t=25s 均见 `11对战平台` 窗口；`stack overflow` 0、
   `out of GDI object handles` 0、`Unhandled exception` 0；GDI 句柄峰值 **142**。
+- 登录后验收（2026-11-19，Arial 系统字体）：窗口变为 `11对战平台 - 2.6.3.48`
+  （`1243×720`），服务器测速完成并可确认，大厅完整渲染；Wine 日志
+  `stack overflow` 0、`out of GDI object handles` 0、`0x80000003` 0。
+  证据在 `11/_work/font-fix-arial-20261119-1925/`（`.gitignore` 已排除 `_work/`）。
 - 对照结论：纯 32 位前缀、winetricks 安装 `mfc42/msxml3/vcrun2019` 都没能消除 3.0
   公测版的 GDI 泄漏；真正差异是**正式版客户端本身**。旧 3.0 内容保留在下文作为历史排障记录。
 

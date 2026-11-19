@@ -1,55 +1,72 @@
 #!/usr/bin/env bash
-# 至砺算：11 对战平台启动栈溢出修复，与显卡无关。
+# 至砺算：11 对战平台登录栈溢出修复，与显卡无关。
 #
-# 根因（2026-11-18 取证）：平台真正的客户端是 yybins/YYClient.exe（由
-# 11loader.exe 拉起，命令行带 -lnchwnd=...）。其频道序列化函数递归帧约 4KB
-# （sub $0xf80,%esp），而 PE 默认线程栈保留仅 1MB（SizeOfStackReserve=0x100000），
-# 约 250 层递归即触守护页 → err:virtual "stack overflow ... addr 0x48de11"，
-# 主线程异常退出（platform.ini error_code=2），表现为黑屏 / 开启卡死。
+# 根因（2026-11-19 复现，官网正式版 2.6.3.48）：
+# 主客户端 bins/11Client.exe 在 onLoginSucceed 回调里递归序列化，函数 0x4836b0
+# 每帧 sub $0xfc4,%esp（约 4KB），PE 栈保留仅 0x3e8480（约 4MB），约千层递归
+# 即触守护页：err:virtual "stack overflow ... addr 0x4836d2"，主线程退出、
+# 应用日志停在 DoWebPageLogin:1，窗口残留为僵尸 CEF 进程 → 卡死。
 #
-# 修复：把 YYClient.exe 与 11loader.exe 的 PE 栈保留改 16MB、提交改 64KB，
-# 让递归有足够栈空间完成（已实测栈溢出消失、客户端越过原崩溃点）。
-# 只改 PE 可选头两个 DWORD，不动代码段；改前备份原始文件，--uninstall 可还原。
-# 平台自更新会替换 exe 并冲掉栈补丁；备份按「忽略栈字段的文件哈希」识别版本，
-# 版本变化时旧备份转存为 .orig.<hash8>，再备份当前版本，避免 --uninstall 错还原。
-# 厂商二进制不入库，补丁作用于本机前缀内的安装产物。
+# 历史 3.0 公测版（E11_WINE11_PREFIX=~/.deepinwine/11duizhan-wine11）：
+# 真正的客户端是 yybins/YYClient.exe，溢出地址 0x48de11/0x48e441，
+# PE 栈保留 1MB；本脚本按安装布局自动选择目标。
+#
+# 修复：把目标 PE 的栈保留改 64MB、提交改 64KB，让递归完成。
+# 16MB 在 Wine 11 下不再溢出，但 Wine 9 A/B 仍在 16MB 溢出，故默认取 64MB。
+# 只改 PE 可选头两个 DWORD，不动代码段；备份按忽略栈字段的文件哈希识别版本，
+# 版本变化时旧备份转存为 .orig.<hash8>，--uninstall 可还原。
+# 厂商二进制不入库，补丁作用于本机前缀内的安装产物。不做看门狗/自动重启。
 #
 # 用法：
 #   ./11/fix-11-stack.sh              # 备份并打栈补丁（幂等）
-#   ./11/fix-11-stack.sh --status     # 只读体检：各 exe 当前栈设置
+#   ./11/fix-11-stack.sh --status     # 只读体检：目标 exe 当前栈设置
 #   ./11/fix-11-stack.sh --uninstall  # 从备份还原原始 exe
 #   ./11/fix-11-stack.sh --help
 #
-# 环境变量：E11_WINE11_PREFIX / E11_INSTALL_DIR / E11_STACK_RESERVE（默认 16MB）/
+# 环境变量：E11_WINE11_PREFIX / E11_INSTALL_DIR / E11_STACK_RESERVE（默认 64MB）/
 #   E11_STACK_COMMIT（默认 64KB）/ E11_STACK_BACKUP
 # License: Apache-2.0
 set -euo pipefail
 
-PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-wine11}"
+PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-263}"
 PREFIX="${PREFIX/#\~/$HOME}"
 INSTALL_DIR_REL="${E11_INSTALL_DIR:-11duizhan}"
 INSTALL_DIR_REL="${INSTALL_DIR_REL#/}"
 DRIVE_C="$PREFIX/drive_c/$INSTALL_DIR_REL"
-RESERVE="${E11_STACK_RESERVE:-16777216}"   # 16MB
+RESERVE="${E11_STACK_RESERVE:-67108864}"   # 64MB
 COMMIT="${E11_STACK_COMMIT:-65536}"        # 64KB
-BACKUP_DIR="${E11_STACK_BACKUP:-$HOME/.local/share/11duizhan-wine11/stack-backups}"
-# 相对安装目录的目标 PE（真正的客户端 + 拉起器）。
-TARGETS=("yybins/YYClient.exe" "11loader.exe")
+BACKUP_DIR="${E11_STACK_BACKUP:-$HOME/.local/share/$(basename "$PREFIX")/stack-backups}"
+
+# 按安装布局选择目标：正式版只有 bins/11Client.exe 在登录回调溢出；
+# 旧 3.0 公测版仍是 YYClient.exe + 11loader.exe。
+targets() {
+    if [[ -f "$DRIVE_C/bins/11Client.exe" ]]; then
+        TARGETS=("bins/11Client.exe")
+    else
+        TARGETS=("yybins/YYClient.exe" "11loader.exe")
+    fi
+}
+targets
 
 usage() {
     cat <<EOF
 用法：$(basename "$0") [--status|--uninstall|--help]
 
-  （无参数）   备份并把 YYClient.exe / 11loader.exe 的 PE 栈保留改 16MB（幂等；
-               平台自更新导致版本变化时，旧备份转存后再备份当前版本）
-  --status     只读体检：各目标 exe 的 SizeOfStackReserve / Commit 与备份状态
+  （无参数）   备份并把目标客户端的 PE 栈保留改 64MB（幂等；版本变化时
+               旧备份转存后再备份当前版本）
+  --status     只读体检：目标 exe 的 SizeOfStackReserve / Commit 与备份状态
   --uninstall  从备份还原原始 exe
   --help       显示本说明
+
+安装布局：
+  正式版 2.6.3.48（默认 ~/.deepinwine/11duizhan-263）：bins/11Client.exe
+  3.0 公测版（E11_WINE11_PREFIX=~/.deepinwine/11duizhan-wine11）：
+               yybins/YYClient.exe + 11loader.exe
 
 环境变量：E11_WINE11_PREFIX / E11_INSTALL_DIR / E11_STACK_RESERVE /
           E11_STACK_COMMIT / E11_STACK_BACKUP
 备份目录：$BACKUP_DIR
-说明：本修复只解决启动栈溢出；GDI 句柄泄漏导致的后续退出见 README.md 第 8 节。
+说明：本修复只解决栈溢出；其它异常按 .codebuddy/rules/崩溃处理约定.md 取证。
 EOF
 }
 
@@ -151,7 +168,7 @@ apply() {
         pe_tool patch "$DRIVE_C/$t" "$RESERVE" "$COMMIT" "$BACKUP_DIR"
     done
     echo "  完成。体检：$(basename "$0") --status"
-    echo "  注意：本修复只解决启动栈溢出；GDI 句柄泄漏的后续退出尚未修复，见 README.md 第 8 节。"
+    echo "  注意：本修复只解决栈溢出；其它异常按 .codebuddy/rules/崩溃处理约定.md 取证，不做自动重启。"
 }
 
 uninstall() {

@@ -27,55 +27,8 @@
 | `underlords/` | [`underlords/CHANGELOG.md`](underlords/CHANGELOG.md) |
 | `war3/` | [`war3/CHANGELOG.md`](war3/CHANGELOG.md) |
 
-
-
----
-
-## 2026.10.14 — Navicat 18 Premium Lite（AppImage）启动闪退修复：内置 fcitx 插件与自带 Qt ABI 冲突
-
-**与 GPU 无关**的应用层修复（AppImage 打包缺陷），新增 `navicat/` 目录
-（`fix-navicat-appimage.sh` + `README.md`）。
-
-### 现象
-
-双击/终端运行 `~/development/navicat18-premium-lite-cs-x86_64.AppImage`，
-「注册」对话框闪现不到一秒即闪退（核心转储）。
-
-### 根因
-
-AppImage 自带 **Qt 6.8.3**，但内置输入法插件
-`libfcitxplatforminputcontextplugin-qt6.so` 是按 **Qt 6.5** 编译的
-（动态段要求 `Qt_6.5` 符号版本）。本机会话跑 fcitx5
-（`QT_IM_MODULE=fcitx` + `XMODIFIERS=@im=fcitx`）：Qt 6.8.3 仍提供 `Qt_6.5`
-版本节点，链接器不报错、插件"加载成功"，但插件内部按 6.5 的 `QObjectPrivate`
-布局构造对象 → d 指针错位 → SIGSEGV，崩溃点正是对话框获焦的一瞬。
-gdb 栈：`QObject::thread ← QObject 构造 ← fcitx 插件 ← QGuiApplication 焦点事件`。
-
-### 修复
-
-`navicat/fix-navicat-appimage.sh`（幂等、无需 root）**重打包** AppImage：
-runtime ELF 原样保留，仅向 squashfs 内的 `AppRun` 注入
-`export QT_IM_MODULE=compose`，按原压缩器/块大小 mksquashfs 重打包。
-双击/菜单/终端三种启动方式全部生效；原包备份 `.bak`（仅首次），
-`--status` / `--test` / `--restore` / `--keep-work` 齐备。
-
-同批接入 `install.py` 交互菜单（Tkinter GUI 与 CLI 均可用）：
-新增 **Navicat** 组（菜单 **[20]** 安装/修复、**[21]** 说明；还原走 [20] 操作列
-「卸载」按钮）；`GROUP_ORDER` 追加在末尾，菜单扩为 **9 组 21 项**；
-`detect()` 左侧面板新增「应用」类检查项（含 `菜单 [20]` 提示）；
-`build-deb.sh` 打包目录加入 `navicat`，`Recommends` 补 `squashfs-tools`
-（重打包依赖），deb 实测含 `navicat/README.md` 与可执行脚本。
-
-同批（文档）：**全部应用/游戏说明文档补齐官方下载地址**（steam /
-minion-masters / left4dead2 / underlords / kingdom-rush / electron / navicat），
-主 README 新增「各应用/游戏获取地址」汇总表；electron README 补登漏登记的
-`use-trae.sh`（Trae）；斧正 Dota Underlords 的 Steam AppID 为 **1046930**。
-
-### 验证
-
-模拟双击环境（`QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx`）下修复版正常弹出
-「注册」窗口并稳定运行；原包同环境必现崩溃（`--test` 报 SIGABRT/SIGSEGV）；
-脚本幂等、`--restore` 还原后 md5 与原包一致；`tests/` 套件通过。
+> 2026.10.14 Navicat 18 Premium Lite（AppImage）启动闪退条目已迁至 hygon 仓库
+> `CHANGELOG.md`（脚本与文档在 `~/project/hygon/navicat/`）；本仓库不再保留该条目。
 
 ---
 

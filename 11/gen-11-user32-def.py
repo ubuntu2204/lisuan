@@ -46,7 +46,7 @@ def main() -> None:
         named[base + ordv] = name
 
     self_impl = {'GetDC', 'GetDCEx', 'ReleaseDC'}
-    lines = ['LIBRARY user32', 'EXPORTS']
+    lines = [f'LIBRARY {libname}', 'EXPORTS']
     for i in range(nfunc):
         ordv = base + i
         if ordv not in named:
