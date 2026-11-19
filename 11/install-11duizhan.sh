@@ -20,7 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROTON="${E11_PROTON:-$HOME/.local/share/Steam/steamapps/common/Proton 11.0}"
 PROTON="${PROTON/#\~/$HOME}"
-PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-wine11}"
+PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-263}"
 PREFIX="${PREFIX/#\~/$HOME}"
 DRIVE_C="$PREFIX/drive_c"
 # 安装目录（相对 drive_c）；Inno 的 /DIR 会收到 C:\<此路径>。
@@ -32,7 +32,8 @@ LOG="${E11_INSTALL_LOG:-/tmp/11duizhan-install-$(date +%Y%m%d-%H%M%S).log}"
 INNO_LOG="${LOG%.log}-inno.log"
 WIN_INNO_LOG="Z:${INNO_LOG//\//\\}"
 INSTALLER_GLOB='5211Setup_*.exe'
-MAIN_NAME='11loader.exe'
+# 正式版 2.6.3.x 用 11Loader.exe，3.0 公测版用 11loader.exe；Linux 区分大小写。
+MAIN_NAMES=('11Loader.exe' '11loader.exe')
 UNINST_NAME='unins000.exe'
 WINE="$PROTON/files/bin/wine"
 WINESERVER="$PROTON/files/bin/wineserver"
@@ -55,14 +56,17 @@ EOF
 
 # 返回主程序完整路径；未找到返回非零。
 find_main() {
-    local d found
+    local d n found
     for d in "$DRIVE_C/$INSTALL_DIR_REL" \
              "$DRIVE_C/Program Files/11duizhan" \
              "$DRIVE_C/Program Files (x86)/11duizhan" \
              "$DRIVE_C/11duizhan"; do
-        [[ -f "$d/$MAIN_NAME" ]] && { printf '%s\n' "$d/$MAIN_NAME"; return 0; }
+        for n in "${MAIN_NAMES[@]}"; do
+            [[ -f "$d/$n" ]] && { printf '%s\n' "$d/$n"; return 0; }
+        done
     done
-    found="$(find "$DRIVE_C" -maxdepth 4 -type f -name "$MAIN_NAME" -print 2>/dev/null | sed -n '1p')"
+    found="$(find "$DRIVE_C" -maxdepth 4 -type f \
+        \( -name "${MAIN_NAMES[0]}" -o -name "${MAIN_NAMES[1]}" \) -print 2>/dev/null | sed -n '1p')"
     [[ -n "$found" ]] || return 1
     printf '%s\n' "$found"
 }
@@ -119,7 +123,7 @@ status() {
             echo "  [--] 未见卸载器 $UNINST_NAME"; rc=1
         fi
     else
-        echo "  [--] 未找到主程序 $MAIN_NAME（安装目录？）"; rc=1
+        echo "  [--] 未找到主程序 ${MAIN_NAMES[*]}（安装目录？）"; rc=1
     fi
     return "$rc"
 }
@@ -160,7 +164,7 @@ install() {
     esac
     wine_env timeout 60 "$WINESERVER" -w >/dev/null 2>&1 || true
 
-    main="$(find_main)" || die "返回码 0 但未找到 $MAIN_NAME（详见 $LOG 与 $INNO_LOG）"
+    main="$(find_main)" || die "返回码 0 但未找到 ${MAIN_NAMES[*]}（详见 $LOG 与 $INNO_LOG）"
     is_pe "$main" || die "主程序不是有效 PE：$main（详见 $LOG）"
     echo "    安装完成：$main（$(stat -c%s "$main") 字节）"
     status

@@ -82,4 +82,25 @@ cmp -s "${INST}/11loader.exe" "${WORK}/11loader.orig"
 t_assert_eq 0 $? "11loader restored byte-for-byte"
 t_assert_eq 1048576 "$(reserve_of "${INST}/yybins/YYClient.exe")" "reserve back to 1MB after uninstall"
 
+# --- 6. 自更新替换 exe：旧备份转存，当前版本重新备份 ----------------------
+python3 - "${INST}/yybins/YYClient.exe" "${INST}/11loader.exe" <<'PY'
+import sys
+for p in sys.argv[1:]:
+    d = bytearray(open(p, 'rb').read())
+    d[0x40] ^= 0xff  # 模拟厂商自更新改了代码/资源，栈字段仍为默认
+    open(p, 'wb').write(d)
+PY
+cp "${INST}/yybins/YYClient.exe" "${WORK}/YYClient.v2"
+cp "${INST}/11loader.exe" "${WORK}/11loader.v2"
+OUT="$(bash "$FIX" 2>&1)"
+t_assert_grep <(printf '%s' "$OUT") "版本已变化" "self-update triggers backup rotation"
+t_assert_eq 16777216 "$(reserve_of "${INST}/yybins/YYClient.exe")" "updated YYClient gets stack patch"
+cmp -s "${BACKUP}/YYClient.exe.orig" "${WORK}/YYClient.v2"
+t_assert_eq 0 $? "backup now matches updated (unpatched) YYClient"
+OUT="$(bash "$FIX" --uninstall 2>&1)"
+cmp -s "${INST}/yybins/YYClient.exe" "${WORK}/YYClient.v2"
+t_assert_eq 0 $? "uninstall restores updated version after rotation"
+cmp -s "${INST}/11loader.exe" "${WORK}/11loader.v2"
+t_assert_eq 0 $? "uninstall restores updated loader after rotation"
+
 t_finish "test-11-stack.sh"

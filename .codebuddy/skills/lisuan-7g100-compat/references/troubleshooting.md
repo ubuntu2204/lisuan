@@ -167,6 +167,17 @@ dkms status
 - 验收：干净启动出现 1920×1080 窗口（`IsViewable`），XWayland 单窗口抓帧显示 Frozen Throne 主菜单完整渲染（12.6 万色、非黑像素 72.9%）；9 次受控启动 0 次崩溃、0 次错误框。联机与单局对战未验收。
 - 该场景下 Wayland 合成抓图（`capture-wayland-screen.py`）建流成功但取不到帧（`gst-launch` 25 秒超时）；改用 XWayland 单窗口抓帧作补充证据。
 
+### 11 对战平台（Proton 11 / wine-11.0）
+
+- **现行方案：官网正式版 2.6.3.48**，默认前缀 `~/.deepinwine/11duizhan-263`，主程序 `11Loader.exe` + `bins/11Client.exe`。安装包走 `go.5211game.com/?id=10`（需 Referer）；`11/install-11duizhan.sh`、`run-11duizhan.sh`、`fix-11-desktop.sh` 已默认指向它并兼容大小写主程序名。实测窗口可见、栈溢出 0、GDI 耗尽 0、句柄峰值 142；无需栈补丁/GDI 垫片/winetricks。
+- 下文全是 `3.0.0.x` 公测版（历史前缀 `~/.deepinwine/11duizhan-wine11`）的遗留问题，不要拿它当正式版结论。
+- 安装是 Inno Setup（`/VERYSILENT`，不是 NSIS `/S`）；桌面图标从主程序 PE 资源提取。窗口 `Depth 32` 在 Wayland 合成下不可见，`XLIB_SKIP_ARGB_VISUALS=1` 可修可见性，但不代表平台可用。
+- 启动崩溃真凶是 `yybins/YYClient.exe`（不是拉起器 `11loader.exe`）：频道序列化递归帧约 4KB，PE 栈仅 1MB，`stack overflow ... addr 0x48de11`（3.0.0.68）/ `0x48e441`（3.0.0.79）。`11/fix-11-stack.sh` 改 16MB/64KB，按忽略栈字段的 SHA256 轮转备份。
+- 平台自更新会在 3.0.0.68 ↔ 3.0.0.79 间来回切换并冲掉栈补丁；`11/run-11duizhan.sh` 无参数默认 `-updatemode=0` 冻结版本，`E11_ALLOW_UPDATE=1` 可恢复。**这是绕过更新器，不是修好**；冻结后仍需重跑栈补丁。
+- 当前阻塞是 Wine 11 GDI 句柄表 65536 耗尽：thread 0144 每轮泄漏 1 显示 DC + 1 FONT + 4 REGION，计数 REGION 138927/95302、FONT 48169/37248、DC 10910/2；随后 libcef `0x80000003`（EIP `0x719fc9dd`）。冻结版本后仍复现 `out of GDI object handles` 5 次，不能说已修好。
+- 已证伪：归错到 11loader、只改 11loader 栈、CEF/QT/虚拟桌面/Proton 8/全新前缀等表面开关、把 GDI 配额降到 10000（更早崩）、`LD_PRELOAD` 拦截 `NtUserGetDC`（0 命中，Wine dispatcher 用内部函数指针）、`user32` PE wrapper + `WINEDLLOVERRIDES`（known DLL 使客户端仍加载内置 user32；只拦到 loader）、`gdb` 跨 `__wine_syscall_dispatcher` 的 `bt`（栈帧不可靠）。`11/fix-11-gdi.sh` 等目前只是诊断件。
+- 完整证据、失败方向与下一步（IAT 重定向 `USER32.dll`→等长 `e11gdi.dll`）见 `.codebuddy/rules/11平台启动排障约定.md` 与 `11/README.md` §5–§9。禁止看门狗/自动重启。
+
 ## 9. 日志与验收
 
 - `Player.log` 被 `NotSupportedException` 刷屏时先 `grep -vE` 滤噪，再看最初 20 行。

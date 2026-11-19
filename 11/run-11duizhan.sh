@@ -8,24 +8,39 @@
 # 平台主窗口是 Depth 32/ARGB 窗口，在 Wayland/XWayland 下会被合成成完全不可见；
 # 默认注入 XLIB_SKIP_ARGB_VISUALS=1 让它使用 Depth 24（已实测窗口变为可见）。
 #
+# 现行默认：官网正式版 2.6.3.48（独立前缀 ~/.deepinwine/11duizhan-263），
+# 实测窗口可见、无栈溢出、GDI 句柄峰值 142，不需要 3.0 公测版的栈/GDI 补丁。
+# 3.0 公测版的自更新会在 3.0.0.68 <-> 3.0.0.79 间切换并冲掉栈补丁；无参数启动
+# 默认追加 -updatemode=0 冻结版本（E11_ALLOW_UPDATE=1 可恢复 A/B）。这是绕过更新器，
+# 不是修好更新器本身。E11_WINE11_PREFIX 可切回旧前缀做对照。
+#
 # 用法：
 #   ./11/run-11duizhan.sh [参数...]   # 启动平台（参数透传给 11loader.exe）
 #   ./11/run-11duizhan.sh --status    # 只读体检
 #   ./11/run-11duizhan.sh --help
 #
 # 环境变量：E11_PROTON / E11_WINE11_PREFIX / E11_INSTALL_DIR / E11_WINEDEBUG /
-#   E11_SKIP_ARGB_VISUALS（=0 可关闭 ARGB 规避，用于 A/B 对照）
+#   E11_SKIP_ARGB_VISUALS（=0 可关闭 ARGB 规避，用于 A/B 对照）/
+#   E11_ALLOW_UPDATE（=1 恢复自更新）/
+#   E11_GDI_WRAP（=1 注入 GDI 诊断/回收包装层，需先跑 fix-11-gdi.sh）
 # License: Apache-2.0
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROTON="${E11_PROTON:-$HOME/.local/share/Steam/steamapps/common/Proton 11.0}"
 PROTON="${PROTON/#\~/$HOME}"
-PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-wine11}"
+PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-263}"
 PREFIX="${PREFIX/#\~/$HOME}"
 INSTALL_DIR_REL="${E11_INSTALL_DIR:-11duizhan}"
 INSTALL_DIR_REL="${INSTALL_DIR_REL#/}"
-MAIN="$PREFIX/drive_c/$INSTALL_DIR_REL/11loader.exe"
+BASE="$PREFIX/drive_c/$INSTALL_DIR_REL"
+MAIN=""
+for name in 11Loader.exe 11loader.exe; do
+    if [[ -s "$BASE/$name" && "$(head -c2 "$BASE/$name")" == "MZ" ]]; then
+        MAIN="$BASE/$name"
+        break
+    fi
+done
 WINE="$PROTON/files/bin/wine"
 
 die() { echo "错误：$*" >&2; exit 1; }
@@ -34,12 +49,14 @@ usage() {
     cat <<EOF
 用法：$(basename "$0") [选项] [参数...]
 
-  （无参数） 前台启动 11 对战平台（参数透传给 11loader.exe）
+  （无参数） 前台启动 11 对战平台（参数透传给主程序，兼容大小写两种文件名）
   --status   只读体检：wine、安装前缀、主程序 PE
   --help     显示本说明
 
 环境变量：E11_PROTON、E11_WINE11_PREFIX、E11_INSTALL_DIR、E11_WINEDEBUG、
-          E11_SKIP_ARGB_VISUALS（默认 1，规避 Depth 32 窗口不可见）。
+          E11_SKIP_ARGB_VISUALS（默认 1，规避 Depth 32 窗口不可见）、
+          E11_ALLOW_UPDATE（=1 恢复自更新；默认 -updatemode=0 冻结版本）、
+          E11_GDI_WRAP（=1 注入 GDI 包装层，需先跑 fix-11-gdi.sh）。
 崩溃后不会自动重启；请按 .codebuddy/rules/崩溃处理约定.md 取证定位。
 EOF
 }
@@ -57,13 +74,20 @@ esac
 [[ -x "$WINE" ]] || die "找不到 Proton 11 的 wine：$WINE"
 [[ -s "$MAIN" && "$(head -c2 "$MAIN")" == "MZ" ]] || die "主程序缺失或不是有效 PE：$MAIN"
 
+if [[ $# -eq 0 && "${E11_ALLOW_UPDATE:-0}" != "1" ]]; then
+    set -- -updatemode=0
+fi
+
+dlloverrides='mscoree,mshtml='
+[[ "${E11_GDI_WRAP:-0}" == "1" ]] && dlloverrides="$dlloverrides;user32=n"
+
 libs="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i386-linux-gnu"
 [[ -n "${LD_LIBRARY_PATH:-}" ]] && libs="$libs:$LD_LIBRARY_PATH"
 cd "$(dirname "$MAIN")"
 exec env WINEPREFIX="$PREFIX" \
     WINEDLLPATH="$PROTON/files/lib/vkd3d:$PROTON/files/lib/wine" \
     LD_LIBRARY_PATH="$libs" \
-    WINEDLLOVERRIDES='mscoree,mshtml=' \
+    WINEDLLOVERRIDES="$dlloverrides" \
     XLIB_SKIP_ARGB_VISUALS="${E11_SKIP_ARGB_VISUALS:-1}" \
     WINEDEBUG="${E11_WINEDEBUG:--all}" \
     "$WINE" "$MAIN" "$@"

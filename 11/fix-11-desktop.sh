@@ -19,11 +19,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="$SCRIPT_DIR/run-11duizhan.sh"
 EXTRACTOR="$SCRIPT_DIR/../dreamina/extract-icon.py"
-PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-wine11}"
+PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-263}"
 PREFIX="${PREFIX/#\~/$HOME}"
 INSTALL_DIR_REL="${E11_INSTALL_DIR:-11duizhan}"
 INSTALL_DIR_REL="${INSTALL_DIR_REL#/}"
-MAIN_EXE="$PREFIX/drive_c/$INSTALL_DIR_REL/11loader.exe"
+MAIN_EXE=""
+for name in 11Loader.exe 11loader.exe; do
+    if [[ -s "$PREFIX/drive_c/$INSTALL_DIR_REL/$name" ]]; then
+        MAIN_EXE="$PREFIX/drive_c/$INSTALL_DIR_REL/$name"
+        break
+    fi
+done
 ICON_NAME=11duizhan
 ICON_ROOT="${E11_ICON_ROOT:-$HOME/.local/share/icons}"
 APP_ENTRY="${E11_APP_ENTRY:-$HOME/.local/share/applications/11duizhan.desktop}"

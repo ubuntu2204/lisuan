@@ -10,6 +10,8 @@
 # 修复：把 YYClient.exe 与 11loader.exe 的 PE 栈保留改 16MB、提交改 64KB，
 # 让递归有足够栈空间完成（已实测栈溢出消失、客户端越过原崩溃点）。
 # 只改 PE 可选头两个 DWORD，不动代码段；改前备份原始文件，--uninstall 可还原。
+# 平台自更新会替换 exe 并冲掉栈补丁；备份按「忽略栈字段的文件哈希」识别版本，
+# 版本变化时旧备份转存为 .orig.<hash8>，再备份当前版本，避免 --uninstall 错还原。
 # 厂商二进制不入库，补丁作用于本机前缀内的安装产物。
 #
 # 用法：
@@ -38,7 +40,8 @@ usage() {
     cat <<EOF
 用法：$(basename "$0") [--status|--uninstall|--help]
 
-  （无参数）   备份并把 YYClient.exe / 11loader.exe 的 PE 栈保留改 16MB（幂等）
+  （无参数）   备份并把 YYClient.exe / 11loader.exe 的 PE 栈保留改 16MB（幂等；
+               平台自更新导致版本变化时，旧备份转存后再备份当前版本）
   --status     只读体检：各目标 exe 的 SizeOfStackReserve / Commit 与备份状态
   --uninstall  从备份还原原始 exe
   --help       显示本说明
@@ -46,14 +49,14 @@ usage() {
 环境变量：E11_WINE11_PREFIX / E11_INSTALL_DIR / E11_STACK_RESERVE /
           E11_STACK_COMMIT / E11_STACK_BACKUP
 备份目录：$BACKUP_DIR
-说明：本修复只解决启动栈溢出；GDI 句柄泄漏导致的后续退出见 README.md 第 7 节。
+说明：本修复只解决启动栈溢出；GDI 句柄泄漏导致的后续退出见 README.md 第 8 节。
 EOF
 }
 
 # PE 栈操作统一由内嵌 python 完成：status / patch / restore。
 pe_tool() {
     python3 - "$@" <<'PY'
-import struct, sys, os, shutil
+import struct, sys, os, shutil, hashlib, time
 mode, path, reserve, commit, backup = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
 
 def read_pe(data):
@@ -66,6 +69,12 @@ def read_pe(data):
     if magic != 0x10b:
         raise SystemExit(f"仅支持 PE32（0x10b），实际 {magic:#x}：{path}")
     return e
+
+def version_hash(data, e):
+    """忽略两个栈 DWORD 的文件哈希：同一版本重打补丁不变，自更新后变化。"""
+    d = bytearray(data)
+    struct.pack_into('<II', d, e+24+72, 0, 0)
+    return hashlib.sha256(d).hexdigest()
 
 if mode == 'status':
     if not os.path.isfile(path):
@@ -87,9 +96,24 @@ if mode == 'patch':
         print(f"  [=] {os.path.basename(path)}：已是 {res//1024}KB 栈，跳过"); sys.exit(0)
     os.makedirs(backup, exist_ok=True)
     bak = os.path.join(backup, os.path.basename(path) + '.orig')
+    cur_ver = version_hash(data, e)
     if not os.path.isfile(bak):
         shutil.copy2(path, bak)
         print(f"  已备份：{path} -> {bak}")
+    else:
+        old = open(bak, 'rb').read()
+        try:
+            old_ver = version_hash(old, read_pe(old))
+        except SystemExit:
+            old_ver = ''
+        if old_ver != cur_ver:
+            rotated = f"{bak}.{old_ver[:8] or 'unknown'}"
+            if os.path.exists(rotated):
+                rotated = f"{rotated}-{int(time.time())}"
+            os.replace(bak, rotated)
+            print(f"  版本已变化，旧备份转存：{rotated}")
+            shutil.copy2(path, bak)
+            print(f"  已备份当前版本：{path} -> {bak}")
     struct.pack_into('<I', data, e+24+72, reserve)
     struct.pack_into('<I', data, e+24+76, commit)
     with open(path, 'wb') as f:
@@ -127,7 +151,7 @@ apply() {
         pe_tool patch "$DRIVE_C/$t" "$RESERVE" "$COMMIT" "$BACKUP_DIR"
     done
     echo "  完成。体检：$(basename "$0") --status"
-    echo "  注意：本修复只解决启动栈溢出；GDI 句柄泄漏的后续退出尚未修复，见 README.md 第 7 节。"
+    echo "  注意：本修复只解决启动栈溢出；GDI 句柄泄漏的后续退出尚未修复，见 README.md 第 8 节。"
 }
 
 uninstall() {

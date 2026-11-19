@@ -3,13 +3,43 @@
 > 至砺算：安装链路与显卡无关。本目录用 Proton 11.0 的 wine-11.0 在独立前缀里
 > 跑官网 Inno Setup 静默安装器；只验收安装产物，不做崩溃后自动重启/守护。
 
-## 1. 厂商专有二进制（不入库）
+## 0. 现行推荐方案：官网正式版 2.6.3.48（2026-11-19 实测）
+
+**结论：之前所有栈溢出 / 自更新 / GDI 句柄泄漏都只发生在 `3.0.0.x` 公测版；
+官网正式版 `2.6.3.48` 用完全不同的进程结构（`11Loader.exe` + `bins/11Client.exe`），
+在本机 Proton 11 / wine-11.0 下直接可启动，不需要栈补丁、GDI 垫片或 winetricks。**
+
+- 获取：`https://go.5211game.com/?id=10` →
+  `https://download.5211game.com/11/download/5211Setup_2.6.3.48.exe`
+  （需带 `Referer: https://www.5211game.com/`，否则 403）。
+  本机文件 `11/5211Setup_2.6.3.48.exe`，SHA256
+  `20066c97cfcf25b80cbf7b48d89f2d1508a11783978a3a201bd6fabff46a23b8`，503283232 字节。
+- 用法：
+
+```bash
+cd ~/project/lisuan
+./11/install-11duizhan.sh 11/5211Setup_2.6.3.48.exe   # 默认新前缀 ~/.deepinwine/11duizhan-263
+./11/install-11duizhan.sh --status
+./11/fix-11-desktop.sh                                # 从 11Loader.exe 提取图标并生成桌面入口
+./11/run-11duizhan.sh                                 # 单次前台启动，无守护
+```
+
+- 主程序文件名大小写与 3.0 不同：正式版是 `11Loader.exe`，公测版是 `11loader.exe`；
+  安装/启动/桌面脚本已同时兼容两者。
+- 验收（默认启动器 + `+err,+gdi,+seh`，单次运行）：
+  `wmctrl -lpG` 在 t=10s / t=25s 均见 `11对战平台` 窗口；`stack overflow` 0、
+  `out of GDI object handles` 0、`Unhandled exception` 0；GDI 句柄峰值 **142**。
+- 对照结论：纯 32 位前缀、winetricks 安装 `mfc42/msxml3/vcrun2019` 都没能消除 3.0
+  公测版的 GDI 泄漏；真正差异是**正式版客户端本身**。旧 3.0 内容保留在下文作为历史排障记录。
+
+## 1. 厂商专有二进制（不入库，含 3.0 公测版历史）
 
 | 项 | 内容 |
 | --- | --- |
-| **是什么** | `5211Setup_3.0.0.68.exe`：11 平台官网（5211game.com）完整安装包，Inno Setup 5.4.2 自解压 PE32（约 235 MB，`file` 报 `PE32 executable (GUI) Intel 80386`）。内含主程序 `11loader.exe`、CEF 组件与 OBS 录制器。 |
+| **推荐（正式版）** | `5211Setup_2.6.3.48.exe`：官网客户端 2.0 正式版，Inno Setup 自解压 PE32，503283232 字节；主程序 `11Loader.exe` + `bins/11Client.exe`。见第 0 节，现行默认。 |
+| **是什么（历史）** | `5211Setup_3.0.0.68.exe`：11 平台官网 3.0 公测版完整安装包，Inno Setup 5.4.2 自解压 PE32（约 235 MB）。内含主程序 `11loader.exe`、CEF 组件与 OBS 录制器；该版本有栈溢出、自更新与 GDI 泄漏问题。 |
 | **为何不能入库** | 厂商专有二进制、体积大、升级会改文件名；按 `.codebuddy/rules/仓库组织约定.md` 二，用 `.gitignore` 规则 `11/5211Setup_*.exe` 排除，仓库只保留脚本与文档。文件仍留在本目录供运行时安装，不删除。 |
-| **从哪获取** | 11 平台官网 <https://www.5211game.com/> 下载最新安装包，放到本目录、`~/下载` 或 `~/Downloads`。本机这份 SHA256：`1df075bcb4ddaa8eb352e56e0da8f0214a012e56407616b59a313e2d72ed4090`（245828880 字节）。 |
+| **从哪获取** | 11 平台官网 <https://www.5211game.com/>：正式版走 `go.5211game.com/?id=10`（本机 SHA256 见第 0 节）；3.0 公测版走 `?id=5171`，本机这份 SHA256：`1df075bcb4ddaa8eb352e56e0da8f0214a012e56407616b59a313e2d72ed4090`（245828880 字节）。放到本目录、`~/下载` 或 `~/Downloads`。 |
 
 ## 2. 安装
 
@@ -21,7 +51,8 @@ chmod +x 11/install-11duizhan.sh
 ./11/install-11duizhan.sh --help
 ```
 
-- 前缀：`~/.deepinwine/11duizhan-wine11`（与 KK、80 对战平台 Prefix 隔离）。
+- 默认前缀：`~/.deepinwine/11duizhan-263`（正式版 2.6.3.48，与 KK、80 对战平台隔离）。
+  历史 3.0 公测版前缀 `~/.deepinwine/11duizhan-wine11` 需显式用 `E11_WINE11_PREFIX` 指定。
   Proton 11.0 的 wine，只在 wine 进程树上设置 `WINEPREFIX` / `WINEDLLPATH` /
   `LD_LIBRARY_PATH` / `WINEDLLOVERRIDES=mscoree,mshtml=`，不污染全局 shell。
 - **安装包是 Inno Setup 5.4.2，不是 NSIS**：静默参数为
@@ -35,7 +66,7 @@ chmod +x 11/install-11duizhan.sh
 - 安装器返回码非 0（含超时 124）均明确报错并保留日志，**不自动重试**；
   已装时只体检不重装。
 
-## 3. 安装产物与验收状态（2026-11-17 实测）
+## 3. 3.0 公测版安装产物与验收状态（2026-11-17 实测，历史）
 
 | 项 | 结果 |
 | --- | --- |
@@ -167,8 +198,17 @@ cd ~/project/lisuan
 - 备份目录：`~/.local/share/11duizhan-wine11/stack-backups/{YYClient,11loader}.exe.orig`。
 - 实测：补丁后 `stack overflow` 计数从 1 降为 0，`root.log` 走到
   `case 3 success PostNotifyMsg`（频道序列化完成），越过原 4 秒崩溃点。
-- 补丁在多轮运行后持久（应用自更新未回退栈字段）；`E11_STACK_RESERVE` /
-  `E11_STACK_COMMIT` 可覆盖默认值。
+- **2026-11-19 新发现：平台自更新会替换 exe 并冲掉栈补丁。** 根目录下
+  `gamever.ini` / `Config/yyclientx.xml` 在两次启动间从 `3.0.0.68` 变为
+  `3.0.0.79` 又变回 `3.0.0.68`，`YYUpdate.log` 每次都走完
+  `Check → Download → Install → Final`。3.0.0.79 的栈溢出仍在
+  （`YYClient.exe+0x48e441`，默认栈 1MB），不是新版本修好了。
+- `run-11duizhan.sh` 无参数启动默认追加 `-updatemode=0` 冻结当前版本，避免
+  更新器来回换版本；`E11_ALLOW_UPDATE=1` 可恢复更新做 A/B。这是**绕过**
+  Wine 下失效的厂商更新器，不是修好更新器；真正升级请用官网完整安装包重装。
+- `fix-11-stack.sh` 现在按「忽略栈字段的 SHA256」识别版本：发现 exe 变化时把
+  旧备份转存为 `.orig.<hash8>`，再备份当前版本，避免 `--uninstall` 错还原旧版本。
+  自更新/重装后需重跑本脚本；`E11_STACK_RESERVE` / `E11_STACK_COMMIT` 可覆盖默认值。
 - 厂商二进制不入库；补丁只作用于本机前缀内的安装产物。
 
 ## 8. GDI 句柄泄漏（栈修复后暴露的次生问题，尚未修复）
@@ -200,3 +240,30 @@ cd ~/project/lisuan
 
 结论：启动栈溢出（第 7 节）已修复；GDI 句柄泄漏是独立的深层 Wine 兼容问题，
 根因证据已保留，修复尚未完成。不得用自动重启掩盖该退出。
+
+2026-11-19 补记：当时取证尚未发现自更新会在 3.0.0.68 ↔ 3.0.0.79 间来回切换；
+`run-11duizhan.sh` 现在默认冻结版本。冻结后单次验收 `stack overflow` 与
+`Unhandled exception` 计数降为 0，但 `+gdi` 日志仍有 **5 条**
+`out of GDI object handles`，句柄峰值 65503/65536，`libcef.dll` 随后 `0x80000003`。
+因此 GDI 泄漏在冻结版本上仍然复现，不能宣称已修复。完整证据与失败方向见第 9 节
+及 `.codebuddy/rules/11平台启动排障约定.md`。
+
+## 9. 已证伪方向与未完成项（2026-11-19）
+
+| 方向 | 结果 | 结论 |
+|---|---|---|
+| 把崩溃归给 `11loader.exe`，只改其栈 | 客户端 `YYClient.exe` 仍溢出（`0x48de11` / `0x48e441`） | 已证伪；必须改 YYClient |
+| CEF `--disable-gpu` / SwiftShader、`QT_OPENGL=software|desktop`、虚拟桌面、Proton 8、全新前缀、软件 GL 三件套 | 对黑屏/栈溢出/GDI 泄漏均无效 | 不要再作为主攻方向 |
+| 把 `win32u.so` 的 GDI 句柄上限从 65536 降到 10000 | 补丁生效但客户端更早崩（约 10 秒） | 已证伪；不是修复，垫片已移除 |
+| `LD_PRELOAD` 拦截 `NtUserGetDC` | 0 次命中；Wine syscall dispatcher 用内部函数指针 | 按名 interpose 无效 |
+| `user32` PE wrapper + `WINEDLLOVERRIDES=user32=n[,b]` | 只拦到 `11loader.exe`；客户端因 known DLL 仍加载内置 user32；另需 `-static-libgcc` 避免缺 `libgcc_s_dw2-1.dll` | 当前未拿到客户端 GetDC 调用点 |
+| gdb attach 已运行进程 | `ptrace_scope` 拒绝 | 改为 gdb 直接启动，但必须忽略 `SIGUSR1/2/CHLD/PIPE/ALRM`；跨 dispatcher 的 `bt` 不可靠 |
+| `-updatemode=0` 冻结版本 | 解决反复换 exe/冲栈补丁 | **不修 GDI 泄漏**，冻结后仍耗尽 |
+
+**未完成**：`11/fix-11-gdi.sh`、`11/gen-11-user32-def.py`、`11/user32-gdi-wrapper.c`
+目前只是诊断件（`E11_GDI_WRAP=1` 为 A/B 开关），不是修复。下一步是改写
+`YYClient.exe` 的导入表：本次解析其 `USER32.dll\0` 位于文件 offset `0x7319ea`，
+可等长替换为 `e11gdi.dll\0`（版本变化后必须重新解析导入表），并在 `yybins/` 放
+`e11gdi.dll` + `user32_orig.dll`，让包装层真正进入客户端再抓 GetDC 调用者。
+`gen-11-user32-def.py` 已支持第三个参数指定库名，`fix-11-gdi.sh` 尚仍生成
+`user32.dll` 包装层；IAT 方案未实现，勿误认为已交付。全程禁止看门狗/自动重启。
