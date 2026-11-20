@@ -2,6 +2,21 @@
 
 > 从仓库根 `CHANGELOG.md` 拆分而来（2026-11-19）。按时间倒序；历史条目保留当时的命令与路径。
 
+## 2026.11.20 — 11 对战平台：War3 拉起修复固化为覆盖所有 gp_* 补丁目录
+
+- 现象：11-19 验收通过后，11-20 19:04 再次从平台拉起 War3 失败。
+  取证：Assocket 日志 `war3shell path=...\W3L\Patch\War3\gp_1292`、
+  `injectedDll=...\gp_1292\assocket.dll`，同目录 `DxWorker.dll` 日志有
+  `dxrender init`；`window-check` 10 秒 `not-found`。11-19 的修复只改了
+  `gp_1290`，平台按地图/版本切换到 `gp_1292` 后渲染替换层重新生效。
+- 修复：`11/fix-11-render.sh` 改为遍历 `W3L/Patch/War3/gp_*` 下**全部**
+  DxRender/DxWorker 改名禁用（`--status` 逐目录显示、`--uninstall` 全量还原），
+  本次新禁用 10 个 DLL（gp_1252/1289/1291/1292/1293）。
+  `11/run-11duizhan.sh` 每次启动前自动调用该脚本（`E11_RENDER_LAYER=keep`
+  可关做 A/B），新下载的 gp_* 版本也能覆盖，不再依赖一次性手工操作。
+- 性质仍是**绕过**平台渲染替换层（War3Shell/assocket/IPCProxyEx 保留、联机 IPC
+  保留），不是修好它；联机对战细节仍未逐项验收。无看门狗/自动重启。
+
 ## 2026.11.19 — 11 对战平台：War3 拉起验收通过（禁用 DxRender/DxWorker 渲染替换层）
 
 - 验收：禁用 `gp_1290/DxRender.dll`/`DxWorker.dll` 后，平台 20:47:17 拉起

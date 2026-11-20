@@ -347,11 +347,16 @@ E11_WAR3_DIR=~/.deepinwine/11duizhan-263/drive_c/war3 ./11/fix-11-war3path.sh
   （含 `Misc\seenintromovie=1` 跳过开场动画，Wine 下 DirectShow 动画可挂死）：
   从 `war3-wine11/user.reg` 提取两键生成 REGEDIT4 `.reg`（UTF-16LE）后
   `wine regedit <file.reg>` 导入。导入后需重启 War3 才生效。
-- **拉起挂死的根因与绕过（2026-11-19 实测验收）**：平台注入的渲染替换层
-  `W3L/Patch/War3/gp_1290/DxRender.dll`/`DxWorker.dll` 在 Wine 下挂死游戏
+- **拉起挂死的根因与绕过（2026-11-19 实测验收，2026-11-20 修正）**：平台注入的
+  渲染替换层 `W3L/Patch/War3/gp_*/DxRender.dll`/`DxWorker.dll` 在 Wine 下挂死游戏
   （存活、IPC 通、无窗）。对照实验：YY 版 exe + 补丁 Game.dll 不注入 shell
   单独启动正常出窗。`./11/fix-11-render.sh` 把这两个 DLL 改名禁用（`--status` /
   `--uninstall` 齐全），游戏回退原生 D3D8→DXVK(lvp)。禁用后平台拉起验收通过：
   20:47 出窗进入游戏、游玩约 18 分钟后正常退出，无崩溃 dump，用户确认正常。
+  **2026-11-20 复发原因**：11-19 只禁用了 `gp_1290`；当天 19:04 的房间用
+  `gp_1292`，Assocket 日志 `war3shell path=...\gp_1292`、DxWorker 日志
+  `dxrender init`，`window-check` 10 秒 `not-found`。脚本现改为遍历**所有**
+  `gp_*` 目录，`run-11duizhan.sh` 每次启动前自动调用（`E11_RENDER_LAYER=keep`
+  可关，用于 A/B），新下载的补丁目录也会被覆盖；`--uninstall` 还原全部。
   这是绕过平台渲染层，不是修好它；War3Shell/assocket/IPCProxyEx 仍注入，
   联机 IPC 保留；联机对战逐项细节未验收。

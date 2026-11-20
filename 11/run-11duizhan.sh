@@ -23,7 +23,10 @@
 #   E11_SKIP_ARGB_VISUALS（=0 可关闭 ARGB 规避，用于 A/B 对照）/
 #   E11_ALLOW_UPDATE（=1 恢复自更新）/
 #   E11_GDI_WRAP（=1 注入 GDI 诊断/回收包装层，需先跑 fix-11-gdi.sh）/
-#   E11_VK_ICD（覆盖 Vulkan ICD；=skip 不注入，用于 A/B）
+#   E11_VK_ICD（覆盖 Vulkan ICD；=skip 不注入，用于 A/B）/
+#   E11_RENDER_LAYER（默认 disable：每次启动禁用所有 gp_* 的 DxRender/DxWorker；
+#     =keep 可关闭，用于 A/B。11-19 只禁 gp_1290，11-20 平台改用 gp_1292
+#     导致拉起挂死，故固化为每次启动覆盖所有 gp_* 目录）
 # License: Apache-2.0
 set -euo pipefail
 
@@ -57,7 +60,8 @@ usage() {
 环境变量：E11_PROTON、E11_WINE11_PREFIX、E11_INSTALL_DIR、E11_WINEDEBUG、
           E11_SKIP_ARGB_VISUALS（默认 1，规避 Depth 32 窗口不可见）、
           E11_ALLOW_UPDATE（=1 恢复自更新；默认 -updatemode=0 冻结版本）、
-          E11_GDI_WRAP（=1 注入 GDI 包装层，需先跑 fix-11-gdi.sh）。
+          E11_GDI_WRAP（=1 注入 GDI 包装层，需先跑 fix-11-gdi.sh）、
+          E11_RENDER_LAYER（默认 disable，禁用所有 gp_* 渲染替换层）。
 崩溃后不会自动重启；请按 .codebuddy/rules/崩溃处理约定.md 取证定位。
 EOF
 }
@@ -89,6 +93,15 @@ vk_icd="${E11_VK_ICD:-/usr/share/vulkan/icd.d/lvp_icd.json}"
 vk_env=()
 if [[ "$vk_icd" != "skip" && -f "$vk_icd" ]]; then
     vk_env=(VK_ICD_FILENAMES="$vk_icd")
+fi
+
+# 固化 11-19 的拉起修复：平台按地图/版本切换 gp_1290/gp_1292/... 补丁目录，
+# 只禁一次 gp_1290 会在下次换版本时复发（11-20 实测挂死）。每次启动前把
+# 所有 gp_* 的 DxRender/DxWorker 改名，新下载的目录同样覆盖。
+if [[ "${E11_RENDER_LAYER:-disable}" == "disable" ]]; then
+    if ! bash "$SCRIPT_DIR/fix-11-render.sh" >/dev/null 2>&1; then
+        echo "警告：禁用 gp_* 渲染层未完全成功，请运行 11/fix-11-render.sh --status 查看" >&2
+    fi
 fi
 
 libs="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i386-linux-gnu"
