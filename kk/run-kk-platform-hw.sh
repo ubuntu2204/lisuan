@@ -144,6 +144,38 @@ if [ "${KK_GEOMETRY_SHIM:-1}" = 1 ]; then
     rm -f "$SYSWOW/user32.dll" 2>/dev/null || true
     cp "$WRAP_DLL" "$SYSWOW/user32.dll" || exit 1
     export WINEDLLOVERRIDES="$WINEDLLOVERRIDES;user32=n,b"
+
+    # win32u 包装层（实验，默认关闭）：PE forwarder 包装实测不拦截 Wine 的
+    # NtUserSetParent（user32 经内部 syscall dispatcher 调用，不走 PE 导出），
+    # 且覆盖 win32u.dll 会让主框架掉到 (0,0)、内容层消失。2026-11-20 已验证，
+    # 因此默认 0；仅在明确 A/B 时用 KK_WIN32U_WRAPPER=1 开启。
+    BUILTIN_W32U="$P11/files/lib/wine/i386-windows/win32u.dll"
+    W32U_SRC="$REPO_DIR/kk-win32u-wrapper.c"
+    W32U_DEF="$SHIM_DIR/kk-win32u.def"
+    W32U_DLL="$SHIM_DIR/kk-win32u.dll"
+    [ -f "$BUILTIN_W32U" ] || die "找不到内置 win32u：$BUILTIN_W32U"
+    if [ "${KK_WIN32U_WRAPPER:-0}" = 1 ]; then
+        if [ ! -f "$SYSWOW/win32u_orig.dll" ] || [ "$BUILTIN_W32U" -nt "$SYSWOW/win32u_orig.dll" ]; then
+            rm -f "$SYSWOW/win32u_orig.dll" 2>/dev/null || true
+            cp "$BUILTIN_W32U" "$SYSWOW/win32u_orig.dll" || exit 1
+            rm -f "$W32U_DLL"
+        fi
+        python3 "$REPO_DIR/gen-kk-user32-def.py" "$BUILTIN_W32U" "$W32U_DEF" \
+            win32u win32u_orig NtUserSetParent || exit 1
+        if [ ! -f "$W32U_DLL" ] || [ "$W32U_SRC" -nt "$W32U_DLL" ] || [ "$W32U_DEF" -nt "$W32U_DLL" ]; then
+            i686-w64-mingw32-dlltool --def "$W32U_DEF" --dllname win32u.dll \
+                --output-exp "$SHIM_DIR/kk-win32u-exp.o" || exit 1
+            i686-w64-mingw32-gcc -shared -O2 -o "$W32U_DLL" "$W32U_SRC" \
+                "$SHIM_DIR/kk-win32u-exp.o" -luser32 -lkernel32 || exit 1
+        fi
+        rm -f "$SYSWOW/win32u.dll" 2>/dev/null || true
+        cp "$W32U_DLL" "$SYSWOW/win32u.dll" || exit 1
+        export WINEDLLOVERRIDES="$WINEDLLOVERRIDES;win32u=n,b"
+        say "win32u 包装层已注入（修 web 子窗父客户区原点）"
+    else
+        rm -f "$SYSWOW/win32u.dll" 2>/dev/null || true
+        ln -sf "$BUILTIN_W32U" "$SYSWOW/win32u.dll" 2>/dev/null || true
+    fi
     say "几何修复层已注入（wrapper + shim）"
 fi
 

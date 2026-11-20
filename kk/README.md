@@ -168,6 +168,11 @@ bash kk/run-kk-platform-hw.sh              # 常规启动（单次、显式收�
   `Exec="<仓库>/kk/run-kk-platform.sh"`、`Categories=Game;`，并打
   `metadata::trusted=true`。只改 `Icon` / `Exec` 两行、保留用户其它定制；
   改文件前在 `~/.local/share/kkduizhan-wine11/desktop-backups/` 生成 `.bak`。
+  硬件方案用 `--hw` 切换，`Exec` 必须是
+  `"<仓库>/kk/run-kk-platform-hw.sh" --keep`：硬件启动器默认取证后显式收尾
+  （杀掉 KK），不带 `--keep` 会出现「双击图标闪一下就没了」。桌面项同时补
+  `u+x`（否则 GIO `access::can-execute=FALSE`、双击不启动），并在生成图标后
+  刷新用户级 hicolor 缓存（否则桌面仍显示旧/通用图标）；均非看门狗或自动重启。
 - 实测 `--status` 全项 `[OK]`，`desktop-file-validate` 无警告；`--uninstall`
   从备份还原（新建的直接删除）并移除生成的图标。
 
@@ -399,6 +404,15 @@ futex 等待、web renderer/gpu 仍活、wineserver ~18% CPU）；顶层 OR 内�
 
 ### 已证伪 / 已撤销（排查史料，勿再照抄）
 
+- **`win32u.dll` PE 包装层（2026-11-20 实验，默认关闭）**：尝试用 native
+  `win32u.dll` + `WINEDLLOVERRIDES=win32u=n,b` 拦 `NtUserSetParent`，把
+  `1158x884` 的 CEF web 子窗从 `(172,59)` 平移父框架原点 `(+294,+33)`。
+  结果：包装 DLL 被加载、导出生成正常（1541 个），但 hook 从未命中
+  （`KK_WIN32U_DEBUG` 无日志）——Wine 的 user32 经内部 syscall dispatcher
+  调 win32u，不走 PE 导出；而且仅覆盖该文件就让主框架掉到 `(0,0)`、内容层
+  消失。`run-kk-platform-hw.sh` 的 `KK_WIN32U_WRAPPER` 默认 `0`，源码与生成
+  脚本保留仅为 A/B 记录，**不能作为修复**。下一步只能走 Unix 侧 syscall/
+  驱动层拦截（LD_PRELOAD `winex11` 或改专用 Proton 二进制），需单独评估。
 - `XLIB_SKIP_ARGB_VISUALS=1`：窗口不透明，但游戏列表 / 商城导航整片空白。
 - 一次性 / 多次 `xdotool windowmove` 对齐内容层：只修视觉不修输入（win32k
   矩形不变，点击偏移整个框架原点），且应用事件会把内容层重置回 `(0,0)`。

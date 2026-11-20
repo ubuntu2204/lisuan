@@ -10,7 +10,8 @@
 - 硬件方案已就绪：`bash kk/setup-kk-hw-proton.sh --status` 三项全 OK
   （DXVK v2.3 / libSC / offscreen 补丁已打）。
 - 桌面入口已指向硬件方案：`grep Exec ~/.local/share/applications/kkduizhan.desktop`
-  应为 `run-kk-platform-hw.sh`。切回软件方案：`bash kk/fix-kk-desktop.sh`；
+  应为 `run-kk-platform-hw.sh --keep`（缺 `--keep` 时启动器取证后会杀掉 KK，
+  表现为双击图标闪一下就没了）。切回软件方案：`bash kk/fix-kk-desktop.sh`；
   再切硬件：`bash kk/fix-kk-desktop.sh --hw`。
 - 抓图**只能**用合成通道（X11 抓图在 Wayland 下全黑，不作证据）：
   ```bash

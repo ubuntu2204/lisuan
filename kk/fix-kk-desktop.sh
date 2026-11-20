@@ -6,11 +6,13 @@
 #
 # 厂商图标产物不入库（写入 ~/.local/share/icons），只保留脚本与文档。
 # 默认只改 Exec / Icon 两行并保留用户其它定制；改文件前生成 .bak；
-# 不做崩溃后自动重启/守护。
+# 不做崩溃后自动重启/守护。硬件启动器默认在取证后显式收尾（杀掉 KK），
+# 桌面入口必须带 --keep 才能让 KK 持续运行（不是看门狗，用户关窗即退出）。
+# 桌面图标还要求当前用户可执行位，并刷新 hicolor 缓存后才显示官方图标。
 #
 # 用法：
 #   ./kk/fix-kk-desktop.sh              # 生成图标 + 桌面入口（幂等）
-#   ./kk/fix-kk-desktop.sh --hw         # 桌面入口指向硬件方案 run-kk-platform-hw.sh
+#   ./kk/fix-kk-desktop.sh --hw         # 桌面入口指向硬件方案 run-kk-platform-hw.sh --keep
 #                                       # （7G100 + offscreen 补丁，消除大厅黑块）
 #   ./kk/fix-kk-desktop.sh --status     # 只读体检
 #   ./kk/fix-kk-desktop.sh --uninstall # 恢复备份、删除图标与新建入口
@@ -37,7 +39,15 @@ ENTRIES=("$APP_ENTRY" "$DESKTOP_ENTRY")
 if [[ "$HOME/Desktop" != "$DESKTOP_DIR" && -d "$HOME/Desktop" ]]; then
     ENTRIES+=("$HOME/Desktop/kkduizhan.desktop")
 fi
-EXPECTED_EXEC="\"$RUNNER\""
+set_runner() {
+    RUNNER="$SCRIPT_DIR/$1"
+    EXPECTED_EXEC="\"$RUNNER\""
+    # 硬件启动器默认取证后显式收尾；桌面入口加 --keep 保持 KK 运行。
+    # 这是用户主动启动的持续运行，不是看门狗/守护/自动重启。
+    [[ "$1" == "run-kk-platform-hw.sh" ]] && EXPECTED_EXEC="$EXPECTED_EXEC --keep"
+    return 0
+}
+set_runner "$RUNNER_NAME"
 
 usage() {
     cat <<EOF
@@ -45,8 +55,9 @@ usage() {
 
   （无参数）   从 Platform.exe 提取官方图标到 hicolor，创建/修正桌面入口并打 trusted
                 （指向软件方案 run-kk-platform.sh）
-  --hw         桌面入口改指向硬件方案 run-kk-platform-hw.sh（7G100 + offscreen
-                补丁，大厅黑块已修复）；再次无参数运行可切回软件方案
+  --hw         桌面入口改指向 run-kk-platform-hw.sh --keep（7G100 + offscreen
+                补丁，大厅黑块已修复）；无 --keep 时启动器取证后会杀掉 KK。
+                再次无参数运行可切回软件方案
   --status     只读体检：图标、入口 Icon/Exec/trusted、启动器与主程序
   --uninstall  恢复 .desktop 备份（新建的删除）、移除生成的图标
   --help       显示本说明
@@ -157,6 +168,8 @@ PY
         fi
         rm -f "$tmp"
     fi
+    # 桌面图标双击要求当前用户可执行位；否则 GIO 报 access::can-execute=FALSE
+    chmod u+x "$f" 2>/dev/null || true
     if command -v gio >/dev/null 2>&1; then
         gio set "$f" metadata::trusted true 2>/dev/null || \
             echo "  警告：无法标记 trusted：$f" >&2
@@ -172,6 +185,10 @@ install_icons() {
     echo "[1/2] 从 Platform.exe 提取官方图标 -> $ICON_ROOT/hicolor"
     python3 "$EXTRACTOR" --exe "$MAIN_EXE" --name "$ICON_NAME" \
         --icons-dir "$ICON_ROOT/hicolor" --largest "${TMPDIR:-/tmp}/kk-icon-largest.png"
+    # 不刷新缓存时桌面仍显示旧/通用图标（本机曾因缓存早于新图标而失效）
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q -f -t "$ICON_ROOT/hicolor" 2>/dev/null || true
+    fi
     echo "[2/2] 写入桌面入口"
     mkdir -p "$(dirname "$APP_ENTRY")"
     for f in "${ENTRIES[@]}"; do write_entry "$f"; done
@@ -199,7 +216,7 @@ case "${1:-}" in
     --help|-h) usage; exit 0 ;;
     --status) status; exit $? ;;
     --uninstall) uninstall; exit 0 ;;
-    --hw) RUNNER="$SCRIPT_DIR/run-kk-platform-hw.sh"; EXPECTED_EXEC="\"$RUNNER\""; install_icons; exit 0 ;;
+    --hw) set_runner run-kk-platform-hw.sh; install_icons; exit 0 ;;
     --*) echo "错误：未知参数：$1（用 --help 查看用法）" >&2; exit 1 ;;
     *) install_icons ;;
 esac

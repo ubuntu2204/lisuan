@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""从 Wine 内置 user32.dll 的 PE 导出表生成包装层 user32.def。
+"""从 Wine 内置 DLL 的 PE 导出表生成包装层 .def。
 
-除 UpdateLayeredWindow / UpdateLayeredWindowIndirect（包装层自实现）外，全部
-导出以 PE forwarder 转回 user32_orig.dll（内置 user32 的重命名副本）。纯标准
-库解析 PE，不依赖 pefile。用法：
-  gen-kk-user32-def.py <内置 user32.dll> <输出 user32.def>
-License: Apache-2.0
+默认从 user32.dll 生成 user32.def：除 UpdateLayeredWindow /
+UpdateLayeredWindowIndirect 外转发到 user32_orig.dll。可选参数支持 win32u：
+  gen-kk-user32-def.py <内置 DLL> <输出 .def> [库名=Attname] [转发目标DLL] [自实现逗号列表]
+例：
+  gen-kk-user32-def.py win32u.dll kk-win32u.def win32u win32u_orig NtUserSetParent
+纯标准库解析 PE，不依赖 pefile。License: Apache-2.0
 """
 import struct
 import sys
@@ -13,6 +14,10 @@ import sys
 
 def main() -> None:
     src, dst = sys.argv[1], sys.argv[2]
+    lib = sys.argv[3] if len(sys.argv) > 3 else "user32"
+    orig = sys.argv[4] if len(sys.argv) > 4 else lib + "_orig"
+    self_impl = set(sys.argv[5].split(",")) if len(sys.argv) > 5 else {
+        "UpdateLayeredWindow", "UpdateLayeredWindowIndirect"}
     with open(src, 'rb') as f:
         d = f.read()
     pe = struct.unpack_from('<I', d, 0x3c)[0]
@@ -47,8 +52,7 @@ def main() -> None:
         nm = d[no:d.index(b'\0', no)].decode()
         ordv = struct.unpack_from('<H', d, r2o(addr_ords) + i * 2)[0]
         named[base + ordv] = nm  # 序号表存相对 base 的索引
-    self_impl = {'UpdateLayeredWindow', 'UpdateLayeredWindowIndirect'}
-    lines = ['LIBRARY user32', 'EXPORTS']
+    lines = [f'LIBRARY {lib}', 'EXPORTS']
     skipped = 0
     for i in range(nfunc):
         ordv = base + i
@@ -61,7 +65,7 @@ def main() -> None:
         if nm in self_impl:
             lines.append(f'    {nm}')
         else:
-            lines.append(f'    {nm} = user32_orig.{nm}')
+            lines.append(f'    {nm} = {orig}.{nm}')
     with open(dst, 'w') as f:
         f.write('\n'.join(lines) + '\n')
     print(f'已生成 {dst}：{nfunc - skipped} 个导出（自实现 {len(self_impl)} 个，'
