@@ -353,10 +353,16 @@ E11_WAR3_DIR=~/.deepinwine/11duizhan-263/drive_c/war3 ./11/fix-11-war3path.sh
   单独启动正常出窗。`./11/fix-11-render.sh` 把这两个 DLL 改名禁用（`--status` /
   `--uninstall` 齐全），游戏回退原生 D3D8→DXVK(lvp)。禁用后平台拉起验收通过：
   20:47 出窗进入游戏、游玩约 18 分钟后正常退出，无崩溃 dump，用户确认正常。
-  **2026-11-20 复发原因**：11-19 只禁用了 `gp_1290`；当天 19:04 的房间用
-  `gp_1292`，Assocket 日志 `war3shell path=...\gp_1292`、DxWorker 日志
-  `dxrender init`，`window-check` 10 秒 `not-found`。脚本现改为遍历**所有**
-  `gp_*` 目录，`run-11duizhan.sh` 每次启动前自动调用（`E11_RENDER_LAYER=keep`
-  可关，用于 A/B），新下载的补丁目录也会被覆盖；`--uninstall` 还原全部。
+  **2026-11-20 两次复发与最终加固**：①19:04 的房间用 `gp_1292`，而 11-19
+  只禁用了 `gp_1290`，Assocket 日志 `war3shell path=...\gp_1292`、DxWorker
+  日志 `dxrender init`，`window-check` 10 秒 `not-found`；脚本改为遍历所有
+  `gp_*` 目录。②19:18 再次失败：平台在进房间时把 `gp_1292/DxRender.dll`
+  与 `DxWorker.dll` **重新复制回来**（ctime 19:18:30、mtime 保持 11-04，
+   md5 与 `.e11-disabled` 完全相同），仅靠改名/删文件不可靠。最终方案在同目录
+  `War3Shell.dll` 本机副本中把 UTF-16 名称 `DxRender.dll`/`DxWorker.dll` 改为
+  同长度且不存在的 `DxRendex.dll`/`DxWorkex.dll`，即使平台还原 DLL 本体，
+  `LoadLibrary` 也失败；每份 Shell 首次修改前备份为
+  `War3Shell.dll.e11-render-orig`，`--uninstall` 全量还原。
+  `run-11duizhan.sh` 每次启动前自动调用（`E11_RENDER_LAYER=keep` 可关做 A/B）。
   这是绕过平台渲染层，不是修好它；War3Shell/assocket/IPCProxyEx 仍注入，
   联机 IPC 保留；联机对战逐项细节未验收。

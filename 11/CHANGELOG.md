@@ -2,6 +2,22 @@
 
 > 从仓库根 `CHANGELOG.md` 拆分而来（2026-11-19）。按时间倒序；历史条目保留当时的命令与路径。
 
+## 2026.11.20 — 11 对战平台：平台还原 DLL 导致二次复发，改补丁 War3Shell 名称
+
+- 19:18 用户在已禁用全部 gp_* 的 DxRender/DxWorker 后再次拉起失败。
+  取证：`gp_1292/DxRender.dll` 与 `DxWorker.dll` 在 19:18:30 被重新创建
+  （ctime 当天、mtime 仍为 11-04、md5 与 `.e11-disabled` 相同），
+  `Main_...txt` 显示 `LoadLib ...\gp_1292\DxRender.dll` / `DxWorker.dll`
+  成功、`window-check` 又一次 `not-found`。说明平台进房间时会按缺失文件
+  重新部署 DLL，单纯改名不可靠。
+- 修复：`11/fix-11-render.sh` 除改名外，还把每个 gp_* 下
+  `War3Shell.dll` 本机副本中的 UTF-16/ASCII 名称 `DxRender.dll` /
+  `DxWorker.dll` 改为同长度不存在的 `DxRendex.dll` / `DxWorkex.dll`；
+  平台即使还原 DLL 本体也 LoadLibrary 失败，游戏回退原生 D3D8→DXVK(lvp)。
+  首次修改前备份 `War3Shell.dll.e11-render-orig`，`--uninstall` 还原全部。
+  `--status` 以 shell 补丁为准报告，不再被 DLL 还原误判。
+- 当前 6 个 gp_* 目录均已改名并补丁；启动器每次启动自动调用。无守护/自动重启。
+
 ## 2026.11.20 — 11 对战平台：War3 拉起修复固化为覆盖所有 gp_* 补丁目录
 
 - 现象：11-19 验收通过后，11-20 19:04 再次从平台拉起 War3 失败。
