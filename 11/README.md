@@ -366,3 +366,10 @@ E11_WAR3_DIR=~/.deepinwine/11duizhan-263/drive_c/war3 ./11/fix-11-war3path.sh
   `run-11duizhan.sh` 每次启动前自动调用（`E11_RENDER_LAYER=keep` 可关做 A/B）。
   这是绕过平台渲染层，不是修好它；War3Shell/assocket/IPCProxyEx 仍注入，
   联机 IPC 保留；联机对战逐项细节未验收。
+- **2026-11-20 19:25 补强（防进房间时还原）**：19:18 会话的 ctime 证据表明，
+  平台是在点进房间那一刻把 `gp_1292` 的 DLL 重新落盘的，单靠改名/改字符串
+  会在下一次进房间被覆盖。脚本现把每个 `gp_*` 目录置为只读 `555`，原权限
+  记在目录内 `.e11-render-dirmode`，`./11/fix-11-render.sh --uninstall` 按记录
+  还原；`--status` 同时检查目录是否只读。只作用于本机前缀内这几个补丁目录。
+  当前 6 个目录已置 555，但**还没有重新进房间的实测结论**；若平台因只读
+  目录报错，用 `--uninstall` 回退并保留日志，不要加自动重启/守护。

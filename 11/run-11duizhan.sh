@@ -95,9 +95,10 @@ if [[ "$vk_icd" != "skip" && -f "$vk_icd" ]]; then
     vk_env=(VK_ICD_FILENAMES="$vk_icd")
 fi
 
-# 固化 11-19 的拉起修复：平台按地图/版本切换 gp_1290/gp_1292/... 补丁目录，
-# 只禁一次 gp_1290 会在下次换版本时复发（11-20 实测挂死）。每次启动前把
-# 所有 gp_* 的 DxRender/DxWorker 改名，新下载的目录同样覆盖。
+# 固化 11-19/11-20 的拉起修复：平台按地图/版本切换 gp_1290/gp_1292/... 补丁
+# 目录，并在进房间时按缺失文件重新部署 DLL。每次启动前由 fix-11-render.sh
+# 把所有 gp_* 的 DxRender/DxWorker 改名、补丁 War3Shell 名称并置目录只读，
+# 新下载的目录同样覆盖。
 if [[ "${E11_RENDER_LAYER:-disable}" == "disable" ]]; then
     if ! bash "$SCRIPT_DIR/fix-11-render.sh" >/dev/null 2>&1; then
         echo "警告：禁用 gp_* 渲染层未完全成功，请运行 11/fix-11-render.sh --status 查看" >&2

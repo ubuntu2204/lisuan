@@ -16,6 +16,13 @@
 # 同长度的 DxRendex.dll / DxWorkex.dll（不存在的文件），平台即使还原 DLL
 # 本体，LoadLibrary 也会失败，游戏回退原生 D3D8→DXVK(lvp)。
 #
+# 11-20 19:25 再次取证：19:18 会话在 19:18:30 进房间后，平台又把 gp_1292
+# 的 assocket.dll / vpndll.dll / xp.dll / DxRender.dll / DxWorker.dll 重新
+# 落盘（ctime 19:18:31、mtime 保持 11-04），War3Shell 随后 LoadLib 成功并
+# 挂死。仅改名/改字符串仍可能被进房间时的还原覆盖，故补丁完成后把每个
+# gp_* 目录置为只读（原权限记入 .e11-render-dirmode，--uninstall 还原），
+# 阻止平台把渲染 DLL 再写回来；新版本 gp_* 由下次启动自动补丁并置只读。
+#
 # 这是**绕过**平台渲染替换层，不是修好它；War3Shell/assocket/IPCProxyEx
 # 仍注入，联机 IPC 保留。只改本机前缀内的副本；每份 War3Shell.dll 第一次
 # 修改前备份为 War3Shell.dll.e11-render-orig，--uninstall 全量还原。
@@ -38,6 +45,8 @@ TARGETS=(DxRender.dll DxWorker.dll)
 SHELL_NAME='War3Shell.dll'
 SHELL_BAK='War3Shell.dll.e11-render-orig'
 DISABLED_SUFFIX='.e11-disabled'
+DIR_MODE='555'
+DIR_MODE_MARKER='.e11-render-dirmode'
 
 die() { echo "错误：$*" >&2; exit 1; }
 
@@ -46,10 +55,11 @@ usage() {
 用法：$(basename "$0") [--status|--uninstall|--help]
 
   （无参数）   禁用所有 W3L/Patch/War3/gp_*/ 下的 DxRender/DxWorker：
-               改名为 .e11-disabled，并把 War3Shell.dll 里的 DLL 名称
-               改成不存在的 DxRendex.dll / DxWorkex.dll（幂等）
-  --status     只读体检：逐目录列出 DLL 状态与 War3Shell 补丁状态
-  --uninstall  还原全部改名与字符串补丁
+               改名为 .e11-disabled，把 War3Shell.dll 里的 DLL 名称改成
+               不存在的 DxRendex.dll / DxWorkex.dll，并将 gp_* 目录置只读
+               防止平台进房间时还原（幂等）
+  --status     只读体检：逐目录列出 DLL、War3Shell 补丁与目录权限状态
+  --uninstall  还原全部改名、字符串补丁与目录权限
   --help       显示本说明
 
 环境变量：E11_WINE11_PREFIX
@@ -59,6 +69,27 @@ EOF
 patch_dirs() {
     [[ -d "$BASE" ]] || die "目录不存在：$BASE"
     find "$BASE" -maxdepth 1 -mindepth 1 -type d -name 'gp_*' 2>/dev/null | sort
+}
+
+# 平台进房间时按缺失文件重新部署 gp_* 里的 DLL（19:18:31 ctime 取证）。
+# 目录置只读后无法再写入；原权限记在目录内，卸载时按记录还原。
+protect_dir() {
+    local d="$1"
+    if [[ ! -f "$d/$DIR_MODE_MARKER" ]]; then
+        stat -c '%a' "$d" > "$d/$DIR_MODE_MARKER"
+    fi
+    if [[ "$(stat -c '%a' "$d")" != "$DIR_MODE" ]]; then
+        chmod "$DIR_MODE" "$d"
+    fi
+}
+
+unprotect_dir() {
+    local d="$1" mode='775'
+    if [[ -f "$d/$DIR_MODE_MARKER" ]]; then
+        mode="$(cat "$d/$DIR_MODE_MARKER")"
+    fi
+    chmod "$mode" "$d"
+    rm -f "$d/$DIR_MODE_MARKER"
 }
 
 # 输出：patched=1/0 changed=1/0；只改本机副本，第一次修改前备份。
@@ -128,6 +159,11 @@ status() {
         else
             state="$state shell=未补丁"; patched=0; rc=1
         fi
+        if [[ "$(stat -c '%a' "$d")" == "$DIR_MODE" ]]; then
+            state="$state 目录=只读"
+        else
+            state="$state 目录=可写"; rc=1
+        fi
         echo "  ${d##*/}:$state"
     done < <(patch_dirs)
     [[ "$patched" -eq 0 ]] && rc=1
@@ -151,6 +187,10 @@ apply() {
             n=$((n + 1))
         fi
     done < <(patch_dirs)
+    while IFS= read -r d; do
+        [[ -n "$d" ]] || continue
+        protect_dir "$d"
+    done < <(patch_dirs)
     echo "  本次变更 $n 项"
     status
 }
@@ -159,6 +199,7 @@ uninstall() {
     local d f n=0
     while IFS= read -r d; do
         [[ -n "$d" ]] || continue
+        unprotect_dir "$d"
         for f in "${TARGETS[@]}"; do
             if [[ -f "$d/$f$DISABLED_SUFFIX" ]]; then
                 mv "$d/$f$DISABLED_SUFFIX" "$d/$f"
@@ -174,7 +215,7 @@ uninstall() {
         fi
     done < <(patch_dirs)
     echo "  本次还原 $n 项"
-    status
+    status || true
 }
 
 case "${1:-}" in
