@@ -12,7 +12,6 @@
 |---|---|
 | `.codebuddy/skills/lisuan-7g100-compat/` | [`.codebuddy/skills/lisuan-7g100-compat/CHANGELOG.md`](.codebuddy/skills/lisuan-7g100-compat/CHANGELOG.md) |
 | `11/` | [`11/CHANGELOG.md`](11/CHANGELOG.md) |
-| `80/` | [`80/CHANGELOG.md`](80/CHANGELOG.md) |
 | `Plants-vs-Zombies/` | [`Plants-vs-Zombies/CHANGELOG.md`](Plants-vs-Zombies/CHANGELOG.md) |
 | `audio/` | [`audio/CHANGELOG.md`](audio/CHANGELOG.md) |
 | `doubao/` | [`doubao/CHANGELOG.md`](doubao/CHANGELOG.md) |

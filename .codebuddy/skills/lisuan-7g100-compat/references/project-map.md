@@ -101,7 +101,7 @@ deb 构建：`packaging/build-deb.sh <VER>`，输出 `packaging/dist/lisuan-fix_
 ## 关键文档
 
 - `README.md`：总索引；重点搜索 `驱动包|坑|GBM_BACKEND|Vulkan|Player.log|测试`。
-- `CHANGELOG.md`：仓库级条目与项目索引；各项目的日期验证结论已拆分到对应项目目录的 `CHANGELOG.md`（如 `80/CHANGELOG.md`、`steam/CHANGELOG.md`、`packaging/CHANGELOG.md`）。
+- `CHANGELOG.md`：仓库级条目与项目索引；各项目的日期验证结论已拆分到对应项目目录的 `CHANGELOG.md`（如 `steam/CHANGELOG.md`、`packaging/CHANGELOG.md`、`war3/CHANGELOG.md`）。
 - `.codebuddy/rules/仓库组织约定.md`、`.codebuddy/rules/崩溃处理约定.md`、`.codebuddy/rules/命令超时约定.md`。
 - `dkms/vendor-src/README.md`、`dkms/vendor-bug-report-gf-gbm-crash.md`。
 - `mesa/system-mesa-analysis.md`、`steam/steam-on-lisuan.md`。

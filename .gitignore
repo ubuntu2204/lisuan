@@ -37,11 +37,6 @@ doubao/doubao_client_*.exe
 # 实际安装器路径与 SHA 记录在 dreamina/README.md；需要复现时由用户自行从官网下载。
 dreamina/Dreamina-Desktop-*-x64-setup.exe
 
-# ---- 80 对战平台官网完整安装包：厂商专有二进制，不入库 ----
-# NSIS 安装包（约 180MB，含 OBS 录制器），换版本号会改文件名；
-# 文件名、版本与 SHA 记录在 80/README.md，仓库只保留脚本与文档。
-80/80duizhan_*.exe
-
 # ---- 11 对战平台官网安装包：厂商专有二进制，不入库 ----
 # Inno Setup 5.4.2 自解压 PE32 安装包（约 235MB），换版本号会改文件名；
 # 文件名、版本与 SHA 记录在 11/README.md，仓库只保留脚本与文档。

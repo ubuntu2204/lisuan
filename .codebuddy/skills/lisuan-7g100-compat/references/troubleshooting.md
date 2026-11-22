@@ -147,19 +147,6 @@ dkms status
 - 桌面没有图标是**独立的桌面集成问题**：旧模板 `Icon` 指向豆包图标、入口只在 `~/Desktop/`（DING 用 `xdg-user-dir DESKTOP`）、缺 `metadata::trusted`。`dreamina/extract-icon.py` 从本机官方 PE 的 `RT_ICON` 提取 7 个 PNG 尺寸写入 hicolor；`install-dreamina.sh --desktop-only` 重建 `Icon=dreamina` 的入口并打 trusted。厂商图标不入库。
 - 安装结果不能只看目录存在：`/S` 返回 0 也要校验主程序 PE 头与 `resources/app.asar`；超时(124)、Abort(2) 要分开报。安装前按 `/proc/<pid>/environ` 精确关闭本前缀进程，不做自动拉起。
 
-### KK 官方对战平台（魔兽争霸 III，Qt5 + QtWebEngine）
-
-- 安装用 `kk/install-kk-platform.sh`（NSIS `/S`、Proton 11 wine-11.0 独立前缀 `~/.deepinwine/kkduizhan-wine11`）；官方 exe 不入库，获取方式与 SHA 见 `kk/README.md`。
-- 裸跑 `Platform.exe` 约 3 秒退出（rc=5、无窗口）：`c0000005` 定位在 `Qt5WebEngineCore.dll+0x82FA45`，应用日志停在 `[PlatformManager:1117] clear cache`。根因是应用强制 `QT_OPENGL=angle`，默认 wined3d/Vulkan 后端在 Wine 11 下没初始化出 GL 设备；与 gf 硬件无关，安装文件也齐全。
-- 已证伪：`QT_OPENGL=software|desktop`（被应用代码覆盖）、`QTWEBENGINE_CHROMIUM_FLAGS` 与命令行 `--disable-gpu` / `--use-gl=desktop`、把工作目录改到安装目录。
-- 有效：`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json` 与 `WINE_D3D_CONFIG=renderer=gl`；消融显示任一单独即可越过崩溃，固化在 `kk/run-kk-platform.sh`（同时带项目软件渲染三件套）。验收 3 次：两个窗口 `IsViewable`、抓图 5674–11113 色、应用日志越过崩溃点并拿到 `status:200`、无 `c0000005`、主进程存活到显式收尾。
-- 图标是独立桌面集成问题：`kk/extract-icon.py` 从本机 `Platform.exe` 的 PE 资源提取 10 个尺寸写入 hicolor，`kk/fix-kk-desktop.sh` 写三个 `.desktop`（`Icon=kkduizhan` / Exec 指向启动器 / `metadata::trusted`），提供 `--status` / `--uninstall` 且幂等可逆；Wine 前缀里的 `.lnk` 不出现在 Linux 桌面。
-- **界面现象（2026-11-14 用户纠正）**：启动时盖住主界面的半透明深灰层是活动弹窗的模态遮罩，点弹窗 `X` 关闭即消失，是正常 UI、**不是 bug**，不要做 ARGB / 合成层干预。曾误判为「Depth 32 重影」并注入 `XLIB_SKIP_ARGB_VISUALS=1`，虽变不透明却让 QtWebEngine 主内容（游戏列表 / 商城导航）整片空白，**已撤销**；`KK_LAYOUT_LEGACY` / `KK_SKIP_ARGB` / 虚拟桌面开关一并移除。
-- **真正的缺陷是 Wine 对分层子窗口的坐标语义误处理**：KK 内容层 / 弹窗关闭按钮等分层子窗口 SetParent 后用 `UpdateLayeredWindow(pptDst=父客户区坐标)` 定位，Wine 按屏幕坐标解释 → win32k 矩形错停：视觉错开框架原点、子窗口命中裁剪丢弃点击、OR+TOPMOST 内容层盖住弹窗按键（含独立 41×41 关闭按钮窗飞到顶栏下）。**现行双层修复**：`kk/kk-user32-wrapper.c`（native user32 包装层，子窗口 pptDst 一律换算屏幕坐标，仅「保持位置」调用透传）+ `kk/kk-geometry-shim.c`（LD_PRELOAD：剥夺内容层抬升、弹窗抬到其上、拒绝客户面 detach 到 dummy）；`KK_GEOMETRY_SHIM=0` 可关；不监控、不守护、不自动重启。详见 `kk/README.md` §5 与 CHANGELOG `2026.11.16` 条目。
-- **未修复既有缺陷（11-16 二分定案，基线同样存在）**：大厅 QtWebEngine 交互面从不呈现（web 子窗口 win32k 矩形卡屏外、主框架客户面 offscreen 锁存），可见侧栏 / 导航仅为非交互镜像 → 选游戏 / 切页签仍不可用；登录页 web 面正常。往返重挂 / 微移 / WM 移框 / 软件渲染 flags 均无效；需 Wine 层修复，脚本层无解，勿再重复这些尝试。
-- 已证伪：一次性/多次 xdotool 对齐（只修视觉不修输入且被重置）、外部移主框架 + OR 化 + Managed=N + serial 错开（win32k 不回写）、Wine 虚拟桌面 1920x1080 与 1332x945（主框架仍被居中/钳制）、WebEngine 软件绘制 / DPR flags、SwiftShader、容器、`LIBGL_DRI3_DISABLE=1`。`_NET_WM_WINDOW_OPACITY` 尝试被用户中止、未执行。XTEST 合成点击在本机 XWayland 不投递 ButtonPress，点击验收用 XSendEvent（`_work/xsend-click.py`）或真实鼠标。
-- 未验收账号登录、房间匹配与 Warcraft III 本体对战；不要为该应用加自动重启或守护。
-
 ### 魔兽争霸 III 1.24 本体（`/opt/apps/war3/files`，32 位）
 
 - 32 位 `War3.exe`（1.24.6.387）在本机只能配同架构的 32 位 Vulkan 实现。继承宿主 `VK_ICD_FILENAMES`（`gf_icd.x86_64.json`，64 位）时，D3D8 → vkd3d → Vulkan 链初始化失败，进程跳到野地址 `0x35800000`（`c0000005`，伴随 `Storm Error : memory never released`），窗口一闪即灭；改用 `/usr/share/vulkan/icd.d/lvp_icd.json`（32 位 llvmpipe）后正常出窗。固化在 `war3/run-war3.sh`（变量只注入目标进程树）。
@@ -187,9 +174,9 @@ dkms status
 
 ## 10. Wayland 合成画面取证（2026-11-14）
 
-- **不要把 X11 抓图当证据**：本机 GNOME Wayland + XWayland 下，`xwd`（窗口与 root）、`ffmpeg -f x11grab`（窗口与 1920×1080 全屏）、PIL `ImageGrab` 都拿不到合成后内容，全屏实测 207 万像素纯黑、`xwd` 报 `BadMatch`。这是 `XGetImage` 的全局限制，不是应用渲染故障。曾据此误判 KK 对战平台「合成层脱节」，已在 `kk/README.md` 与 CHANGELOG 纠正。
+- **不要把 X11 抓图当证据**：本机 GNOME Wayland + XWayland 下，`xwd`（窗口与 root）、`ffmpeg -f x11grab`（窗口与 1920×1080 全屏）、PIL `ImageGrab` 都拿不到合成后内容，全屏实测 207 万像素纯黑、`xwd` 报 `BadMatch`。这是 `XGetImage` 的全局限制，不是应用渲染故障。
 - 已证伪通道：GNOME Shell `org.gnome.Shell.Screenshot` D-Bus 返回 `AccessDenied: Screenshot is not allowed`；`xdotool key shift+Print`（XTEST）到不了 Wayland 合成器，不落盘；portal Screenshot 会走交互授权，不适合自动取证。
-- **可用通道**：`org.gnome.Mutter.ScreenCast` D-Bus + PipeWire + GStreamer。工具 `.codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py`，用法 `python3 <脚本> -o /tmp/shot.png`，`--check` 只读查依赖。首帧实测 1920×1080 / 34486 色，能看到桌面、任务栏与各窗口；曾据此把 KK 弹窗遮罩误判为「半透明重影」，现已纠正（见 §8 KK 条目）。
+- **可用通道**：`org.gnome.Mutter.ScreenCast` D-Bus + PipeWire + GStreamer。工具 `.codebuddy/skills/lisuan-7g100-compat/scripts/capture-wayland-screen.py`，用法 `python3 <脚本> -o /tmp/shot.png`，`--check` 只读查依赖。首帧实测 1920×1080 / 34486 色，能看到桌面、任务栏与各窗口。
 - **关键坑**：ScreenCast session 与创建它的 D-Bus 连接绑定；`gdbus call` 逐条调用会在连接断开后被 Mutter 回收（再调 `RecordMonitor` 报「对象不存在」）。必须在同一条连接里完成 `CreateSession → RecordMonitor('DP-1') →` 订阅 `PipeWireStreamAdded(u node_id)` → `Session.Start()` → `gst-launch-1.0 pipewiresrc path=<node_id> num-buffers=1 ! videoconvert ! pngenc ! filesink` → `Session.Stop()`。
 - 会话必须显式 Stop，不留后台录屏；不做常驻/守护/自动重试。规则见 `.codebuddy/rules/Wayland抓图约定.md`。
 - 应用内 WebView 另可用 `QTWEBENGINE_REMOTE_DEBUGGING=9222` + CDP 读 `devicePixelRatio` / `Page.captureScreenshot`（只读 Web 层，不替代整屏合成画面）。

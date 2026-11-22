@@ -89,7 +89,7 @@ chmod +x 11/install-11duizhan.sh
 ./11/install-11duizhan.sh --help
 ```
 
-- 默认前缀：`~/.deepinwine/11duizhan-263`（正式版 2.6.3.48，与 KK、80 对战平台隔离）。
+- 默认前缀：`~/.deepinwine/11duizhan-263`（正式版 2.6.3.48，与其它应用前缀隔离）。
   历史 3.0 公测版前缀 `~/.deepinwine/11duizhan-wine11` 需显式用 `E11_WINE11_PREFIX` 指定。
   Proton 11.0 的 wine，只在 wine 进程树上设置 `WINEPREFIX` / `WINEDLLPATH` /
   `LD_LIBRARY_PATH` / `WINEDLLOVERRIDES=mscoree,mshtml=`，不污染全局 shell。
@@ -121,7 +121,7 @@ chmod +x 11/install-11duizhan.sh
 - 栈修复后仍有 GDI 句柄泄漏导致运行约 12 秒退出（见第 8 节，尚未修复）。
 - 崩溃处理：不加剧、不掩盖。先采集日志 / dump / journal 再定位根因，不加看门狗或自动重启
   （见 `.codebuddy/rules/崩溃处理约定.md`）。
-- 本目录未接入 `install.py` 菜单，与 `80/` 的处理方式一致。
+- 本目录未接入 `install.py` 菜单，与 `war3/` 等主题目录一致。
 
 ## 4. 桌面图标与启动入口（2026-11-17 实测）
 
