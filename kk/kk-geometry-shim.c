@@ -120,10 +120,12 @@ static int n_buttons;
 static Window w_dialog; /* 退出挽留弹窗 440x360：销毁即退出意图信号 */
 static long exit_arm;   /* 挽留弹窗销毁时刻；主框架恢复映射时清零 */
 static Window w_web;    /* web 宿主（"大黑框"）：1330x884 / 1158x884。点击交互面，
-                           历史取证其 X 窗 x≈466，比程序最左(293)偏右 ~173px →
-                           视觉按键落在黑框外、点不动。按用户要求左移对齐。 */
+                           历史取证其 X 窗 (466,92)，比程序左上角 (293,32) 偏右下
+                           ~173px / ~60px → 视觉按键落在黑框外、点不动。按用户
+                           要求左上对齐。 */
 
-/* 左移对齐开关：默认开（用户明确要求）；KK_WEB_ALIGN_LEFT=0 回退原行为。 */
+/* 左上对齐开关：默认开（用户明确要求）；KK_WEB_ALIGN_LEFT=0 回退原行为。
+   沿用 LEFT 变量名以兼容既有回退文档，语义已含 y（左上）。 */
 static int web_align_opt = -1;
 static int web_align(void)
 {
@@ -218,12 +220,12 @@ static int is_web_create(int depth, unsigned int w, unsigned int h)
     return !w_web && ((w == 1330 && h == 884) || (w == 1158 && h == 884));
 }
 
-/* 把 web 宿主 X 窗的左边缘对齐到主框架客户区左边缘（程序最左）。
+/* 把 web 宿主 X 窗的左上角对齐到主框架左上角（程序最左最上）。
    winex11 把 win32k 的父客户区坐标 (172,59) 当屏幕坐标 → web 宿主被摆到
-   x≈466，比程序最左 (293) 右移整个框架原点，视觉按键落在黑框外点不动。
-   按用户要求直接在 X 几何层左移：用 XGetGeometry 读当前位置，XMoveWindow
-   搬到 frame 客户区左边缘，y 保持不变。不做守护/监控，仅映射时纠一次，
-   与 wrapper 的 win32k 侧修复叠加后视觉与命中重合。 */
+   (466,92)，比程序左上角 (293,32) 偏右下整个框架原点，视觉按键落在黑框外
+   点不动。按用户要求直接在 X 几何层左上对齐：XGetGeometry 读当前位置，
+   XMoveWindow 搬到 frame 左上角（x/y 同时对齐）。不做守护/监控，仅映射时
+   纠一次，与 wrapper 的 win32k 侧修复叠加后视觉与命中重合。 */
 static void align_web_left(Display *dpy)
 {
     Window root;
@@ -232,9 +234,9 @@ static void align_web_left(Display *dpy)
     if (!web_align() || !w_web || !w_frame) return;
     if (!get_XGetGeometry()(dpy, w_web, &root, &gx, &gy, &gw, &gh, &gb, &gd)) return;
     if (!get_XGetGeometry()(dpy, w_frame, &root, &ax, &ay, &gw, &gh, &gb, &gd)) return;
-    if (gx == ax) return;
-    LOG("web %lx align left x %d -> %d (frame x %d)\n", w_web, gx, ax, ax);
-    get_XMoveWindow()(dpy, w_web, ax, gy);
+    if (gx == ax && gy == ay) return;
+    LOG("web %lx align top-left (%d,%d) -> (%d,%d)\n", w_web, gx, gy, ax, ay);
+    get_XMoveWindow()(dpy, w_web, ax, ay);
 }
 
 static int is_dummy(Window w)
@@ -326,12 +328,15 @@ int XConfigureWindow(Display *dpy, Window w, unsigned int mask, XWindowChanges *
 {
     XWindowChanges local;
     if (w == w_layer) mask &= ~CWStackMode; /* 不许抬升：保持在弹窗之下 */
-    /* 应用用 XConfigureWindow/CWX 把 web 宿主移回偏右时同样纠回程序最左。
-       用局部副本改 x，避免改动调用方结构。 */
-    if (w == w_web && web_align() && w_frame && (mask & CWX) && ch) {
+    /* 应用用 XConfigureWindow/CWX|CWY 把 web 宿主移回偏右下时同样纠回程序左上角。
+       用局部副本改 x/y，避免改动调用方结构。 */
+    if (w == w_web && web_align() && w_frame && (mask & (CWX | CWY)) && ch) {
         Window root; int gx, gy; unsigned int gw, gh, gb, gd;
         if (get_XGetGeometry()(dpy, w_frame, &root, &gx, &gy, &gw, &gh, &gb, &gd)) {
-            local = *ch; local.x = gx; ch = &local;
+            local = *ch;
+            if (mask & CWX) local.x = gx;
+            if (mask & CWY) local.y = gy;
+            ch = &local;
         }
     }
     return get_XConfigureWindow()(dpy, w, mask, ch);
@@ -347,11 +352,13 @@ int XReconfigureWMWindow(Display *dpy, Window w, int screen, unsigned int mask, 
         /* OR 弹窗没有 WM 应答 _NET_WM_MOVERESIZE，直连配置 */
         return get_XConfigureWindow()(dpy, w, mask, ch);
     }
-    if (w == w_web && web_align() && w_frame && (mask & CWX) && ch) {
+    if (w == w_web && web_align() && w_frame && (mask & (CWX | CWY)) && ch) {
         XWindowChanges local = *ch;
         Window root; int gx, gy; unsigned int gw, gh, gb, gd;
-        if (get_XGetGeometry()(dpy, w_frame, &root, &gx, &gy, &gw, &gh, &gb, &gd))
-            local.x = gx;
+        if (get_XGetGeometry()(dpy, w_frame, &root, &gx, &gy, &gw, &gh, &gb, &gd)) {
+            if (mask & CWX) local.x = gx;
+            if (mask & CWY) local.y = gy;
+        }
         return get_XReconfigureWMWindow()(dpy, w, screen, mask, &local);
     }
     return get_XReconfigureWMWindow()(dpy, w, screen, mask, ch);
@@ -359,11 +366,12 @@ int XReconfigureWMWindow(Display *dpy, Window w, int screen, unsigned int mask, 
 
 int XMoveWindow(Display *dpy, Window w, int x, int y)
 {
-    /* 应用把 web 宿主移回偏右位置时纠回程序最左（视觉按键与命中重合）。 */
+    /* 应用把 web 宿主移回偏右下时纠回程序左上角（视觉按键与命中重合）。 */
     if (w == w_web && web_align()) {
         Window root; int gx, gy; unsigned int gw, gh, gb, gd;
-        if (get_XGetGeometry()(dpy, w_frame, &root, &gx, &gy, &gw, &gh, &gb, &gd))
-            x = gx;
+        if (get_XGetGeometry()(dpy, w_frame, &root, &gx, &gy, &gw, &gh, &gb, &gd)) {
+            x = gx; y = gy;
+        }
     }
     return get_XMoveWindow()(dpy, w, x, y);
 }
@@ -372,8 +380,9 @@ int XMoveResizeWindow(Display *dpy, Window w, int x, int y, unsigned int cw, uns
 {
     if (w == w_web && web_align()) {
         Window root; int gx, gy; unsigned int gw, gh, gb, gd;
-        if (get_XGetGeometry()(dpy, w_frame, &root, &gx, &gy, &gw, &gh, &gb, &gd))
-            x = gx;
+        if (get_XGetGeometry()(dpy, w_frame, &root, &gx, &gy, &gw, &gh, &gb, &gd)) {
+            x = gx; y = gy;
+        }
     }
     return get_XMoveResizeWindow()(dpy, w, x, y, cw, ch);
 }
