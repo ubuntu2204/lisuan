@@ -4,7 +4,7 @@
 > **① 显示异常**（界面空白 / 花屏 / 黑块 / 经 XWayland 渲染残缺）
 > **② 硬件加速**（用 gf 驱动替代默认软件渲染）
 >
-> 已内置适配：ZCode、CodeBuddy 国内版、Qoder 国内版。其它 Electron 应用可用 `--cmd` / `--appimage` 复用。
+> 已内置适配：ZCode、CodeBuddy 国内版、Qoder 国内版、Trae。其它 Electron 应用可用 `--cmd` / `--appimage` 复用。
 
 ## 至砺算：官方实现什么可以让 Electron 应用直接正常运行
 
@@ -35,6 +35,13 @@
 | `use-trae.sh` | Trae（字节 AI IDE）入口，默认软件渲染稳定模式，`--hw` 切 gf 加速 |
 
 四个应用 wrapper 均通过 `exec "$DIR/use-electron-gf.sh" --app <name>` 转调基座，同目录引用。
+
+| 子目录 | 说明 |
+|---|---|
+| `trae/` | **Trae 专题**：两类问题（卡顿属 Trae 自身缺陷、显示错误属 gf EGL 兼容，二者独立）；6 篇分析 + 原始报告/调试记录 + 日志归档。入口 [`trae/README.md`](trae/README.md) |
+
+Trae 的显示错误与本节「显示异常三件套」同源，但需额外走 ANGLE/SwiftShader
+（见 `trae/docs/04-display-error-fix.md`）；卡顿链路与显卡无关，仍待官方修复。
 
 ## 各应用下载地址
 
@@ -193,6 +200,7 @@ bash use-electron-gf.sh --app qoder --no-hw
 | 双击图标无反应 | Exec 路径是否有效？是否 `gio set ... trusted`？ |
 | Steam 客户端 GLX 崩 | 是否把 gf env 设成了全局？应只作用于单个应用 |
 | 一切正常但想要更高性能 | 确认 `ICD=` 提示为垫片，且日志无 `vkCreateInstance` 错误 |
+| Trae 黑屏 / 花屏 / 不刷新 | 走 `use-trae.sh` 默认软件渲染；根因（gf EGL 与 ANGLE/Wayland 冲突）与规避证据见 [`trae/docs/02-root-cause-analysis.md`](trae/docs/02-root-cause-analysis.md) 与 [`trae/docs/04-display-error-fix.md`](trae/docs/04-display-error-fix.md) |
 
 诊断命令：
 

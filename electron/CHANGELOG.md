@@ -2,6 +2,20 @@
 
 > 从仓库根 `CHANGELOG.md` 拆分而来（2026-11-19）。按时间倒序；历史条目保留当时的命令与路径。
 
+## 2026.11.22 — Trae 问题归档迁入 `electron/trae/`
+
+### 变更
+1. `~/project/trae/`（README + 6 篇分析 + 原始报告/调试记录 + 日志归档）整体迁入
+   `electron/trae/`，纳入版本控制；Trae 是 Electron 应用，与 `use-trae.sh` 同主题，
+   原有 wrapper 与菜单 [10] 不变；
+2. `electron/README.md` 增加 Trae 专题索引与排障入口；仓库根 `README.md` 的
+   工具表/文档表挂上 `electron/trae/README.md`；
+3. `electron/trae/README.md` 与 `docs/04-display-error-fix.md`（操作指南）改用仓库
+   wrapper 作为现行入口，早期 `~/.local/bin/trae-fix` 三件套降级为历史证据；
+   原始报告与调试记录只在文首加新旧路径对照，正文保持当时原样。
+
+---
+
 ## 2026.09.07 — 新增 Trae（字节 AI IDE）Electron 启动 wrapper
 
 ### 背景

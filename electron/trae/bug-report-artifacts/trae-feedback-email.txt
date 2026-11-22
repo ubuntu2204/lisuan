@@ -1,0 +1,39 @@
+Subject: [Bug][Linux][Trae 3.5.81] UI lag and high CPU caused by shared process exception
+
+Hello Trae Support,
+
+I encountered severe UI lag on Linux while using Trae on this machine.
+
+Environment:
+- Trae version: 3.5.81
+- VS Code base: 1.107.1
+- Build version: 2.3.61406
+- OS: Ubuntu 24.04.4 LTS
+- Kernel: 7.0.0-28-generic
+
+Summary:
+- The machine itself is not under memory or disk pressure.
+- Multiple Trae subprocesses keep consuming CPU.
+- Trae shared process throws an uncaught exception and then repeatedly scans extensions / fetches extension gallery metadata.
+- Renderer logs also show repeated ShellExec failures, timeout signals, and Git activation errors.
+
+Most relevant evidence:
+- sharedprocess.log shows:
+  TypeError [ERR_INVALID_ARG_TYPE]: The first argument must be of type string ... Received undefined
+- After that, sharedprocess.log repeatedly prints:
+  Created extension scanner input ...
+  get extension gallery manifest ...
+- main.log and renderer.log additionally show:
+  cue-server ping failed response_timeout
+  fileWatcher crashed
+  ShellExec initLoginShellSnapshot failed
+  Activating extension 'vscode.git' failed: Git model not found
+
+I attached:
+- a markdown bug report
+- a debug summary
+- related Trae logs
+
+Please help investigate the shared process / extension scanning path on Linux.
+
+Best regards

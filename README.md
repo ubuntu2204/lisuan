@@ -145,13 +145,14 @@ right headers.
 | `electron/use-electron-gf.sh` | **通用 Electron / Chromium 应用 gf 硬件加速 wrapper**：显示异常三件套 + gf 驱动 GPU 加速（默认开），`--no-hw` 回退软件渲染；支持 `--app codebuddy\|qoder\|zcode` / `--cmd` / `--appimage` |
 | `electron/use-codebuddy.sh` | **CodeBuddy 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
 | `electron/use-qoder.sh` | **Qoder 国内版**加速启动 wrapper（复用上面通用脚本，默认 gf 加速） |
-| `electron/use-trae.sh` | **Trae**（字节 AI IDE）启动 wrapper——**默认软件渲染稳定模式**（X11 + ANGLE/SwiftShader，绕开 gf EGL 的显示错误）；`--hw` 可切 gf 硬件加速（实验，可能复现花屏） |
+| `electron/use-trae.sh` | **Trae**（字节 AI IDE）启动 wrapper——**默认软件渲染稳定模式**（X11 + ANGLE/SwiftShader，绕开 gf EGL 的显示错误）；`--hw` 可切 gf 硬件加速（实验，可能复现花屏）；问题分析与日志归档见 [`electron/trae/README.md`](electron/trae/README.md) |
 
 **文档（docs）**：
 
 | 路径 | 说明 |
 |---|---|
 | `mesa/system-mesa-analysis.md` | 7G100 与系统 Mesa 25.2.x 的源码级兼容性分析（为什么原生加载不可行、zink 路径、已知地雷） |
+| `electron/trae/README.md` | **Trae 专题**：卡顿（Trae shared process 自身缺陷，已上报）与显示错误（gf EGL + Wayland/ANGLE 不兼容，已用软件渲染规避）两条独立链路；含 6 篇分析、原始报告/调试记录与日志归档 |
 | `dkms/vendor-bug-report-gf-gbm-crash.md` | 提交厂商的 bug 报告（gf_gbm 段错误、容器内 EGL 分发、GLX vendor 注册缺失三个问题，附完整证据链） |
 | `left4dead2/README.md` | **求生之路 2 操作指南**：原生 32 位 Vulkan/Venus 链、安装与验证、D16 和 locale 排障；完整证据见同目录 `探索记录.md`，历史工具见 `archive/README.md` |
 | `underlords/fix-underlords-native.md` | **刀塔霸业（Dota Underlords）修复文档**：Steam 容器内崩溃根因、容器委托宿主直跑、libpng12 补齐、panorama 随机段错误智能重试与退出检测 |
