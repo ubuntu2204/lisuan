@@ -15,7 +15,6 @@
 | `Plants-vs-Zombies/` | [`Plants-vs-Zombies/CHANGELOG.md`](Plants-vs-Zombies/CHANGELOG.md) |
 | `audio/` | [`audio/CHANGELOG.md`](audio/CHANGELOG.md) |
 | `doubao/` | [`doubao/CHANGELOG.md`](doubao/CHANGELOG.md) |
-| `dreamina/` | [`dreamina/CHANGELOG.md`](dreamina/CHANGELOG.md) |
 | `electron/` | [`electron/CHANGELOG.md`](electron/CHANGELOG.md) |
 | `kingdom-rush/` | [`kingdom-rush/CHANGELOG.md`](kingdom-rush/CHANGELOG.md) |
 | `left4dead2/` | [`left4dead2/CHANGELOG.md`](left4dead2/CHANGELOG.md) |
@@ -28,6 +27,10 @@
 
 > 2026.10.14 Navicat 18 Premium Lite（AppImage）启动闪退条目已迁至 hygon 仓库
 > `CHANGELOG.md`（脚本与文档在 `~/project/hygon/navicat/`）；本仓库不再保留该条目。
+>
+> 2026.11.23 即梦 AI（Dreamina）1.0.59 补丁与文档已迁至 hygon 仓库
+> `Dreamina/`（`~/project/hygon/Dreamina/`）；菜单 28/29、deb 打包目录、体检函数与
+> `tests/test-dreamina-install.sh` 一并撤销。`11/` 复用的图标提取器改为同目录副本。
 
 ---
 

@@ -89,7 +89,7 @@ from pathlib import Path
 root = Path(sys.argv[1])
 sys.path.insert(0, str(root / "packaging"))
 import lisuan_fix_core as core
-assert len(core.ITEMS_BY_ID) == 29
+assert len(core.ITEMS_BY_ID) == 27
 assert core.GROUP_ORDER[-1] == "Windows 应用"
 assert core.ITEMS_BY_ID[22]["root"] is False
 assert core.ITEMS_BY_ID[22]["cmd"]([])[1].endswith("left4dead2/fix-l4d2.sh")
@@ -103,49 +103,26 @@ assert core.ITEMS_BY_ID[24]["cmd"]([])[1].endswith("Plants-vs-Zombies/fix-plants
 assert core.ITEMS_BY_ID[25]["doc"] == "Plants-vs-Zombies/README.md"
 assert core.UNDO[24]["root"] is False
 assert "--uninstall" in core.UNDO[24]["cmd"]
-# Windows 应用（Wine 11）：豆包 / 即梦 AI 官方 Windows 客户端
-# 安装项 + 说明项各两个；都是当前用户操作，不需要 root。
+# Windows 应用（Wine 11）：豆包官方 Windows 客户端
+# 安装项 + 说明项各一个；都是当前用户操作，不需要 root。
 assert core.ITEMS_BY_ID[26]["root"] is False
 assert core.ITEMS_BY_ID[26]["cmd"]([])[1].endswith("doubao/install-doubao.sh")
 assert core.ITEMS_BY_ID[26]["group"] == "Windows 应用"
 assert core.ITEMS_BY_ID[27]["doc"] == "doubao/README.md"
-assert core.ITEMS_BY_ID[28]["root"] is False
-assert core.ITEMS_BY_ID[28]["cmd"]([])[1].endswith("dreamina/install-dreamina.sh")
-assert core.ITEMS_BY_ID[28]["group"] == "Windows 应用"
-assert core.ITEMS_BY_ID[29]["doc"] == "dreamina/README.md"
 PY
 t_assert_eq 0 $? "L4D2 menu 22/23 and undo registration"
 
 # --- 7b. Windows 应用（Wine 11）资源与打包 -----------------------------------
 for f in doubao/install-doubao.sh \
          doubao/run-doubao-wine11.sh \
-         doubao/README.md \
-         dreamina/install-dreamina.sh \
-         dreamina/extract-icon.py \
-         dreamina/dreamina-wine.desktop \
-         dreamina/run-dreamina.sh \
-         dreamina/powershell-stub.c \
-         dreamina/README.md; do
+         doubao/README.md; do
   [[ -f "${REPO_TOP}/$f" ]]
   t_assert_eq 0 $? "Wine 11 app resource present: $f"
 done
 t_assert_grep "${REPO_TOP}/packaging/build-deb.sh" \
-  'for d in doubao dreamina' "deb includes Wine 11 app scripts"
-# 即梦桌面图标回归：模板不能借用豆包图标，安装脚本必须提供体检/桌面修复/回滚入口。
-t_assert_grep "${REPO_TOP}/dreamina/dreamina-wine.desktop" \
-  '^Icon=dreamina$' "dreamina desktop uses themed icon"
-t_assert_not_grep "${REPO_TOP}/dreamina/dreamina-wine.desktop" \
-  'doubao' "dreamina desktop no longer borrows doubao icon"
-for flag in --desktop-only --status --uninstall --help; do
-  t_assert_grep "${REPO_TOP}/dreamina/install-dreamina.sh" \
-    "$flag" "dreamina installer supports $flag"
-done
-t_assert_grep "${REPO_TOP}/dreamina/powershell-stub.c" \
-  'DREAMINA_PS_STUB_V1' "powershell stub has unique marker"
-t_assert_grep "${REPO_TOP}/dreamina/run-dreamina.sh" \
-  'AppData/Local/Programs/dreamina-desktop' "launcher locates install dir"
+  'for d in doubao' "deb includes Wine 11 app scripts"
 # 官方安装器属厂商专有产物，不得入库
-for pat in 'dreamina/Dreamina-Desktop-*-x64-setup.exe' 'doubao/doubao_client_*.exe'; do
+for pat in 'doubao/doubao_client_*.exe'; do
   if git -C "$REPO_TOP" ls-files -z -- "$pat" 2>/dev/null | grep -qz .; then
     t_fail "vendor installer must not be tracked: $pat"
   else

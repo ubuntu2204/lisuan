@@ -516,8 +516,9 @@ def _doc(rel: str) -> str:
 #      （01-gf_drv.conf 的 kernel_driver/dri_driver 映射）天然找到 gf 驱动，
 #      Steam 走 GBM_BACKEND=dri，全局软链反而会使 Steam 客户端 double free。
 #      修复/清理脚本保留在 mesa/ 作手动工具，不再占用菜单编号。
-#   5) "Windows 应用"组收录豆包 / 即梦 AI 两个官方 Windows 客户端：
-#      都在独立的 Wine 11 前缀里运行，不涉及内核驱动与系统图形栈。
+#   5) "Windows 应用"组收录豆包 Windows 客户端：
+#      在独立的 Wine 11 前缀里运行，不涉及内核驱动与系统图形栈。
+#      即梦 AI 的补丁已迁至 hygon 仓库 Dreamina/，本仓库不再提供菜单入口。
 ITEMS: list[Item] = [
     # ---- 环境检测（含两项体检）----
     {"id": 1,  "title": "重新检测系统环境", "group": "环境检测", "root": False,
@@ -615,19 +616,14 @@ ITEMS: list[Item] = [
      "root": False, "cmd": None, "doc": _doc("Plants-vs-Zombies/README.md")},
 
     # ---- Windows 应用（Wine 11）----
-    # 豆包 / 即梦 AI 的官方 Windows 客户端，用 Valve Proton 11.0 的 wine-11.0 运行。
-    # 两者各自独立前缀（~/.deepinwine/<app>-wine11），不碰系统 Wine、不装驱动。
+    # 豆包官方 Windows 客户端，用 Valve Proton 11.0 的 wine-11.0 运行。
+    # 独立前缀（~/.deepinwine/doubao-wine11），不碰系统 Wine、不装驱动。
     # 安装器路径可作为附加参数传入（菜单执行时用脚本内置的默认查找顺序）。
     {"id": 26, "title": "安装/修复：豆包 Windows 客户端（Wine 11 + 官方在线安装器）",
      "group": "Windows 应用", "root": False,
      "cmd": lambda a: _sh("doubao/install-doubao.sh", *a), "doc": ""},
     {"id": 27, "title": "说明：豆包客户端排障记录（Wine 11 / 托盘菜单定案）", "group": "Windows 应用",
      "root": False, "cmd": None, "doc": _doc("doubao/README.md")},
-    {"id": 28, "title": "安装/修复：即梦 AI Windows 客户端（Wine 11 + NSIS 静默安装）",
-     "group": "Windows 应用", "root": False,
-     "cmd": lambda a: _sh("dreamina/install-dreamina.sh", *a), "doc": ""},
-    {"id": 29, "title": "说明：即梦 AI 安装与渲染记录（Wine 11 / ANGLE 黑屏根因）", "group": "Windows 应用",
-     "root": False, "cmd": None, "doc": _doc("dreamina/README.md")},
 ]
 
 ITEMS_BY_ID = {it["id"]: it for it in ITEMS}
@@ -1038,38 +1034,6 @@ def _wine11_app_state(prefix: Path, rel_exe: str, installer: Path,
     return ("! 前缀存在但无客户端", "warn")
 
 
-def _dreamina_desktop_state(home: Path) -> tuple[str, str]:
-    """即梦 AI 的桌面图标/入口状态：只看实际生效文件，不看脚本是否跑过。
-
-    2026-11-09 前桌面模板指向豆包图标、图标又没装进 hicolor 主题，
-    客户端虽然已安装，桌面却没有即梦图标。单独检查这一层，菜单 28 才会提示修复。
-    """
-    xdg = os.environ.get("XDG_DATA_HOME")
-    data_home = Path(xdg) if xdg and Path(xdg).is_absolute() \
-        else home / ".local/share"
-    icon = data_home / "icons/hicolor/256x256/apps/dreamina.png"
-    try:
-        with icon.open("rb") as fh:
-            sig = fh.read(8)
-    except OSError:
-        sig = b""
-    if sig != b"\x89PNG\r\n\x1a\n":
-        return ("! 桌面图标缺失", "warn")
-
-    desktop_dirs = [d for d in (home / "Desktop", home / "桌面") if d.is_dir()]
-    entries = [d / "dreamina-wine.desktop" for d in desktop_dirs]
-    entries.append(data_home / "applications/dreamina-wine.desktop")
-    for entry in entries:
-        try:
-            text = entry.read_text(encoding="utf-8")
-        except OSError:
-            return ("! 桌面入口缺失", "warn")
-        if ("Icon=dreamina" not in text or "run-dreamina.sh" not in text
-                or "doubao" in text.lower()):
-            return ("! 桌面入口/图标待修", "warn")
-    return ("✓ 已安装", "ok")
-
-
 def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     """各菜单项的修复状态：{item_id: (状态文本, 级别)}。
 
@@ -1228,20 +1192,13 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     st[22] = _l4d2_state(home)
     st[23] = ("按需", "dim")
 
-    # 26/28 Windows 应用（Wine 11）：豆包 / 即梦 AI。
-    # 两者都在各自独立的用户前缀里，不影响系统 Wine，也不需要 root。
+    # 26 Windows 应用（Wine 11）：豆包。
+    # 独立用户前缀，不影响系统 Wine，也不需要 root。
     st[26] = _wine11_app_state(
         home / ".deepinwine/doubao-wine11",
         "drive_c/users/*/AppData/Local/Doubao/Application/app/Doubao.exe",
         S / "doubao", "doubao_client_*.exe")
     st[27] = ("按需", "dim")
-    st[28] = _wine11_app_state(
-        home / ".deepinwine/dreamina-wine11",
-        "drive_c/users/*/AppData/Local/Programs/dreamina-desktop/*.exe",
-        S / "dreamina", "Dreamina-Desktop-*-x64-setup.exe")
-    if st[28][1] == "ok":
-        st[28] = _dreamina_desktop_state(home)
-    st[29] = ("按需", "dim")
 
     return st
 

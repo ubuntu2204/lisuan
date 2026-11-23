@@ -32,10 +32,8 @@ left4dead2/gf-compat/
 # 实际安装器路径与 SHA 记录在 doubao/README.md；需要复现时由用户自行从官网下载。
 doubao/doubao_client_*.exe
 
-# ---- Dreamina 官方桌面客户端安装器：厂商专有二进制，不入库 ----
-# 官网下载的 PE 安装器（约 103MB），每次换版本号都会改文件名，仓库只保留脚本与文档。
-# 实际安装器路径与 SHA 记录在 dreamina/README.md；需要复现时由用户自行从官网下载。
-dreamina/Dreamina-Desktop-*-x64-setup.exe
+# ---- Dreamina 官方安装器（已迁出）----
+# 补丁与文档已迁至 hygon 仓库 Dreamina/；官方安装器属厂商专有产物，仍不入库。
 
 # ---- 11 对战平台官网安装包：厂商专有二进制，不入库 ----
 # Inno Setup 5.4.2 自解压 PE32 安装包（约 235MB），换版本号会改文件名；

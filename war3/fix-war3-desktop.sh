@@ -4,7 +4,7 @@
 # 并用安装目录自带的 128x128 war3.png 补齐大尺寸，写入 hicolor，
 # 再生成指向隔离启动器 run-war3.sh 的桌面项。
 #
-# 图标产物不入库（写入 ~/.local/share/icons），复用 dreamina/extract-icon.py。
+# 图标产物不入库（写入 ~/.local/share/icons），复用本目录 extract-icon.py（源自 hygon/Dreamina）。
 # 默认只改 Exec / Icon 两行并保留用户其它定制；改文件前生成 .bak；
 # 不做崩溃后自动重启/守护。
 #
@@ -18,7 +18,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="$SCRIPT_DIR/run-war3.sh"
-EXTRACTOR="$SCRIPT_DIR/../dreamina/extract-icon.py"
+EXTRACTOR="$SCRIPT_DIR/extract-icon.py"
 GAME_DIR="${WAR3_DIR:-/opt/apps/war3/files}"
 GAME_DIR="${GAME_DIR%/}"
 MAIN_EXE="$GAME_DIR/War3.exe"

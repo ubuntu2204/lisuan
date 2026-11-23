@@ -126,7 +126,7 @@ chmod +x 11/install-11duizhan.sh
 ## 4. 桌面图标与启动入口（2026-11-17 实测）
 
 安装器只在 Wine 前缀里留了 Windows `.lnk`，Linux 桌面没有图标；用下面的脚本
-从 `11loader.exe` 的 PE 资源提取官方图标（复用 `dreamina/extract-icon.py`），
+从 `11loader.exe` 的 PE 资源提取官方图标（复用本目录 `extract-icon.py`，源自 hygon/Dreamina），
 写入 `~/.local/share/icons/hicolor`，并生成指向隔离启动器的桌面项。
 
 ```bash

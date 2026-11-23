@@ -109,7 +109,6 @@ right headers.
 | `mesa/` | Mesa 图形栈 | 驱动名修复（`lisuan` vs `gf`）、系统 Mesa 兼容、切换与体检、源码级分析 |
 | `audio/` | 显卡音频 | 7G100 伴生 HDA（`4c54:5010`）绑 `snd_hda_intel` 的 INTx 修复、开机自绑、BAR0 诊断探针；根因与证据见 [`audio/README.md`](./audio/README.md) |
 | `doubao/` | 豆包 Windows 客户端 | 官方 2.32.6 在 Wine 11（Proton 11.0）下的安装/启动/排障；托盘菜单「关一次即永久失效」的反编译定案；根因与证据见 [`doubao/README.md`](./doubao/README.md) |
-| `dreamina/` | 即梦 AI Windows 客户端 | 官方 1.0.59 在 Wine 11 下的安装/启动；NSIS 安装器需替换 Wine 的 powershell 空壳 stub；Electron 黑屏根因（ANGLE 要求 `WGL_NV_DX_interop2`）；见 [`dreamina/README.md`](./dreamina/README.md) |
 | `war3/` | 魔兽争霸 III（1.24 冰封王座） | 32 位 War3 在 7G100 上跑通：必须改用 **32 位 llvmpipe ICD**（继承 64 位 gf ICD 会 `eip=0x35800000` 崩溃），并禁止同一 wine 前缀并发实例（否则弹 `was unable to initialize`）；含启动器、桌面入口与存档目录可写修复；见 [`war3/README.md`](./war3/README.md) |
 
 其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）。
@@ -232,7 +231,7 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 20-21)  音频         显卡 HDMI/DP 安装/修复 · 说明
 22-23)  求生之路 2   原生 Venus 安装/修复 · 说明（卸载走 22 的操作列）
 24-25)  植物大战僵尸  安装/修复 · 说明
-26-29)  Windows 应用 豆包 · 说明 · 即梦 AI · 说明（Wine 11 官方 Windows 客户端）
+26-27)  Windows 应用 豆包 · 说明（Wine 11 官方 Windows 客户端）
 ```
 
 > **Steam 菜单 [12]** 现在统一修用户级菜单项、XDG 桌面图标与历史 `~/Desktop` 入口：
@@ -249,26 +248,20 @@ lisuan-fix --detect                                     # PATH 直达，资源�
 > 注意：编号已按新分组**重新编排**。
 > 本文件及项目各处引用的"菜单 [N]"均已同步为新编号。
 >
-> **Windows 应用组（26–29）** 收录豆包与即梦 AI 两个官方 Windows 客户端，
-> 用 Valve Proton 11.0 的 wine-11.0 在**独立用户前缀**里运行
-> （`~/.deepinwine/doubao-wine11`、`~/.deepinwine/dreamina-wine11`），
+> **Windows 应用组（26–27）** 收录豆包官方 Windows 客户端，
+> 用 Valve Proton 11.0 的 wine-11.0 在**独立用户前缀**（`~/.deepinwine/doubao-wine11`）里运行，
 > 不碰系统 Wine、不装驱动、不需要 root。官方安装器属厂商专有产物，
-> **不入库**（见 `.gitignore`），需自行从官网下载后放入 `doubao/` / `dreamina/`
-> 目录（或 `~/下载`），安装脚本会自动查找：
+> **不入库**（见 `.gitignore`），需自行从官网下载后放入 `doubao/` 目录（或 `~/下载`），
+> 安装脚本会自动查找：
 
 ```bash
-# 手动执行（与菜单 [26] / [28] 等价）
+# 手动执行（与菜单 [26] 等价）
 ./doubao/install-doubao.sh [安装器.exe]        # 也可放 ~/下载/ 自动查找
-./dreamina/install-dreamina.sh [安装器.exe]    # 按版本号自动查找多个安装器
-
-# 只修即梦 AI 的桌面图标/入口，不重装 100 MB 客户端
-./dreamina/install-dreamina.sh --desktop-only
-./dreamina/install-dreamina.sh --status
 ```
 
-即梦的官方图标由 `dreamina/extract-icon.py` 从本机官方 exe 的 PE 资源提取到
-`~/.local/share/icons/hicolor/`，桌面项写 `Icon=dreamina` 并标记 trusted；
-不再借用豆包图标，也不把厂商图标资源提交进仓库。细节见 [`dreamina/README.md`](./dreamina/README.md) §1.1。
+> 即梦 AI（Dreamina）1.0.59 的补丁与文档已于 2026-11-23 迁至 hygon 仓库
+> [`Dreamina/`](../hygon/Dreamina/README.md)；本仓库不再提供菜单入口。
+> `11/` 目录的图标提取器改为同目录副本（源自迁出的 `Dreamina/extract-icon.py`）。
 
 **GUI 依赖**（Ubuntu 24.04 默认未装 tkinter 运行时）：
 

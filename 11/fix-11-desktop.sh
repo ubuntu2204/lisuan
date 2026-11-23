@@ -4,7 +4,7 @@
 # 提取官方图标写入 hicolor，并把桌面项指向隔离启动器 run-11duizhan.sh。
 #
 # 厂商图标产物不入库（写入 ~/.local/share/icons），复用已有的
-# dreamina/extract-icon.py，只保留脚本与文档。
+# 复用本目录 extract-icon.py（源自 hygon/Dreamina），只保留脚本与文档。
 # 默认只改 Exec / Icon 两行并保留用户其它定制；改文件前生成 .bak；
 # 不做崩溃后自动重启/守护。
 #
@@ -18,7 +18,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="$SCRIPT_DIR/run-11duizhan.sh"
-EXTRACTOR="$SCRIPT_DIR/../dreamina/extract-icon.py"
+EXTRACTOR="$SCRIPT_DIR/extract-icon.py"
 PREFIX="${E11_WINE11_PREFIX:-$HOME/.deepinwine/11duizhan-263}"
 PREFIX="${PREFIX/#\~/$HOME}"
 INSTALL_DIR_REL="${E11_INSTALL_DIR:-11duizhan}"

@@ -10,7 +10,6 @@
     python3 install.py 22 [参数]       非交互直执行第 22 项（安装/修复 L4D2）
     python3 install.py 23              查看 L4D2 修复与排障说明
     python3 install.py 26 [安装器]     安装/升级豆包 Windows 客户端（Wine 11）
-    python3 install.py 28 [安装器]     安装/升级即梦 AI Windows 客户端（Wine 11）
     python3 install.py -h              显示核心模块帮助
 
 实现拆分：

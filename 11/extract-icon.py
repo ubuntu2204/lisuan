@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# 同源副本：源自 hygon/Dreamina/extract-icon.py（Dreamina 补丁已迁出 lisuan）。
 # -*- coding: utf-8 -*-
 """从即梦 AI 官方 PE 安装器/主程序的 RT_ICON 资源里提取应用图标。
 

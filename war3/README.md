@@ -11,7 +11,7 @@
 | --- | --- |
 | 游戏安装 | `/opt/apps/war3/files`（约 1.1 GB，204 个文件）：`War3.exe`（PE32）、`Game.dll`（1.24a，12.1 MB）、`Storm.dll`、`WAR3.MPQ`(632 MB)、`War3x.mpq`(342 MB)、`war3patch.mpq`(37 MB)、`War3xlocal.mpq`(45 MB)、`Maps/`、`Save/`、`Replay/`、`Font/`、`redist/miles/` |
 | 主程序 | `War3.exe`，PE32 GUI，依赖 `Storm.dll`/`mss32.dll`/`MSVCR80.dll` 等，均随游戏自带 |
-| Wine 前缀 | `~/.deepinwine/war3-wine11`（与 11 对战平台、豆包、即梦等前缀隔离） |
+| Wine 前缀 | `~/.deepinwine/war3-wine11`（与 11 对战平台、豆包等前缀隔离） |
 | Proton | `~/.local/share/Steam/steamapps/common/Proton 11.0`（wine-11.0，new WoW64） |
 | Vulkan ICD | `/usr/share/vulkan/icd.d/lvp_icd.json` → `libvulkan_lvp.so`（32 位版在 `/usr/lib/i386-linux-gnu/`） |
 

@@ -140,12 +140,10 @@ dkms status
 - 禁止把 `update.exe` 改名，豆包修复器会把它列入 `missing_files`；版本屏蔽配置也不能阻止 `update_data` 覆盖更新器。
 - Windows 客户端全量 Electron 重打包不推荐；网页版 Electron 外壳是功能受限的备用方案。
 
-### 即梦 AI Windows 客户端（1.0.59）
+### 即梦 AI Windows 客户端（1.0.59；已迁至 hygon 仓库）
 
-- 安装器是 electron-builder NSIS；Wine 自带 `powershell.exe` 空壳一律 `exit 0`，安装器把「无进程」误判成「有进程」，`/S` 返回 2 直接 Abort。必须换成 `dreamina/powershell-stub.c` 的替身：凡命令行含 `Get-CimInstance` 返回 1。旧脚本把「是否已替换」判断写反（含字符串才替换），全新前缀反而跳过，2026-11-09 改用唯一标记 `DREAMINA_PS_STUB_V1`。
-- 渲染黑屏根因是 ANGLE 在 Wine 下要求 `WGL_NV_DX_interop2`；`--use-gl=desktop` 绕开 ANGLE 走 Mesa llvmpipe，登录界面可完整显示。与 gf 驱动无关，不要给这个应用注入 gf 环境。
-- 桌面没有图标是**独立的桌面集成问题**：旧模板 `Icon` 指向豆包图标、入口只在 `~/Desktop/`（DING 用 `xdg-user-dir DESKTOP`）、缺 `metadata::trusted`。`dreamina/extract-icon.py` 从本机官方 PE 的 `RT_ICON` 提取 7 个 PNG 尺寸写入 hicolor；`install-dreamina.sh --desktop-only` 重建 `Icon=dreamina` 的入口并打 trusted。厂商图标不入库。
-- 安装结果不能只看目录存在：`/S` 返回 0 也要校验主程序 PE 头与 `resources/app.asar`；超时(124)、Abort(2) 要分开报。安装前按 `/proc/<pid>/environ` 精确关闭本前缀进程，不做自动拉起。
+- 补丁、脚本与完整排障记录已于 2026-11-23 迁至 `~/project/hygon/Dreamina/`（见其 `README.md`）；本仓库不再提供 `install.py` 菜单 28/29。
+- 要点：electron-builder NSIS 安装器需替换 Wine 的 powershell 空壳 stub（凡含 `Get-CimInstance` 返回 1）；渲染黑屏用 `--use-gl=desktop` 绕开 ANGLE 的 `WGL_NV_DX_interop2`，与 gf 驱动无关；桌面图标由官方 PE 的 `RT_ICON` 提取，不入库。
 
 ### 魔兽争霸 III 1.24 本体（`/opt/apps/war3/files`，32 位）
 

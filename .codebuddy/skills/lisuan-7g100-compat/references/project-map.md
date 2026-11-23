@@ -54,7 +54,7 @@ python3 install.py -h
 | `left4dead2/` | 原生 L4D2 + Venus 转发、locale shim、历史归档 |
 | `Plants-vs-Zombies/` | 32 位 PVZ、wined3d GL、Steam 启动选项修复 |
 | `doubao/` | 豆包 2.32.6 的 Steam Runtime 容器启动器、桌面入口修复、安装器与排障记录；菜单 26/27 |
-| `dreamina/` | 即梦 AI 1.0.59 的 NSIS 安装/升级、powershell 替身、PE 图标提取、桌面入口与渲染记录；菜单 28/29 |
+| `Dreamina/`（hygon 仓库） | 即梦 AI 1.0.59 的 NSIS 安装/升级、powershell 替身、PE 图标提取、桌面入口与渲染记录；2026-11-23 迁出本仓库，不再占菜单编号 |
 | `war3/` | 魔兽争霸 III 1.24（32 位，Proton 11 / wine-11.0）：必须用 32 位 llvmpipe ICD（继承 64 位 gf ICD 会 `eip=0x35800000` 崩溃），同一 wine 前缀并发实例会弹 `was unable to initialize`；含启动器、桌面入口、存档目录可写修复；未接入菜单 |
 | `packaging/` | 核心模块、GUI、deb 构建脚本 |
 | `tests/` | 离线回归套件与 fixtures |
@@ -70,7 +70,7 @@ python3 install.py -h
 
 ## 测试与构建
 
-`tests/run-tests.sh` 收集 11 个 `test-*.sh`：
+`tests/run-tests.sh` 收集 10 个 `test-*.sh`：
 
 1. `test-patch.sh`
 2. `test-makefile-logic.sh`
@@ -81,10 +81,9 @@ python3 install.py -h
 7. `test-repo-health.sh`
 8. `test-vendor-src.sh`
 9. `test-plants-vs-zombies.sh`
-10. `test-dreamina-install.sh`（临时 HOME + 合成 PE 验证图标/桌面入口/回滚）
-11. `test-steam-desktop.sh`（临时 HOME 验证菜单 12 统一修复/回滚全部桌面入口）
+10. `test-steam-desktop.sh`（临时 HOME 验证菜单 12 统一修复/回滚全部桌面入口）
 
-`test-repo-health.sh` 断言 29 个菜单项、L4D2/PVZ/Windows 应用注册、UNDO、驱动基线常量、项目技能存在且未被 `.gitignore` 排除。
+`test-repo-health.sh` 断言 27 个菜单项、L4D2/PVZ/Windows 应用注册、UNDO、驱动基线常量、项目技能存在且未被 `.gitignore` 排除。
 
 deb 构建：`packaging/build-deb.sh <VER>`，输出 `packaging/dist/lisuan-fix_<VER>_all.deb`。CI 是 `.workflow/gitee-go-build-deb.yml`，Gitee Go 原生 schema，固定产物 `lisuan-fix.deb`，Tag `deb-latest`。
 
@@ -92,10 +91,10 @@ deb 构建：`packaging/build-deb.sh <VER>`，输出 `packaging/dist/lisuan-fix_
 
 | 项 | README/注释旧描述 | 代码实际 |
 |---|---|---|
-| 菜单 | 10 组 23 项 | 29 项 12 组，`tests/test-repo-health.sh` 断言 29 |
-| 主题目录 | 9 个 | 13 个，`kingdom-rush/`、`doubao/`、`dreamina/`、`war3/` 未列入旧表 |
-| 测试套件 | 6 / 7 个 | 11 个 |
-| deb 覆盖 | core 注释称不含 `minion-masters/` | `build-deb.sh` 已精简打包 `doubao/` 与 `dreamina/`（不含厂商 exe）；真正未打包的是 `Plants-vs-Zombies/` |
+| 菜单 | 10 组 23 项 | 27 项 12 组，`tests/test-repo-health.sh` 断言 27 |
+| 主题目录 | 9 个 | 12 个（`dreamina/` 已迁出），`kingdom-rush/`、`doubao/`、`war3/` 未列入旧表 |
+| 测试套件 | 6 / 7 个 | 10 个 |
+| deb 覆盖 | core 注释称不含 `minion-masters/` | `build-deb.sh` 已精简打包 `doubao/`（不含厂商 exe）；真正未打包的是 `Plants-vs-Zombies/` |
 | Steam 方案 | 旧脚本头仍描述注入和 `chattr +i` | 当前只改桌面 `Exec` 注入四项：`GBM_BACKEND=dri`、`LIBGL_ALWAYS_SOFTWARE=1`、`__GLX_VENDOR_LIBRARY_NAME=mesa`、`-cef-disable-gpu`；旧脚本仅用于清理残留 |
 
 ## 关键文档

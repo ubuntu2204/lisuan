@@ -5,8 +5,7 @@
 # 产物布局：
 #   /usr/bin/lisuan-fix                     可执行入口（install.py 副本，无扩展名）
 #   /usr/share/lisuan-fix/{install.py,lisuan_fix_core.py,lisuan_fix_gui.py}  模块
-#   /usr/share/lisuan-fix/{dkms,mesa,steam,underlords,electron,kingdom-rush,audio,left4dead2,doubao,dreamina}/ 修复脚本
-#     （dreamina/ 含 extract-icon.py：安装时从本机官方 exe 提取图标，不打包厂商资源）
+#   /usr/share/lisuan-fix/{dkms,mesa,steam,underlords,electron,kingdom-rush,audio,left4dead2,doubao}/ 修复脚本
 #   /usr/share/applications/lisuan-fix.desktop                     终端菜单项
 #
 # 用法：
@@ -59,11 +58,10 @@ for d in dkms mesa steam underlords electron kingdom-rush audio; do
   find "$T/usr/share/$PKG/$d" -name '*.sh' -exec chmod 755 {} +
 done
 
-# Windows 应用（Wine 11）：豆包 / 即梦 AI 的安装与启动脚本 + 说明文档。
-# 官方安装器（*.exe）属厂商专有产物且体积大（豆包 7MB / 即梦 103MB），
-# 不进 deb；用户需自行从官网下载后放到对应主题目录
-# （或用 ~/下载），安装脚本会自动查找。
-for d in doubao dreamina; do
+# Windows 应用（Wine 11）：豆包的安装与启动脚本 + 说明文档。
+# 官方安装器（*.exe）属厂商专有产物且体积大（约 7MB），不进 deb；
+# 用户需自行从官网下载后放到对应主题目录（或用 ~/下载），安装脚本会自动查找。
+for d in doubao; do
   mkdir -p "$T/usr/share/$PKG/$d"
   (cd "$ROOT" && find "$d" -type f \
       ! -name '*.exe' \
@@ -144,7 +142,7 @@ Description: 砺算 7G100 GPU 修复工具（DKMS/Mesa/Steam/游戏/Electron/音
   - Dota Underlords 原生直跑补丁
   - Electron 应用（ZCode/CodeBuddy/Qoder）gf 硬件加速
   - 显卡 HDMI/DP 音频（伴生 HDA 4c54:5010 绑 snd_hda_intel + 强制 INTx）
-  - Windows 应用（Wine 11）：豆包 / 即梦 AI 官方桌面客户端安装
+  - Windows 应用（Wine 11）：豆包官方桌面客户端安装
  支持桌面窗口（Tkinter，需 python3-tk）、--detect 体检、
  --json 机器可读输出、按菜单编号非交互直执行。
  。

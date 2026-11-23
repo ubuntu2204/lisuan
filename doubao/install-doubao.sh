@@ -41,7 +41,7 @@ export WINEDLLOVERRIDES='mscoree,mshtml='
 
 [[ -x "$WINE" ]] || { echo "错误：找不到 Proton 的 wine：$WINE" >&2; exit 1; }
 
-# 前缀不存在时自动初始化（与 dreamina/install-dreamina.sh 行为一致）：
+# 前缀不存在时自动初始化：
 # 首次从 install.py 菜单安装时本机往往还没有 Wine 11 前缀，
 # 直接报错退出的话用户永远装不上。wineboot --init 是幂等的。
 if [[ ! -d "$PREFIX/drive_c" ]]; then
