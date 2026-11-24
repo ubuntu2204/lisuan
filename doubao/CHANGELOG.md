@@ -2,6 +2,62 @@
 
 > 从仓库根 `CHANGELOG.md` 拆分而来（2026-11-19）。按时间倒序；历史条目保留当时的命令与路径。
 
+## 2026.11.24 — 启动加速：跳过 Proton 的 start.exe 中转
+
+### 实测分解（冷启动到主窗口，基线 7.0–7.3 秒）
+| 阶段 | 耗时 | 处理 |
+|---|---|---|
+| Steam Runtime 容器启动（含 `capsule-capture-libs`） | 1.2–1.8 秒 | 保留为稳健默认；`DOUBAO_FAST=1` 可跳过 |
+| `wineboot --init` | 约 1.5 秒 | 未动（见下） |
+| `start.exe /exec` 中转 | 约 1.06 秒 | **已消除** |
+| 豆包初始化到窗口可见 | 约 2.5 秒 | 客户端自身 |
+
+### 根因与修复
+- `files/bin/wine` 壳把 64 位 `Doubao.exe` 交给 **32 位 loader**（`i386-unix/wine`）；32 位侧
+  加载不了 64 位 PE，改走 `C:\windows\syswow64\start.exe /exec` 再 `CreateProcess` 给 64 位。
+  `start.exe` 加载 `shell32.dll` 后到创建豆包进程空转 1.04 秒（`+loaddll` 追踪证实）。
+  Proton 脚本自己就是直接用 `wine-preloader` + `x86_64-unix/wine` 并设 `WINELOADERNOEXEC=1`，
+  注释写明 “avoid restart through start.exe”。启动器现按 PE 头 Machine 字段判断：
+  64 位走直连并把参数换成 `C:\users\...`（保持豆包看到的自身路径不变），否则回退旧路径。
+- 改传 Windows 路径、设置 `STEAM_COMPAT_CLIENT_INSTALL_PATH` 均无效（已证伪，不要重做）。
+
+### 其它
+- 默认 `WINEDEBUG=fixme-all`（`err`/`warn` 保留，外部值优先）；`launch.log` 超过
+  `DOUBAO_LOG_MAX_BYTES`（默认 20 MiB）轮转为 `.1`，原 93 MB 日志保留为 `launch.log.1`。
+- `DOUBAO_FAST=1` 是 `DOUBAO_NO_STEAM_RUNTIME=1` 的别名，不做默认。
+- 新增 `tests/test-doubao-launcher.sh`（假 Proton + 假前缀，17 项）。
+
+### 结果与未做项
+- 默认路径 6.2–6.5 秒，`DOUBAO_FAST=1` 约 4.3 秒；主窗口 `IsViewable`、无新增错误。
+- `wineboot` 阶段 `plugplay.exe` 单核满载 0.87 秒（设备枚举，上游行为），未禁用
+  `PlugPlay` 服务；窗口出现后 CPU 仍忙约 23 秒（llvmpipe 软件渲染），留待硬件渲染一轮。
+
+---
+
+## 2026.11.24 — 界面字体过细：专用 fontconfig 替换
+
+### 根因
+- 豆包 `local_webcontents` 中 CSS 高频使用 `font-family:PingFang SC` 与
+  `font-weight:300`（统计 2309 处 PingFang SC）。本机没有 PingFang SC，
+  `fc-match 'PingFang SC:weight=light'` 回退到 `Noto Sans CJK SC Light`，
+  所以中文正文笔画过细、看不清。
+
+### 变更
+1. 新增 `doubao/fonts.conf`：把 PingFang SC / Microsoft YaHei Light /
+   微软雅黑 Light / DengXian Light / Segoe UI Light 映射到对应 Regular 家族，
+   并把字重抬到 medium；
+2. `doubao/run-doubao-wine11.sh` 在容器包装前导出 `FONTCONFIG_FILE`，
+   只对豆包进程树生效；`DOUBAO_FONT_DISABLE=1` 可关闭，
+   `DOUBAO_FONT_CONF` 可指定自定义配置；
+3. 新增 `tests/test-doubao-font.sh`，验证配置注入与 `fc-match` 结果；
+   `doubao/README.md` 同步说明重启方式与回退开关。
+
+### 验证
+- `FONTCONFIG_FILE=doubao/fonts.conf fc-match 'PingFang SC:weight=light'`
+  由 `Noto Sans CJK SC Light` 变为 `微软雅黑 | Regular`。
+
+---
+
 ## 2026.11.08 — 豆包 2.32.6 主窗口跑通（Steam Runtime 容器为稳健默认）
 
 ### 根因（按图形会话区分）

@@ -39,6 +39,14 @@
 - Deepin Wine 8.16 的 `RtlGetDeviceFamilyInfoEnum` 硬门槛仍在，主运行时必须是 Wine 11；
   旧版 1.56.6 不作方案、不作回退、不作验收参照。
 
+**启动速度（2026-11-24 实测）**：冷启动到主窗口 **6.2–6.5 秒**（优化前 7.0–7.3 秒），`DOUBAO_FAST=1` 时 **约 4.3 秒**。耗时分解与已做的改动：
+- **已修**：Proton 的 `files/bin/wine` 壳会把 64 位 `Doubao.exe` 交给 32 位 loader，32 位侧加载不了 64 位 PE，只好经 `start.exe /exec` 再转一次，光 `shell32.dll` 初始化就多花约 1.06 秒。现按 PE 头判断架构，64 位时直接用 `files/lib/wine/x86_64-unix/wine` + `WINELOADERNOEXEC=1`（Proton 脚本自身的做法），并保持程序看到 `C:\users\...` 路径不变；32 位或无 64 位 loader 时回退旧路径，`DOUBAO_WINE_LOADER=legacy` 可强制旧行为作对照。
+- **已修**：Wine `fixme` 噪声每次启动刷数千行，默认 `WINEDEBUG=fixme-all`（`err`/`warn` 保留，显式传 `WINEDEBUG` 可覆盖）；`launch.log` 超过 20 MB 轮转为 `.1`（实测已到 93 MB，新日志仅 142 字节）。
+- **可选**：`DOUBAO_FAST=1` 跳过 Steam Runtime 容器，省约 1.2–1.8 秒；稳健性略降（旧污染图形会话下裸 wine 会黑屏），所以不做默认。
+- **未做（下一轮）**：① `wineboot` 阶段约 1.5 秒，其中 `plugplay.exe` 单核满载 0.87 秒做设备枚举，属 Wine 上游行为，禁用 `PlugPlay` 服务有影响音视频设备的风险，未动；② 窗口出现后 CPU 仍忙约 23 秒，主因是 llvmpipe 软件渲染，需单独评估 gf 硬件路径。
+
+**界面字体过细（2026-11-24）**：豆包 CSS 首选 `PingFang SC` 且常用 `font-weight:300`；本机没有 PingFang SC，fontconfig 回退到 `Noto Sans CJK SC Light`，笔画明显偏细。`doubao/fonts.conf` 把 `PingFang SC` 及常见 `Light` 族名映射到常规字重的微软雅黑/等线，并把字重抬到 medium；`run-doubao-wine11.sh` 只给豆包进程树注入 `FONTCONFIG_FILE`，全局字体不受影响。改完需要重启豆包（`bash doubao/quit-doubao.sh --quit` 后从图标启动）；临时关闭用 `DOUBAO_FONT_DISABLE=1`，换用自定义配置用 `DOUBAO_FONT_CONF=/path/to/fonts.conf`。
+
 不建议现在投入「把 Windows 豆包拆开后用 Electron 重新打包」。豆包不是只要替换 JavaScript 运行时就能迁移的普通 Electron 应用，主体是定制 Chromium 加大量闭源原生 DLL；完整重打包会持续碰到登录、推送、音视频、系统整合和自动更新等原生依赖。
 
 如果只需要网页版聊天能力，可以另做一个连接豆包官网的 Linux Electron 外壳，这是成本较低的备用方案，但它不是 Windows 客户端的等价重打包，也不能保证客户端特有功能一致。
@@ -410,7 +418,7 @@ DING 会把它当成不可信启动器，双击不一定执行。
 | 动作 | 行为 | 2026-11-08 实测 |
 |---|---|---|
 | `--quit`（默认） | SIGTERM 主浏览器进程，必要时本前缀 `wineserver -k` 收尾 | 1 秒内 17 个进程全退，`repair/record.json` 的 `running_exception` 仍为 `{"2.32.6":0,"2.35.8":0}`，不会引出「启动异常」修复弹窗 |
-| `--show` | 再拉一次启动器；单实例会自己把窗口显示出来，没在跑时等于正常启动 | 隐入通知栏后 5 秒内 `IsViewable`；`--quit` 后重启 6 秒出界面 |
+| `--show` | 再拉一次启动器；单实例会自己把窗口显示出来，没在跑时等于正常启动 | 隐入通知栏后 5 秒内 `IsViewable`；`--quit` 后重启约 6 秒出界面（`DOUBAO_FAST=1` 约 4.3 秒） |
 | `--status` | 只读报告进程数、主窗口 Map State、XEmbed 托盘 owner 与嵌入图标数 | 能直接把「窗口已隐入通知栏、进程仍在」和崩溃区分开 |
 
 注意一个边界：用窗口管理器标题栏的关闭（`WM_DELETE_WINDOW`，例如
