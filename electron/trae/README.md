@@ -50,6 +50,11 @@ Chromium 自带 EGL 在 Wayland/ANGLE 路径尝试走系统 `libEGL_gf.so`（gf 
 默认 X11 + ANGLE/SwiftShader 软件渲染，绕开 gf EGL；`--hw` 用于硬件加速对比（可能复现花屏）。
 它复用了通用基座 `../use-electron-gf.sh` 的 `SW_TRAE_FLAGS`，参数源自早期 `~/.local/bin/trae-fix` 的实测结论。
 
+国际版 `trae.desktop` 与国内版 `trae-cn.desktop` **都走同一个修复**：不带 `--app` 的
+`--install-desktop` / `--uninstall-desktop` 会同时处理两个变体；只启动国内版用
+`bash ../use-trae.sh --app trae-cn`。2026-11-24 实测：国内版系统原入口裸启 25 秒无窗口，
+经本 wrapper 软件渲染后正常出现「欢迎使用 TRAE」窗口。
+
 早期原型三件套（`~/.local/bin/trae-fix` + 用户级桌面项 + `~/.bashrc` 别名）保留在
 [docs/04-display-error-fix.md](docs/04-display-error-fix.md) 作证据，现以仓库 wrapper 为准。
 验证结果：软件渲染启动无 EGL 失败 / GPU 崩溃；`desktop-file-validate` 通过。

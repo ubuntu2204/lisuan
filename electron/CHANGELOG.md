@@ -2,6 +2,28 @@
 
 > 从仓库根 `CHANGELOG.md` 拆分而来（2026-11-19）。按时间倒序；历史条目保留当时的命令与路径。
 
+## 2026.11.24 — Trae CN（国内版）纳入同一 wrapper 修复
+
+### 根因与证据
+- 菜单 [10] 与 `use-trae.sh` 此前只把 `trae.desktop` 切到 wrapper；系统级
+  `trae-cn.desktop` 的 `Exec=/usr/share/trae-cn/trae-cn %F` 仍裸启，而菜单状态用
+  `any()` 检查两个变体，国际版已修就显示「✓ 已配置」，把 CN 漏掉。
+- 受控复现：裸启 `/usr/share/trae-cn/trae-cn` 25 秒无 Trae CN 窗口，子进程持续占 CPU，
+  apport 介入；同一环境用 `use-electron-gf.sh --app trae-cn`（X11 + ANGLE/SwiftShader）
+  启动则出现「欢迎使用 TRAE」窗口，合成抓图确认正常渲染。
+
+### 变更
+1. `electron/use-trae.sh` 支持 `--app trae-cn` 透传；不带 `--app` 的
+   `--install-desktop` / `--uninstall-desktop` 同时处理国际版和国内版；
+2. `packaging/lisuan_fix_core.py` 菜单 10 标题注明含 Trae CN，状态改为「所有已安装变体
+   都切到 wrapper」才算已配置；
+3. `use-electron-gf.sh` 未知 `--app` 提示补上 `trae|trae-cn`；
+4. 新增 `tests/test-trae-wrapper.sh`，在临时 HOME 里验证双桌面项安装/回滚、显式
+   `--app trae-cn` 透传与软件渲染参数；`electron/README.md`、`electron/trae/README.md`、
+   `electron/trae/docs/04-display-error-fix.md` 与总 README 同步更新。
+
+---
+
 ## 2026.11.22 — Trae 问题归档迁入 `electron/trae/`
 
 ### 变更

@@ -32,7 +32,7 @@
 | `use-zcode.sh` | ZCode（Electron AppImage）入口 |
 | `use-codebuddy.sh` | CodeBuddy 国内版入口 |
 | `use-qoder.sh` | Qoder 国内版入口 |
-| `use-trae.sh` | Trae（字节 AI IDE）入口，默认软件渲染稳定模式，`--hw` 切 gf 加速 |
+| `use-trae.sh` | Trae / Trae CN（字节 AI IDE）入口，默认软件渲染稳定模式；`--install-desktop` 同时覆盖两个变体，`--app trae-cn` 只启国内版，`--hw` 切 gf 加速 |
 
 四个应用 wrapper 均通过 `exec "$DIR/use-electron-gf.sh" --app <name>` 转调基座，同目录引用。
 

@@ -109,6 +109,9 @@ assert core.ITEMS_BY_ID[26]["root"] is False
 assert core.ITEMS_BY_ID[26]["cmd"]([])[1].endswith("doubao/install-doubao.sh")
 assert core.ITEMS_BY_ID[26]["group"] == "Windows 应用"
 assert core.ITEMS_BY_ID[27]["doc"] == "doubao/README.md"
+# Trae（含国内版）：菜单 10 必须同时覆盖两个变体，状态需要专用判定函数
+assert "Trae CN" in core.ITEMS_BY_ID[10]["title"]
+assert hasattr(core, "_trae_desktops_configured")
 PY
 t_assert_eq 0 $? "L4D2 menu 22/23 and undo registration"
 

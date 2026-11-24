@@ -3,10 +3,13 @@
 针对 7G100 + Wayland 环境下 Trae 的黑屏 / 花屏 / 不刷新 / 闪烁，采用**强制软件渲染**绕开 gf EGL。
 
 **现行入口（2026-09 起）**：`electron/use-trae.sh`（交互菜单 [10] 装桌面项）。
+国际版 `Trae` 与国内版 `Trae CN` 同走此入口；`--install-desktop` 会同时装两个桌面项。
 
 ```bash
-bash electron/use-trae.sh                 # 默认软件渲染稳定模式
-bash electron/use-trae.sh --install-desktop # 桌面图标直启即带修复
+bash electron/use-trae.sh                 # 默认软件渲染稳定模式（优先国际版）
+bash electron/use-trae.sh --app trae-cn   # 只启动国内版 Trae CN
+bash electron/use-trae.sh --install-desktop # 两个桌面图标直启都带修复
+bash electron/use-trae.sh --app trae-cn --install-desktop # 只修国内版
 bash electron/use-trae.sh --hw            # 硬件加速对比，可能复现花屏
 ```
 

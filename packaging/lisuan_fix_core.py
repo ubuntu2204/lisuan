@@ -555,7 +555,7 @@ ITEMS: list[Item] = [
      "group": "Electron", "root": False,
      "cmd": lambda a: _sh("electron/use-qoder.sh", "--install-desktop"),
      "doc": ""},
-    {"id": 10, "title": "Trae：点图标即用（装桌面项；软件渲染稳定优先，绕开 gf EGL 显示错误）",
+    {"id": 10, "title": "Trae（含国内版 Trae CN）：点图标即用（装桌面项；软件渲染稳定优先，绕开 gf EGL 显示错误）",
      "group": "Electron", "root": False,
      "cmd": lambda a: _sh("electron/use-trae.sh", "--install-desktop"),
      "doc": ""},
@@ -946,6 +946,23 @@ def _desktop_configured(paths: list[Path], marker: str) -> bool:
     return False
 
 
+def _trae_desktops_configured(home: Path) -> bool:
+    """国际版/国内版 Trae：已安装的每个变体都必须切到 wrapper 才算修好。
+
+    旧实现用 any() 判断，trae.desktop 修好而 trae-cn.desktop 仍裸启时也显示
+    “已配置”，正是 Trae CN 显示错误被漏掉的原因。
+    """
+    variants: list[str] = []
+    if shutil.which("trae") or Path("/usr/share/trae/trae").is_file():
+        variants.append("trae.desktop")
+    if shutil.which("trae-cn") or Path("/usr/share/trae-cn/trae-cn").is_file():
+        variants.append("trae-cn.desktop")
+    if not variants:
+        return False
+    apps = home / ".local/share/applications"
+    return all(_desktop_configured([apps / n], "use-electron-gf.sh") for n in variants)
+
+
 def _lisuan_audio_state() -> tuple[str, str]:
     """砺算伴生 HDA（4c54:5010）的修复状态。
 
@@ -1102,10 +1119,8 @@ def collect_statuses(env: Env | None = None) -> dict[int, tuple[str, str]]:
     st[9] = (("✓ 已配置", "ok")
              if _desktop_configured(qoder, "use-electron-gf.sh")
              else ("未配置", "dim"))
-    # Trae 桌面项：国际版 trae.desktop / 国内版 trae-cn.desktop
-    trae = [user_apps / n for n in ("trae.desktop", "trae-cn.desktop")]
-    trae += [sys_apps / n for n in ("trae.desktop", "trae-cn.desktop")]
-    st[10] = (("✓ 已配置", "ok") if _desktop_configured(trae, "use-electron-gf.sh")
+    # Trae 桌面项：所有已安装变体（trae / trae-cn）都必须切到 wrapper
+    st[10] = (("✓ 已配置", "ok") if _trae_desktops_configured(home)
               else ("未配置", "dim"))
 
     # 12 Steam（锁定检查与已修复判定同源，合并为一项状态）

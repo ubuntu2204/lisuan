@@ -158,7 +158,7 @@ resolve_app() {
       DESKTOP_FILES=("$HOME/.local/share/applications/zcode.desktop")
       ;;
     "") : ;; # 由 --cmd/--appimage 提供
-    *) echo "!! 未知 --app: $APP (支持 codebuddy|qoder|qoder-cn|zcode, 或用 --cmd/--appimage)" >&2; exit 1 ;;
+    *) echo "!! 未知 --app: $APP (支持 codebuddy|qoder|qoder-cn|trae|trae-cn|zcode, 或用 --cmd/--appimage)" >&2; exit 1 ;;
   esac
 }
 
