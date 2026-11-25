@@ -42,6 +42,16 @@
   `LIBGL_ALWAYS_SOFTWARE=1`），与随从大师 hw 一致，只让 DXVK 用 7G100。
 - `tests/test-doubao-launcher.sh` 扩到 24 项（sw/hw 环境注入断言）。
 
+### 追加（同日晚）：修设置弹窗缺块——GPU 合成折中
+- 现象：hw 下设置弹窗等叠加层确定性缺块/破线（sw 正常）。责任在 gf 的 DXVK GPU 合成路径。
+- 证伪杠杆：DXVK 2.5（仍要 maintenance5）、关 SkiaGraphite、关 GPU 光栅、
+  `d3d11.cachedDynamicResources=cv`、scissor 负偏移钳制（垫片临时加后已回退）均无效。
+- 唯一有效：`--disable-gpu-compositing`。hw 固化为 **软件合成+强制 GPU 光栅**
+  （`--disable-gpu-compositing --enable-gpu-rasterization`），显示正确且保留大部分加速。
+- 滚动负载 CPU：sw 89% / 折中 78% / 完整 hw 72%；稳态均 ~7%。
+- 新增 `DOUBAO_DXVK_DIR` 覆盖 DXVK 来源（诊断旋钮）。
+- 复现/度量脚本：`_work/dialog-shot.sh`、`_work/scroll-bench.sh`。
+
 ## 2026.11.24 — 启动加速：跳过 Proton 的 start.exe 中转
 
 ### 实测分解（冷启动到主窗口，基线 7.0–7.3 秒）

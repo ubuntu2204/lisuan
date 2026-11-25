@@ -129,7 +129,7 @@ if [[ "$DOUBAO_GPU" == "hw" ]]; then
     # native dll 走标准搜索序（应用目录→system32），所以照 Proton 脚本的做法
     # 把 DXVK dll 拷进前缀 system32/syswow64；原 WineD3D dll 首次覆盖时备份为
     # *.wined3d-bak。sw 模式用 d3d11,dxgi=b 强制 builtin，不受已拷入的 DXVK 影响。
-    DXVK_SRC="$BASE_DIR/../minion-masters/dxvk23"
+    DXVK_SRC="${DOUBAO_DXVK_DIR:-$BASE_DIR/../minion-masters/dxvk23}"
     [[ -d "$DXVK_SRC/x86_64-windows" ]] || DXVK_SRC="$PROTON/files/lib/wine/dxvk"
     for arch in x86_64:system32 i386:syswow64; do
         src="$DXVK_SRC/${arch%%:*}-windows"
@@ -145,6 +145,12 @@ if [[ "$DOUBAO_GPU" == "hw" ]]; then
     done
     export WINEDLLOVERRIDES='d3d11,dxgi=n,b;mscoree,mshtml='
     unset WINE_D3D_CONFIG
+    # gf 的 DXVK GPU 合成路径有确定性缺块/破线 bug（设置弹窗等叠加层，
+    # 2026-11-25 多轮 A/B 定案：--disable-gpu-compositing 才能修；换 DXVK 2.5、
+    # 关 Graphite、关 GPU 光栅、cached 动态缓冲、scissor 钳制均无效）。
+    # 折中：合成走 CPU（Skia 多线程，比 llvmpipe GL 合成快），光栅强制留给 gf。
+    # 实测滚动负载 CPU：sw 89% / 本组合 78% / 完整 hw 72%，收益大部分保留。
+    EXTRA_APP_ARGS=(--disable-gpu-compositing --enable-gpu-rasterization)
 else
     export __GLX_VENDOR_LIBRARY_NAME=mesa
     export LIBGL_ALWAYS_SOFTWARE=1
@@ -153,6 +159,7 @@ else
     export WINE_D3D_CONFIG='renderer=gl'
     # hw 模式可能已把 DXVK dll 拷进 system32；强制 builtin 保证 sw 仍是 WineD3D/GL
     export WINEDLLOVERRIDES='d3d11,dxgi=b;mscoree,mshtml='
+    EXTRA_APP_ARGS=()
 fi
 
 APP=$(find "$PREFIX/drive_c/users" -path '*/Doubao/Application/app/Doubao.exe' -print -quit)
@@ -208,4 +215,4 @@ if [[ "${DOUBAO_WINE_LOADER:-auto}" != "legacy" && "$(pe_machine "$APP")" == "86
         WIN_APP="C:${rel//\//\\}"
     fi
 fi
-exec "${WINE_LOADER[@]}" "$WIN_APP" "$@"
+exec "${WINE_LOADER[@]}" "$WIN_APP" "${EXTRA_APP_ARGS[@]}" "$@"

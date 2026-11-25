@@ -1066,6 +1066,15 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 GPU 进程 0 崩溃；稳态瞬时总 CPU 7%（GPU 进程 1%），llvmpipe 的「窗口后忙 23 秒」消除。
 sw 回退同样出界面；其启动期 3 次 GPU `-2147483645` + 沙箱降级是历史 sw 会话固有行为，非回归。
 
+**GPU 合成 bug 与折中（2026-11-25 晚，设置弹窗缺块定案）**：完整 GPU 合成在 gf 上
+对叠加层（设置弹窗等）有**确定性缺块/破线** bug。多轮 A/B 证伪：换 DXVK 2.5（仍要
+maintenance5）、关 SkiaGraphite、关 GPU 光栅、`d3d11.cachedDynamicResources`、scissor
+负偏移钳制均无效；唯一能修的是 `--disable-gpu-compositing`。故 hw 模式固化为
+**软件合成 + 强制 GPU 光栅**（`--disable-gpu-compositing --enable-gpu-rasterization`）：
+合成走 Skia 多线程 CPU（比 llvmpipe GL 合成快），光栅仍留给 gf。滚动负载 CPU 实测
+sw 89% / 本组合 78% / 完整 hw 72%，收益大部分保留且显示正确；稳态仍 7%。
+探针与复现脚本在 `_work/vk-loader-probe.py` / `_work/dialog-shot.sh` / `_work/scroll-bench.sh`。
+
 ## 6. Electron 路线评估
 
 ### 6.1 全量重打包 Windows 客户端：不建议
