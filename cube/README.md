@@ -44,6 +44,31 @@ bash cube/run-cube.sh              # 前台启动，参数透传给 Cube.exe
    `__GLX_VENDOR_LIBRARY_NAME=mesa LIBGL_ALWAYS_SOFTWARE=1` 也不改变次数。
    其它启动噪音（`addrinfo EBUSY`、`com_get_class_object ... not registered`）
    同样不影响界面。不要为此加看门狗或自动拉起。
+6. **下载目录必须落在可写路径**（2026-11-25 实测）： Wine 前缀的 `Z:` 指向
+   Linux 根目录 `/`。若把下载目录设成 `Z:\CubeLibrary\`（实际是 `/CubeLibrary`），
+   平台会在启动时卡在该目录上：进程还活着但主窗口 `IsUnMapped`，屏幕上看不到
+   任何方块窗口，表现为“设置完下载目录就卡死、之后进不去”。正确写法是
+   `Z:\home\ubuntu\CubeLibrary\`（即 `~/CubeLibrary`）或 `C:\CubeLibrary\`（前缀内）。
+   修正方法（先停掉卡死进程，不做自动拉起）：
+
+   ```bash
+   CFG="$HOME/.deepinwine/cube-4121/drive_c/users/steamuser/AppData/Local/Cube/userdata/setting.json"
+   cp -a "$CFG" "$CFG.bak-$(date +%Y%m%d-%H%M%S)"
+   mkdir -p "$HOME/CubeLibrary/download"
+   python3 - "$CFG" <<'PY'
+   import json, sys
+   p = sys.argv[1]
+   d = json.load(open(p, encoding='utf-8'))
+   d['download']['downloadPath'] = ['Z:\\home\\ubuntu\\CubeLibrary\\']
+   d['download']['tempDownloadPath'] = 'Z:\\home\\ubuntu\\CubeLibrary\\download\\'
+   json.dump(d, open(p, 'w', encoding='utf-8'), ensure_ascii=False, indent=4)
+   PY
+   bash cube/run-cube.sh
+   ```
+
+   本次备份在 `~/.local/share/cube-4121/download-path-fix/`；卡死现场日志与截图
+   保留在 `/tmp/cube-fixed-20261125.log`、`/tmp/cube-stuck-20261125.png`、
+   `/tmp/cube-fixed2.png`。不要再在设置里选根目录下的目录。
 
 ## 历史路径（不要再执行）
 
