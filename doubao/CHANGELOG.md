@@ -1,6 +1,46 @@
 # doubao 变更记录
 
-> 从仓库根 `CHANGELOG.md` 拆分而来（2026-11-19）。按时间倒序；历史条目保留当时的命令与路径。
+> 从仓库根 `CHANGELOG.md` 拆分而来 （2026-11-19）。按时间倒序；历史条 目保留当时的命令与路径。
+
+## 2026.11.25 — 启用显卡加速：gf 7G100 硬件渲染（DXVK→Vulkan）
+
+### 结论
+- 启动器新增 `DOUBAO_GPU`：默认 `auto`（检测到 gf 驱动→`hw`，否则→`sw`），
+  可显式 `hw`/`sw`。本机默认即硬件加速；`quit-doubao.sh --status` 新增「渲染后端」行。
+- hw 路线：**Chromium ANGLE/D3D11 → DXVK v2.3 → gf Vulkan**。不走 WineD3D/GL：
+  容器内 gf GLX/EGL 无法认领屏幕（厂商栈设备发现问题，见
+  `dkms/vendor-bug-report-gf-gbm-crash.md` 问题三，无本地 shim 可绕）。
+- 实测（17:09–17:19 三轮）：主窗口 `IsViewable`、抓图 1519 色真实界面（已登录态保留）；
+  GPU 进程 **0 崩溃**（hw 首轮 DXVK 2.7 时 GPU 反复 0xC0000005，换 2.3 后消失）；
+  稳态瞬时总 CPU **7%**（GPU 进程 1%），llvmpipe 时代「窗口出现后 CPU 忙约 23 秒」消除。
+- sw 回退无回归：`d3d11,dxgi=b` 强制 builtin，system32 已被 DXVK 覆盖也仍走 WineD3D/GL；
+  启动期 3 次 GPU `-2147483645` + 沙箱降级是历史 sw 会话固有行为（旧日志 111 次），非本次引入。
+
+### 容器内 gf Vulkan 四件套（探针 `_work/vk-loader-probe.py` 逐项取证）
+1. **os-release 重定向垫片**：gf ICD 有发行版白名单，容器 `/etc/os-release` 是 SteamOS，
+   读到即拒绝初始化（`vkEnumeratePhysicalDevices` 返回 -3）；strace 证实开设备后读
+   os-release 随即退出。复用随从大师 `osrelease_redirect.c`。
+2. **`VK_DRIVER_FILES` 覆盖**：pressure-vessel 注入该变量，新版 loader（1.4.309）里它
+   优先于 `VK_ICD_FILENAMES`——只设后者会被无视（loader 调试日志证实仍扫系统 icd.d）。
+3. **协商垫片 ICD**：gf 裁掉 `VK_KHR_external_semaphore_capabilities` 且协商接口版本过旧，
+   新 loader 拒载/拒建实例；复用 `libvulkan_gf_shim.c`。
+4. **`libSC.so` 随部署拷贝 + `LD_LIBRARY_PATH`**：厂商着色器编译器不在 pressure-vessel
+   驱动合并列表，容器内缺失时 DXVK 建备失败（`Failed to create D3D11 device`）。
+
+### DXVK 版本
+- Proton 11 自带 **v2.7 要求 `VK_KHR_maintenance5`**，gf 22.0.4 没有 →
+  `Skipping: Device does not support required feature 'maintenance5'` / `No adapters found`。
+- 改用仓库 `minion-masters/dxvk23/`（v2.3-21，随从大师 hw 已验证）；缺失时回退 Proton 自带。
+- native dll 不走 `WINEDLLPATH`（只对 builtin 生效），照 Proton 脚本做法拷入前缀
+  system32/syswow64，原 WineD3D dll 备份为 `*.wined3d-bak`。
+
+### 部署与开关
+- 垫片部署在 `~/.local/share/doubao-wine11/gf-accel`，**首次 hw 启动在宿主侧自动构建**
+  （容器无 gcc、/usr/lib 是运行时的）；源码取自 `minion-masters/assets-mm-gf-vulkan`，
+  路径经 sed 重写，不依赖 MM 运行时部署。`DOUBAO_GF_ACCEL` 可覆盖部署目录。
+- winex11 自身 GL 探测仍留 mesa llvmpipe（`__GLX_VENDOR_LIBRARY_NAME=mesa` +
+  `LIBGL_ALWAYS_SOFTWARE=1`），与随从大师 hw 一致，只让 DXVK 用 7G100。
+- `tests/test-doubao-launcher.sh` 扩到 24 项（sw/hw 环境注入断言）。
 
 ## 2026.11.24 — 启动加速：跳过 Proton 的 start.exe 中转
 

@@ -198,6 +198,13 @@ do_status() {
         st=$(window_state "$w")
         printf '主浏览器    : pid %s\n' "$mp"
         printf 'wine 来源   : %s\n' "$(proton_info)"
+        local gpu
+        gpu=$(tr '\0' '\n' < "/proc/$mp/environ" 2>/dev/null | sed -n 's/^DOUBAO_GPU=//p' | head -1)
+        case "$gpu" in
+            hw) printf '渲染后端    : hw（gf 7G100 硬件加速，DXVK→Vulkan）\n' ;;
+            sw) printf '渲染后端    : sw（Mesa 软件渲染）\n' ;;
+            *)  printf '渲染后端    : 未知（旧版启动器，无 DOUBAO_GPU）\n' ;;
+        esac
         printf '主窗口      : %s（%s）\n' "${w:-未发现}" "$st"
         case "$st" in
             IsUnMapped) printf '判定        : 窗口已隐入通知栏、进程仍在 —— 这就是点 X 的效果，不是崩溃\n' ;;

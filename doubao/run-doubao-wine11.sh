@@ -23,6 +23,49 @@ if [ "${DOUBAO_FONT_DISABLE:-0}" != "1" ] && [ -f "$FONT_CONF" ]; then
     export FONTCONFIG_FILE="$FONT_CONF"
 fi
 
+# gf 硬件加速垫片部署（DOUBAO_GPU=hw 时才需要）。必须在宿主侧、进容器前完成：
+# 容器里没有 gcc，/usr/lib 也是运行时的而非宿主的。部署产物在 home 下，
+# 容器内可见。源码取自 minion-masters/assets-mm-gf-vulkan（不依赖 MM 运行时部署）。
+# 默认 auto：检测到 gf 驱动（libvulkan_gf.so）就启用 hw，否则 sw；
+# DOUBAO_GPU=sw/hw 可显式覆盖（hw 异常时回退 sw）。
+if [[ -z "${DOUBAO_GPU:-}" || "${DOUBAO_GPU}" == "auto" ]]; then
+    if [[ -f /usr/lib/x86_64-linux-gnu/libvulkan_gf.so ]]; then DOUBAO_GPU=hw; else DOUBAO_GPU=sw; fi
+fi
+export DOUBAO_GPU
+GF_ACCEL="${DOUBAO_GF_ACCEL:-$HOME/.local/share/doubao-wine11/gf-accel}"
+if [[ "$DOUBAO_GPU" == "hw" && -z "${DOUBAO_STEAM_RUNTIME_CHILD:-}" ]]; then
+    GF_ASSETS="$BASE_DIR/../minion-masters/assets-mm-gf-vulkan"
+    gf_deploy() {
+        mkdir -p "$GF_ACCEL/lib" || return 1
+        # 厂商源库为只读，cp 保留权限位会导致二次覆盖 EACCES —— 先删再拷
+        rm -f "$GF_ACCEL/lib/libvulkan_gf.so" "$GF_ACCEL/lib/libSC.so"
+        cp /usr/lib/x86_64-linux-gnu/libvulkan_gf.so "$GF_ACCEL/lib/" || return 1
+        # libSC.so（厂商着色器编译器）不在 pressure-vessel 的驱动合并列表里，
+        # 容器内找不到会让 gf ICD 建备时崩（0xC0000005）；一并拷入并经
+        # LD_LIBRARY_PATH 暴露（与随从大师 hw 的 libSC 软链同作用）。
+        cp /usr/lib/x86_64-linux-gnu/libSC.so "$GF_ACCEL/lib/" || return 1
+        cp "$GF_ASSETS/os-release" "$GF_ACCEL/os-release" || return 1
+        # 垫片源码里的路径写死为 MM 部署目录，编译前重写为本部署目录
+        sed "s|/home/ubuntu/gf-compat|$GF_ACCEL|g" "$GF_ASSETS/libvulkan_gf_shim.c" > "$GF_ACCEL/.shim.c" || return 1
+        gcc -shared -fPIC -O2 -o "$GF_ACCEL/lib/libvulkan_gf_shim.so" "$GF_ACCEL/.shim.c" -ldl || return 1
+        rm -f "$GF_ACCEL/.shim.c"
+        sed "s|/home/ubuntu/gf-compat|$GF_ACCEL|g" "$GF_ASSETS/osrelease_redirect.c" > "$GF_ACCEL/.osr.c" || return 1
+        gcc -shared -fPIC -O2 -o "$GF_ACCEL/lib/osrelease_redirect.so" "$GF_ACCEL/.osr.c" -ldl || return 1
+        rm -f "$GF_ACCEL/.osr.c"
+        printf '{\n    "ICD": {\n        "api_version": "1.3.224",\n        "library_path": "lib/libvulkan_gf_shim.so"\n    },\n    "file_format_version": "1.0.0"\n}\n' > "$GF_ACCEL/gf_icd.json" || return 1
+    }
+    if [[ ! -f "$GF_ACCEL/lib/libvulkan_gf_shim.so" || ! -f "$GF_ACCEL/lib/osrelease_redirect.so" \
+          || ! -f "$GF_ACCEL/gf_icd.json" || ! -f "$GF_ACCEL/lib/libvulkan_gf.so" \
+          || ! -f "$GF_ACCEL/lib/libSC.so" ]]; then
+        echo ">> 首次硬件加速：部署 gf 垫片到 $GF_ACCEL" >&2
+        if ! gf_deploy; then
+            echo "错误：gf 垫片部署失败（需要 gcc 与 minion-masters/assets-mm-gf-vulkan 源码）。" >&2
+            echo "可改用 DOUBAO_GPU=sw 软件渲染。" >&2
+            exit 1
+        fi
+    fi
+fi
+
 # 用 DOUBAO_STEAM_RUNTIME_CHILD 防止容器里二次包装；DOUBAO_NO_STEAM_RUNTIME=1
 # 走轻量裸 wine 路径（干净图形会话下可用，旧污染会话下会黑屏），用于对照诊断。
 # DOUBAO_FAST=1 是它的别名：省掉约 1.2 秒容器启动开销，稳健性略降，属可选项。
@@ -54,12 +97,63 @@ export WINEDLLPATH="$PROTON/files/lib/vkd3d:$PROTON/files/lib/wine"
 export LD_LIBRARY_PATH="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i386-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export WINEDLLOVERRIDES='mscoree,mshtml='
 
-# 先用 Mesa 软件渲染确认 Wine API 兼容已通；gf 硬件加速单独一轮评估。
-export __GLX_VENDOR_LIBRARY_NAME=mesa
-export LIBGL_ALWAYS_SOFTWARE=1
-export GBM_BACKEND=dri
-export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
-export WINE_D3D_CONFIG='renderer=gl'
+# 渲染后端：默认 auto（有 gf 驱动→hw 硬件加速，无→sw 软件渲染）；
+# DOUBAO_GPU=sw/hw 显式覆盖。hw 路线：Chromium ANGLE/D3D11 → DXVK → gf Vulkan。
+# 容器内 gf GLX/EGL 无法认领屏幕（厂商栈设备发现问题，见
+# dkms/vendor-bug-report-gf-gbm-crash.md 问题三），
+# 所以不走 WineD3D/GL；winex11 自身的 GL 探测仍留在 mesa llvmpipe（与随从大师
+# hw 方案一致，避免 wow64 下 winex11 初始化 OpenGL 失败）。gf Vulkan 在容器内
+# 需要四件套（2026-11-25 实测，探针 _work/vk-loader-probe.py）：
+#   1) os-release 重定向垫片：gf ICD 有发行版白名单，容器内 /etc/os-release 是
+#      SteamOS，读到后直接拒绝初始化（枚举返回 -3）；
+#   2) VK_DRIVER_FILES 覆盖：pressure-vessel 会注入该变量，新版 loader 里它
+#      优先于 VK_ICD_FILENAMES，只设后者会被无视；
+#   3) 协商垫片 ICD：gf 裁掉 VK_KHR_external_semaphore_capabilities 等扩展且
+#      协商接口版本过旧，新 loader 会拒载/拒建实例（复用随从大师的垫片源码）；
+#   4) libSC.so 拷贝 + LD_LIBRARY_PATH：厂商着色器编译器不在容器驱动合并列表。
+# 垫片部署在进容器前已完成（见上方）；这里只注入环境变量。
+# 硬件路径异常时用 DOUBAO_GPU=sw 回退软件渲染。
+if [[ "$DOUBAO_GPU" == "hw" ]]; then
+    # winex11 自身 GL 探测留在 mesa 软件路径；DXVK 经 gf Vulkan 用 7G100
+    export __GLX_VENDOR_LIBRARY_NAME=mesa
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export GBM_BACKEND=dri
+    export LD_PRELOAD="$GF_ACCEL/lib/osrelease_redirect.so${LD_PRELOAD:+:$LD_PRELOAD}"
+    export LD_LIBRARY_PATH="$GF_ACCEL/lib:$LD_LIBRARY_PATH"
+    export VK_ICD_FILENAMES="$GF_ACCEL/gf_icd.json"
+    export VK_DRIVER_FILES="$GF_ACCEL/gf_icd.json"
+    export VK_LOADER_LAYERS_DISABLE='VK_LAYER_VALVE_steam_overlay_64,VK_LAYER_VALVE_steam_overlay_32'
+    # DXVK 接管 d3d11/dxgi。优先用仓库 minion-masters/dxvk23（v2.3-21，随从大师
+    # hw 已验证）：Proton 11 自带 v2.7 要求 VK_KHR_maintenance5，gf 22.0.4 没有，
+    # 会报 No adapters found（2026-11-25 实测）。WINEDLLPATH 只对 builtin 生效，
+    # native dll 走标准搜索序（应用目录→system32），所以照 Proton 脚本的做法
+    # 把 DXVK dll 拷进前缀 system32/syswow64；原 WineD3D dll 首次覆盖时备份为
+    # *.wined3d-bak。sw 模式用 d3d11,dxgi=b 强制 builtin，不受已拷入的 DXVK 影响。
+    DXVK_SRC="$BASE_DIR/../minion-masters/dxvk23"
+    [[ -d "$DXVK_SRC/x86_64-windows" ]] || DXVK_SRC="$PROTON/files/lib/wine/dxvk"
+    for arch in x86_64:system32 i386:syswow64; do
+        src="$DXVK_SRC/${arch%%:*}-windows"
+        dst="$PREFIX/drive_c/windows/${arch##*:}"
+        mkdir -p "$dst" || { echo "错误：无法创建 $dst" >&2; exit 1; }
+        for dll in d3d11 dxgi; do
+            if [[ -f "$src/$dll.dll" ]] && ! cmp -s "$src/$dll.dll" "$dst/$dll.dll"; then
+                [[ -f "$dst/$dll.dll" && ! -f "$dst/$dll.dll.wined3d-bak" ]] \
+                    && cp -f "$dst/$dll.dll" "$dst/$dll.dll.wined3d-bak"
+                cp -f "$src/$dll.dll" "$dst/$dll.dll" || { echo "错误：无法写入 $dst/$dll.dll" >&2; exit 1; }
+            fi
+        done
+    done
+    export WINEDLLOVERRIDES='d3d11,dxgi=n,b;mscoree,mshtml='
+    unset WINE_D3D_CONFIG
+else
+    export __GLX_VENDOR_LIBRARY_NAME=mesa
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export GBM_BACKEND=dri
+    export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+    export WINE_D3D_CONFIG='renderer=gl'
+    # hw 模式可能已把 DXVK dll 拷进 system32；强制 builtin 保证 sw 仍是 WineD3D/GL
+    export WINEDLLOVERRIDES='d3d11,dxgi=b;mscoree,mshtml='
+fi
 
 APP=$(find "$PREFIX/drive_c/users" -path '*/Doubao/Application/app/Doubao.exe' -print -quit)
 if [[ -z "$APP" ]]; then

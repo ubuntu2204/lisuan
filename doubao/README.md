@@ -43,7 +43,7 @@
 - **已修**：Proton 的 `files/bin/wine` 壳会把 64 位 `Doubao.exe` 交给 32 位 loader，32 位侧加载不了 64 位 PE，只好经 `start.exe /exec` 再转一次，光 `shell32.dll` 初始化就多花约 1.06 秒。现按 PE 头判断架构，64 位时直接用 `files/lib/wine/x86_64-unix/wine` + `WINELOADERNOEXEC=1`（Proton 脚本自身的做法），并保持程序看到 `C:\users\...` 路径不变；32 位或无 64 位 loader 时回退旧路径，`DOUBAO_WINE_LOADER=legacy` 可强制旧行为作对照。
 - **已修**：Wine `fixme` 噪声每次启动刷数千行，默认 `WINEDEBUG=fixme-all`（`err`/`warn` 保留，显式传 `WINEDEBUG` 可覆盖）；`launch.log` 超过 20 MB 轮转为 `.1`（实测已到 93 MB，新日志仅 142 字节）。
 - **可选**：`DOUBAO_FAST=1` 跳过 Steam Runtime 容器，省约 1.2–1.8 秒；稳健性略降（旧污染图形会话下裸 wine 会黑屏），所以不做默认。
-- **未做（下一轮）**：① `wineboot` 阶段约 1.5 秒，其中 `plugplay.exe` 单核满载 0.87 秒做设备枚举，属 Wine 上游行为，禁用 `PlugPlay` 服务有影响音视频设备的风险，未动；② 窗口出现后 CPU 仍忙约 23 秒，主因是 llvmpipe 软件渲染，需单独评估 gf 硬件路径。
+- **未做（下一轮）**：① `wineboot` 阶段约 1.5 秒，其中 `plugplay.exe` 单核满载 0.87 秒做设备枚举，属 Wine 上游行为，禁用 `PlugPlay` 服务有影响音视频设备的风险，未动；② ~~窗口出现后 CPU 仍忙约 23 秒（llvmpipe 软件渲染）~~ **已修（2026-11-25）**：默认启用 gf 7G100 硬件加速后稳态瞬时 CPU 约 7%，见 **5.2**。
 
 **界面字体过细（2026-11-24）**：豆包 CSS 首选 `PingFang SC` 且常用 `font-weight:300`；本机没有 PingFang SC，fontconfig 回退到 `Noto Sans CJK SC Light`，笔画明显偏细。`doubao/fonts.conf` 把 `PingFang SC` 及常见 `Light` 族名映射到常规字重的微软雅黑/等线，并把字重抬到 medium；`run-doubao-wine11.sh` 只给豆包进程树注入 `FONTCONFIG_FILE`，全局字体不受影响。改完需要重启豆包（`bash doubao/quit-doubao.sh --quit` 后从图标启动）；临时关闭用 `DOUBAO_FONT_DISABLE=1`，换用自定义配置用 `DOUBAO_FONT_CONF=/path/to/fonts.conf`。
 
@@ -981,7 +981,7 @@ exec env DOUBAO_STEAM_RUNTIME_CHILD=1 "$RT" -- bash "$SELF" "$@"
 两者都没有就明确报错退出，不静默改变启动路径。
 `DOUBAO_NO_STEAM_RUNTIME=1` 走轻量裸 wine 路径（干净图形会话下可用，旧污染会话下会黑屏）。
 
-容器内实际生效的变量：
+容器内实际生效的变量（软件渲染 sw 模式；hw 模式见 **5.2**）：
 
 ```bash
 PROTON="$HOME/.local/share/Steam/steamapps/common/Proton 11.0"
@@ -989,9 +989,9 @@ export WINEPREFIX="$HOME/.deepinwine/doubao-wine11"
 
 export WINEDLLPATH="$PROTON/files/lib/vkd3d:$PROTON/files/lib/wine"
 export LD_LIBRARY_PATH="$PROTON/files/lib/x86_64-linux-gnu:$PROTON/files/lib/i386-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export WINEDLLOVERRIDES='mscoree,mshtml='
+export WINEDLLOVERRIDES='d3d11,dxgi=b;mscoree,mshtml='
 
-# 先稳定显示，再单独评估 gf 硬件加速。
+# sw：Mesa 软件渲染（无 gf 驱动时的默认 / 显式回退）。
 export __GLX_VENDOR_LIBRARY_NAME=mesa
 export LIBGL_ALWAYS_SOFTWARE=1
 export GBM_BACKEND=dri
@@ -1031,6 +1031,40 @@ find "$WINEPREFIX/drive_c/users" -path '*/Doubao/Application/app/Doubao.exe' -pr
 ```bash
 DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 ```
+
+### 5.2 显卡加速：gf 7G100 硬件渲染（2026-11-25 已启用为默认）
+
+**开关**：`DOUBAO_GPU=auto|hw|sw`，默认 `auto`——检测到 `/usr/lib/x86_64-linux-gnu/libvulkan_gf.so`
+就启用 `hw`，否则 `sw`。本机（有 gf 驱动）默认即硬件加速；异常时 `DOUBAO_GPU=sw` 回退。
+`quit-doubao.sh --status` 的「渲染后端」行可直接核对当前进程用的是 hw 还是 sw。
+
+**路线**：Chromium ANGLE/D3D11 → **DXVK v2.3** → **gf Vulkan**。两个「不走」：
+
+- **不走 WineD3D/GL**：容器内 gf GLX/EGL 加载得了库但认领不了屏幕（`No driver found`），
+  根因是厂商栈设备发现依赖被沙箱隐藏的路径，无本地 shim 可绕
+  （`dkms/vendor-bug-report-gf-gbm-crash.md` 问题三，2026-08 已定案）。
+- **不用 Proton 11 自带 DXVK v2.7**：它要求 `VK_KHR_maintenance5`，gf 22.0.4 没有，
+  报 `No adapters found`。改用仓库 `minion-masters/dxvk23/`（v2.3-21，随从大师 hw 验证过）。
+
+**容器内 gf Vulkan 四件套**（缺一不可，探针 `_work/vk-loader-probe.py` 逐项取证）：
+
+| 件 | 作用 | 不做时的现象 |
+|---|---|---|
+| `osrelease_redirect.so`（LD_PRELOAD） | 把 `/etc/os-release` 重定向到伪造 Ubuntu 文件，骗过 gf ICD 发行版白名单 | 开设备后读 os-release 即退出，枚举返回 -3 |
+| `VK_DRIVER_FILES` 指向垫片 ICD | pressure-vessel 注入的该变量在新 loader 里优先于 `VK_ICD_FILENAMES` | 只设 `VK_ICD_FILENAMES` 被无视，枚举到 llvmpipe |
+| 协商垫片 ICD（`libvulkan_gf_shim.so`） | 补报被裁扩展、报协商版本 5 | loader 拒载 gf / `vkCreateInstance` -7 |
+| `libSC.so` 拷贝 + `LD_LIBRARY_PATH` | 厂商着色器编译器不在容器驱动合并列表 | DXVK `Failed to create D3D11 device` |
+
+垫片源码复用 `minion-masters/assets-mm-gf-vulkan/`（路径 sed 重写），**首次 hw 启动在宿主侧
+自动构建**到 `~/.local/share/doubao-wine11/gf-accel`（容器里没有 gcc）；`DOUBAO_GF_ACCEL`
+可覆盖。DXVK dll 照 Proton 脚本做法拷入前缀 system32/syswow64（native dll 不走
+`WINEDLLPATH`），原 WineD3D dll 备份为 `*.wined3d-bak`；sw 模式用 `d3d11,dxgi=b`
+强制 builtin，不受已拷入的 DXVK 影响。winex11 自身 GL 探测仍留 mesa llvmpipe
+（与随从大师 hw 一致），只让 DXVK 用 7G100，图形环境仍只注入豆包进程树。
+
+**实测（2026-11-25）**：主窗口 `IsViewable`、抓图 1519 色真实界面（登录态保留）；
+GPU 进程 0 崩溃；稳态瞬时总 CPU 7%（GPU 进程 1%），llvmpipe 的「窗口后忙 23 秒」消除。
+sw 回退同样出界面；其启动期 3 次 GPU `-2147483645` + 沙箱降级是历史 sw 会话固有行为，非回归。
 
 ## 6. Electron 路线评估
 
@@ -1079,7 +1113,8 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 3. **逐项验收**：登录、文字对话、文件上传、音频/RTC（需用户交互）；重复启动已 3/3 通过。
 4. ✅ **桌面入口**：`~/Desktop/doubao-wine.desktop` 已指向
    `run-doubao-wine11.sh` 并标记 trusted（见 2.4）。
-5. **最后才评估 gf 加速**：容器路线先用 Mesa 软件渲染稳定，再单独一轮评估 gf。
+5. ✅ **gf 加速已评估并启用为默认**（2026-11-25）：DXVK v2.3→gf Vulkan，见 5.2；
+   `DOUBAO_GPU=sw` 保留软件回退。
 
 账号数据不要直接整目录覆盖。日志里已出现 `AppBoundEncryption` 错误，跨 Wine/前缀迁移后应有重新登录的心理准备。
 
@@ -1088,7 +1123,8 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
 新版至少满足以下条件，才算修完（2026-11-08 实测进度）：
 
 - ✅ 60 秒内出现主窗口（容器内约 20 秒内 `IsViewable`）；
-- ⬜ `CrBrowserMain` 连续存活 10 分钟以上（已验证 65 秒以上，长时验证待做）；
+- ✅ `CrBrowserMain` 连续存活 10 分钟以上（2026-11-25 hw 硬件加速会话实测 10 分钟：
+  16 进程存活、主窗口 `IsViewable`、GPU 0 崩溃、无新真实 Crashpad 转储）；
 - ✅ 没有新的 browser 主进程 Crashpad 转储；
 - ⬜ 登录和文字对话可用（需用户交互确认）；
 - ✅ 连续 3 次从 `~/Desktop/doubao-wine.desktop` 启动均正常：三次都
@@ -1133,6 +1169,7 @@ DOUBAO_WINE_PREFIX="$HOME/.deepinwine/doubao-wine11" ./doubao/fix-doubao-wine.sh
   误判），没显示才投递右键并等待新窗口。退出码 `0`=好 / `1`=坏 / `3`=没找到托盘图标。
 - `doubao/run-doubao-wine11.sh`：**新版 2.32.6 的主线启动器**，自动套
   `SteamLinuxRuntime_sniper` 容器；启动日志落在 `~/.local/share/doubao-wine11/launch.log`。
+  `DOUBAO_GPU=auto|hw|sw` 选择渲染后端（默认 auto：有 gf 驱动即硬件加速，见 5.2）；
   `DOUBAO_NO_STEAM_RUNTIME=1` 可回到裸 wine 做对照诊断。
 - `doubao/fix-doubao-wine.sh`：与版本无关的前缀层修复（WinSxS 软链接、LocalLow 目录）；
   不再做版本回退、不锁版本、不禁用更新器。

@@ -28,7 +28,7 @@ make_pe "${FAKE_PREFIX32}/${APP_DIR}/Doubao.exe" '\x4c\x01'
 
 cat > "${FAKE_PROTON}/files/bin/wine" <<EOF
 #!/bin/sh
-printf 'loader=legacy\nargv=%s\nWINEDEBUG=%s\nWINELOADERNOEXEC=%s\n' "\$*" "\${WINEDEBUG-unset}" "\${WINELOADERNOEXEC-unset}" > "${CAP}"
+printf 'loader=legacy\nargv=%s\nWINEDEBUG=%s\nWINELOADERNOEXEC=%s\nWINE_D3D_CONFIG=%s\nWINEDLLOVERRIDES=%s\nVK_DRIVER_FILES=%s\n' "\$*" "\${WINEDEBUG-unset}" "\${WINELOADERNOEXEC-unset}" "\${WINE_D3D_CONFIG-unset}" "\${WINEDLLOVERRIDES-unset}" "\${VK_DRIVER_FILES-unset}" > "${CAP}"
 EOF
 cat > "${FAKE_PROTON}/files/lib/wine/x86_64-unix/wine-preloader" <<'EOF'
 #!/bin/sh
@@ -36,7 +36,7 @@ exec "$@"
 EOF
 cat > "${FAKE_PROTON}/files/lib/wine/x86_64-unix/wine" <<EOF
 #!/bin/sh
-printf 'loader=direct\nargv=%s\nWINEDEBUG=%s\nWINELOADERNOEXEC=%s\n' "\$*" "\${WINEDEBUG-unset}" "\${WINELOADERNOEXEC-unset}" > "${CAP}"
+printf 'loader=direct\nargv=%s\nWINEDEBUG=%s\nWINELOADERNOEXEC=%s\nWINE_D3D_CONFIG=%s\nWINEDLLOVERRIDES=%s\nVK_DRIVER_FILES=%s\n' "\$*" "\${WINEDEBUG-unset}" "\${WINELOADERNOEXEC-unset}" "\${WINE_D3D_CONFIG-unset}" "\${WINEDLLOVERRIDES-unset}" "\${VK_DRIVER_FILES-unset}" > "${CAP}"
 EOF
 chmod 755 "${FAKE_PROTON}/files/bin/wine" \
          "${FAKE_PROTON}/files/lib/wine/x86_64-unix/wine-preloader" \
@@ -46,7 +46,7 @@ run_launcher() {  # run_launcher <prefix> <logfile> [ENV=VAL ...] -- [args...]
     local prefix="$1" logf="$2"; shift 2
     env -i PATH="${PATH}" HOME="${T}/home" DOUBAO_PROTON="${FAKE_PROTON}" \
         DOUBAO_WINE11_PREFIX="$prefix" DOUBAO_NO_STEAM_RUNTIME=1 DOUBAO_FONT_DISABLE=1 \
-        DOUBAO_WINE11_LOG="$logf" "$@" bash "${LAUNCHER}" extra-arg >/dev/null 2>&1
+        DOUBAO_GPU=sw DOUBAO_WINE11_LOG="$logf" "$@" bash "${LAUNCHER}" extra-arg >/dev/null 2>&1
 }
 expect_win='C:\users\steamuser\AppData\Local\Doubao\Application\app\Doubao.exe'
 
@@ -105,7 +105,29 @@ grep -qF 'loader=direct' "${CAP}"; t_assert_eq 0 $? "DOUBAO_FAST=1 still uses di
 rm -f "${CAP}" "${T}/runtime-called"
 env -i PATH="${PATH}" HOME="${T}/home" DOUBAO_PROTON="${FAKE_PROTON}" \
     DOUBAO_WINE11_PREFIX="${FAKE_PREFIX}" STEAM_COMMON="${T}/steamcommon" \
-    DOUBAO_FONT_DISABLE=1 DOUBAO_WINE11_LOG="${LOGS}/f.log" bash "${LAUNCHER}" >/dev/null 2>&1
+    DOUBAO_GPU=sw DOUBAO_FONT_DISABLE=1 DOUBAO_WINE11_LOG="${LOGS}/f.log" bash "${LAUNCHER}" >/dev/null 2>&1
 [[ -e "${T}/runtime-called" ]]; t_assert_eq 0 $? "default path still wraps in Steam Runtime"
+
+# 8) sw 模式：WineD3D/GL 软件渲染，d3d11 强制 builtin（不受 hw 拷入的 DXVK 影响）
+rm -f "${CAP}"
+run_launcher "${FAKE_PREFIX}" "${LOGS}/g.log"
+grep -qF 'WINE_D3D_CONFIG=renderer=gl' "${CAP}"; t_assert_eq 0 $? "sw keeps WINE_D3D_CONFIG=renderer=gl"
+grep -qF 'WINEDLLOVERRIDES=d3d11,dxgi=b;mscoree,mshtml=' "${CAP}"
+t_assert_eq 0 $? "sw forces builtin d3d11/dxgi"
+grep -qF 'VK_DRIVER_FILES=unset' "${CAP}"; t_assert_eq 0 $? "sw does not set VK_DRIVER_FILES"
+
+# 9) hw 模式：预置垫片产物跳过部署，注入 gf ICD/DXVK 环境（假 Proton 无 dxvk 目录，拷贝跳过）
+FAKE_GF="${T}/gf-accel"
+mkdir -p "${FAKE_GF}/lib"
+touch "${FAKE_GF}/lib/libvulkan_gf_shim.so" "${FAKE_GF}/lib/osrelease_redirect.so" \
+      "${FAKE_GF}/lib/libvulkan_gf.so" "${FAKE_GF}/lib/libSC.so" "${FAKE_GF}/gf_icd.json"
+rm -f "${CAP}"
+run_launcher "${FAKE_PREFIX}" "${LOGS}/h.log" DOUBAO_GPU=hw DOUBAO_GF_ACCEL="${FAKE_GF}"
+t_assert_eq 0 $? "hw launcher runs with pre-deployed shims"
+grep -qF "VK_DRIVER_FILES=${FAKE_GF}/gf_icd.json" "${CAP}"
+t_assert_eq 0 $? "hw overrides VK_DRIVER_FILES (pressure-vessel precedence)"
+grep -qF 'WINEDLLOVERRIDES=d3d11,dxgi=n,b;mscoree,mshtml=' "${CAP}"
+t_assert_eq 0 $? "hw uses native DXVK d3d11/dxgi"
+grep -qF 'WINE_D3D_CONFIG=unset' "${CAP}"; t_assert_eq 0 $? "hw unsets WINE_D3D_CONFIG"
 
 t_finish "test-doubao-launcher.sh"
