@@ -10,6 +10,7 @@ Proton 11 的 wine-11.0、系统 Mesa/llvmpipe 与两个目标进程树内的环
 ```bash
 cd ~/project/lisuan
 bash cube/fix-cube-fonts.sh        # 一次性：五类系统字体 Tahoma -> Arial（幂等、可还原）
+bash cube/fix-cube-desktop.sh      # 可选：提取官方图标并生成桌面/应用菜单快捷方式
 bash cube/run-cube.sh              # 前台启动，参数透传给 Cube.exe
 ```
 
