@@ -1,5 +1,24 @@
 # 星际争霸目录变更记录
 
+## 2026.11.26 — 开启 7G100 硬件渲染（zink + Venus -> gf）
+
+- 现行默认：桌面三处入口已切到 `run-starcraft-hw.sh`；`run-starcraft.sh`
+  保留为软件回退，`fix-starcraft-desktop.sh --soft` 可切回。
+- 渲染链：原 32 位前缀不变，wined3d -> Mesa GLX zink -> 32 位 virtio/Venus
+  ICD -> `/run/user/1000/l4d2-venus.sock` -> 64 位 `virgl_test_server --venus`
+  -> `libvulkan_gf.so` -> 7G100。复用 `left4dead2/fix-l4d2.sh` 已建立的服务，
+  启动器只检查 active/socket，不自动拉起、不做看门狗。
+- 启动器显式清除继承的 `LIBGL_ALWAYS_SOFTWARE`，设
+  `MESA_LOADER_DRIVER_OVERRIDE=zink` / `VTEST_SOCKET_NAME` / `VN_DEBUG=vtest`；
+  不污染 Steam 客户端或系统驱动。
+- 验证：`run-starcraft-hw.sh --status` 全项 OK；35 秒受控启动出现
+  `Brood War` 1920×1080 全屏窗口，loader 日志明确
+  `Using "Virtio-GPU Venus (LISUAN 7G100 Series Graphics)" with driver: "libvulkan_virtio.so"`，
+  无崩溃、无残留游戏进程。
+- 证伪并清理：new WoW64 + 原生 gf ICD/gf GLX 在 1998 年 DirectDraw 上弹
+  `DirectDraw was unable to be acquired / Data File Error`（软件渲染同样失败），
+  已移除临时前缀 `~/.deepinwine/Starcraft-wine11-hw`；这条路径不入库。
+
 ## 2026.11.26 — 鼠标不跟手：关闭前缀指针加速
 
 - 根因：Spark 原前缀 `HKCU\Control Panel\Mouse` 带 Windows 指针加速

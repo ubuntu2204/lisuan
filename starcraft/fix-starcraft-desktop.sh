@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 至砺算：星际争霸桌面入口集成。图标来自本机 Spark 包自带的官方 208×208
-# PNG（/opt/apps/com.starcraft.spark/...），缩放到 hicolor 后写入桌面项，
-# Exec 指向隔离启动器 run-starcraft.sh（单次启动 + 游戏内 Alt+Enter 全屏）。
+# PNG（/opt/apps/com.starcraft.spark/...），缩放到 hicolor 后写入桌面项。
+# Exec 默认指向软件启动器 run-starcraft.sh；加 --hw 切换到 7G100 硬件
+# 渲染启动器 run-starcraft-hw.sh（zink + Venus -> gf），不加参数切回软件。
 #
 # 图标产物写入 ~/.local/share/icons，不入库；游戏本体与图标原文件属于
 # 第三方专有资产，也不入库（见 .codebuddy/rules/仓库组织约定.md）。
@@ -9,7 +10,9 @@
 # 不做崩溃后自动重启/守护。
 #
 # 用法：
-#   ./starcraft/fix-starcraft-desktop.sh             # 安装（幂等）
+#   ./starcraft/fix-starcraft-desktop.sh             # 安装软件方案（幂等）
+#   ./starcraft/fix-starcraft-desktop.sh --hw        # 切换到硬件渲染方案
+#   ./starcraft/fix-starcraft-desktop.sh --soft      # 切回软件方案
 #   ./starcraft/fix-starcraft-desktop.sh --status
 #   ./starcraft/fix-starcraft-desktop.sh --uninstall
 #   ./starcraft/fix-starcraft-desktop.sh --help
@@ -18,6 +21,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="$SCRIPT_DIR/run-starcraft.sh"
+RUNNER_HW="$SCRIPT_DIR/run-starcraft-hw.sh"
+MODE=soft
+if [[ "${1:-}" == "--hw" || "${1:-}" == "--soft" ]]; then
+    MODE="${1#--}"
+    shift
+fi
 ICON_SRC="${STARCRAFT_ICON_SRC:-/opt/apps/com.starcraft.spark/entries/icons/hicolor/scalable/apps/com.starcraft.spark.png}"
 GAME_DIR="${STARCRAFT_DIR:-$HOME/.deepinwine/Deepin-starcraft/drive_c/Program Files/starcraft}"
 MAIN_EXE="$GAME_DIR/starcraft.exe"
@@ -33,12 +42,21 @@ if [[ "$HOME/Desktop" != "$DESKTOP_DIR" && -d "$HOME/Desktop" ]]; then
     ENTRIES+=("$HOME/Desktop/starcraft.desktop")
 fi
 EXPECTED_EXEC="\"$RUNNER\""
+EXPECTED_EXEC_HW="\"$RUNNER_HW\""
+TARGET_RUNNER="$RUNNER"
+TARGET_EXEC="$EXPECTED_EXEC"
+if [[ "$MODE" == hw ]]; then
+    TARGET_RUNNER="$RUNNER_HW"
+    TARGET_EXEC="$EXPECTED_EXEC_HW"
+fi
 
 usage() {
     cat <<EOF
-用法：$(basename "$0") [--status|--uninstall|--help]
+用法：$(basename "$0") [--hw|--soft] [--status|--uninstall|--help]
 
-  （无参数）   生成图标并创建/修正桌面入口，标记 trusted
+  （无参数）   生成图标并创建/修正桌面入口，标记 trusted（软件方案）
+  --hw         切换到 7G100 硬件渲染启动器（zink + Venus -> gf）
+  --soft       切回软件启动器
   --status     只读体检：图标、入口 Icon/Exec/trusted、启动器与主程序
   --uninstall  恢复 .desktop 备份（新建的删除）、移除生成的图标
   --help       显示本说明
@@ -57,17 +75,20 @@ is_trusted() {
 backup_of() { printf '%s/%s.bak' "$BACKUP_DIR" "$(basename "$1")"; }
 
 entry_ok() {
-    local f="$1"
+    local f="$1" exec_line
     [[ -f "$f" ]] || return 1
     grep -qF "Icon=$ICON_NAME" "$f" || return 1
-    grep -qF "Exec=$EXPECTED_EXEC" "$f" || return 1
+    exec_line="$(grep -m1 '^Exec=' "$f" 2>/dev/null || true)"
+    [[ "$exec_line" == "Exec=$EXPECTED_EXEC" || "$exec_line" == "Exec=$EXPECTED_EXEC_HW" ]] || return 1
     return 0
 }
 
 status() {
-    local rc=0 s p f
-    [[ -x "$RUNNER" ]] && echo "  [OK] 启动器：$RUNNER" || \
-        { echo "  [--] 启动器缺失或不可执行：$RUNNER"; rc=1; }
+    local rc=0 s p f exec_line label
+    [[ -x "$RUNNER" ]] && echo "  [OK] 软件启动器：$RUNNER" || \
+        { echo "  [--] 软件启动器缺失或不可执行：$RUNNER"; rc=1; }
+    [[ -x "$RUNNER_HW" ]] && echo "  [OK] 硬件启动器：$RUNNER_HW" || \
+        { echo "  [--] 硬件启动器缺失或不可执行：$RUNNER_HW"; rc=1; }
     [[ -s "$MAIN_EXE" && "$(head -c2 "$MAIN_EXE")" == "MZ" ]] && \
         echo "  [OK] 主程序：$MAIN_EXE" || \
         { echo "  [--] 主程序缺失：$MAIN_EXE"; rc=1; }
@@ -80,8 +101,10 @@ status() {
     done
     for f in "${ENTRIES[@]}"; do
         if entry_ok "$f"; then
+            exec_line="$(grep -m1 '^Exec=' "$f" 2>/dev/null || true)"
+            if [[ "$exec_line" == "Exec=$EXPECTED_EXEC_HW" ]]; then label=硬件; else label=软件; fi
             if is_trusted "$f"; then
-                echo "  [OK] 桌面项：$f（trusted）"
+                echo "  [OK] 桌面项：$f（$label，trusted）"
             else
                 echo "  [--] 桌面项未标记 trusted：$f"; rc=1
             fi
@@ -117,8 +140,8 @@ write_entry() {
 Type=Application
 Name=星际争霸
 Name[en_US]=StarCraft
-Comment=星际争霸 1.08（deepin-wine5，启动时按 Alt+Enter 全屏）
-Exec=$EXPECTED_EXEC
+Comment=星际争霸 1.08（Proton 11 / Wine 11，全屏）
+Exec=$TARGET_EXEC
 Icon=$ICON_NAME
 Terminal=false
 Categories=Game;
@@ -133,7 +156,7 @@ EOF
             echo "  已备份：$f -> $bak"
         fi
         tmp="$(mktemp)"
-        python3 - "$f" "$ICON_NAME" "$EXPECTED_EXEC" > "$tmp" <<'PY'
+        python3 - "$f" "$ICON_NAME" "$TARGET_EXEC" > "$tmp" <<'PY'
 import sys
 path, icon, exe = sys.argv[1:]
 lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
@@ -167,7 +190,7 @@ PY
 }
 
 install_desktop() {
-    [[ -x "$RUNNER" ]] || { echo "错误：启动器缺失或不可执行：$RUNNER" >&2; exit 1; }
+    [[ -x "$TARGET_RUNNER" ]] || { echo "错误：启动器缺失或不可执行：$TARGET_RUNNER" >&2; exit 1; }
     [[ -s "$MAIN_EXE" ]] || { echo "错误：主程序不存在：$MAIN_EXE（请先安装星际争霸）" >&2; exit 1; }
     [[ -s "$ICON_SRC" ]] || { echo "错误：图标源不存在：$ICON_SRC" >&2; exit 1; }
     echo "[1/3] 缩放官方图标 -> $ICON_ROOT/hicolor"
@@ -186,8 +209,7 @@ uninstall() {
         if [[ -f "$bak" ]]; then
             mv -f "$bak" "$f"
             echo "  已恢复：$f"
-        elif [[ -f "$f" ]] && grep -qF "Icon=$ICON_NAME" "$f" && \
-             grep -qF "Exec=$EXPECTED_EXEC" "$f"; then
+        elif [[ -f "$f" ]] && grep -qF "Icon=$ICON_NAME" "$f" && entry_ok "$f"; then
             rm -f "$f"
             echo "  已删除：$f"
         fi

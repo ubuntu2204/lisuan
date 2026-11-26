@@ -22,12 +22,13 @@
 图标产物写在 `~/.deepinwine/`、`~/.local/share/icons/hicolor/`，同样不入库
 （见 `.codebuddy/rules/仓库组织约定.md`）。
 
-## 2. 启动与全屏
+## 2. 启动与全屏（软件 / 7G100 硬件两条路径）
 
 ```bash
 cd ~/project/lisuan
-./starcraft/run-starcraft.sh                 # 前台启动；Wine 11 直接全屏
-./starcraft/run-starcraft.sh --status        # 只读体检
+./starcraft/run-starcraft-hw.sh              # 前台启动；7G100 硬件渲染（现行默认）
+./starcraft/run-starcraft-hw.sh --status     # 只读体检（含 Venus 服务端）
+./starcraft/run-starcraft.sh                 # 软件回退；Wine 11 直接全屏
 STARCRAFT_NO_FULLSCREEN=1 ./starcraft/run-starcraft.sh   # 排障时禁用备用按键
 ```
 
@@ -64,11 +65,40 @@ PipeWire 取帧不稳定（多次 25–50 s 超时），按 `.codebuddy/rules/Wa
 启动 `星际争霸中文启动器.exe`，先弹一个 276×158 的启动器窗口，还要再点一次
 才能进游戏；直接运行 `starcraft.exe` 已能显示中文界面并正常进主菜单，启动链更短。
 
+### 7G100 硬件渲染（2026-11-26 现行默认）
+
+`run-starcraft-hw.sh` 复用与原软件方案相同的 32 位前缀，只改渲染链：
+
+```
+starcraft.exe (PE32) -> wined3d -> Mesa GLX zink
+  -> 32 位 virtio/Venus ICD -> Unix socket
+  -> 64 位 virgl_test_server --venus -> libvulkan_gf.so -> 7G100
+```
+
+- 前置：`left4dead2/fix-l4d2.sh` 建立的 `l4d2-venus.service` 必须 active，
+  socket 默认 `/run/user/1000/l4d2-venus.sock`。启动器只检查、不自动拉起服务。
+- 启动器显式清除继承来的 `LIBGL_ALWAYS_SOFTWARE`，设
+  `MESA_LOADER_DRIVER_OVERRIDE=zink`、`VK_ICD_FILENAMES=virtio_icd.json`、
+  `VTEST_SOCKET_NAME=<socket>`、`VN_DEBUG=vtest`。不注入 gf 环境变量到
+  Steam 客户端，也不改系统驱动。
+- 证伪路径：曾试随从大师式 new WoW64 + 原生 gf ICD / gf GLX，1998 年
+  DirectDraw 会弹 `DirectDraw was unable to be acquired / Data File Error`；
+  软件渲染在 new WoW64 前缀下同样失败，故放弃新建前缀，保留原 32 位前缀。
+- 只读确认渲染设备：
+
+```bash
+./starcraft/run-starcraft-hw.sh --status
+STARCRAFT_WINEDEBUG=-all VK_LOADER_DEBUG=driver,info \
+  timeout 25 ./starcraft/run-starcraft-hw.sh 2>&1 | grep 'Virtio-GPU Venus (LISUAN'
+```
+
 ## 3. 桌面图标
 
 ```bash
-./starcraft/fix-starcraft-desktop.sh             # 生成图标 + 桌面入口（幂等）
-./starcraft/fix-starcraft-desktop.sh --status    # 只读体检
+./starcraft/fix-starcraft-desktop.sh             # 生成图标 + 软件入口（幂等）
+./starcraft/fix-starcraft-desktop.sh --hw        # 切换到 7G100 硬件入口（现行默认）
+./starcraft/fix-starcraft-desktop.sh --soft      # 切回软件入口
+./starcraft/fix-starcraft-desktop.sh --status    # 只读体检（显示当前是硬件/软件）
 ./starcraft/fix-starcraft-desktop.sh --uninstall # 恢复备份、移除生成的图标
 ```
 
@@ -98,7 +128,7 @@ Spark 原前缀的 `HKCU\Control Panel\Mouse` 带 Windows 指针加速
 libinput、系统驱动、Steam 全局配置，也不做看门狗/自动重启。
 
 > 该修复解决的是“光标位移与手不一致”。如果连菜单箭头和画面都整体卡顿，
-> 那更可能是 `llvmpipe` 软件渲染帧率问题，不在本脚本范围内。
+> 先查 `run-starcraft-hw.sh --status` 的 Venus 服务端与 zink/ICD 是否就绪。
 
 ## 5. 验收状态（2026-11-26 实测）
 
@@ -112,6 +142,8 @@ libinput、系统驱动、Steam 全局配置，也不做看门狗/自动重启�
 - 隔离：Wine 11 前缀与原 Spark 前缀分开；砺算驱动与 Steam 客户端未改动。
 - 桌面入口与图标：由 `./starcraft/fix-starcraft-desktop.sh --status` 自检。
 - 鼠标（2026-11-26）：独立前缀的指针加速三项已设为 0，`fix-starcraft-mouse.sh --status` 为 3/3 OK；修复后 40 秒受控启动仍直接出现 `Brood War` 全屏窗口，无崩溃、无残留游戏进程。
+- 硬件渲染（2026-11-26）：`run-starcraft-hw.sh --status` 全项 OK；35 秒受控启动出现 `Brood War` 全屏窗口，Vulkan loader 日志明确 `Using "Virtio-GPU Venus (LISUAN 7G100 Series Graphics)" with driver: "libvulkan_virtio.so"`，无崩溃、无残留游戏进程。
+- 桌面入口：已在 `/home/ubuntu/.local/share/applications/`、`~/Desktop`、`~/桌面` 三处切到硬件启动器，`fix-starcraft-desktop.sh --status` 显示「硬件」；`--soft` 可随时回退。
 - 限制：全屏时 ScreenCast 抓帧可能超时，不作为失败判据（见第 2 节）。
 
 ## 6. 排障速查
@@ -130,8 +162,14 @@ STARCRAFT_NO_FULLSCREEN=1 ./starcraft/run-starcraft.sh --status
 STARCRAFT_PROTON_DIR="$HOME/.local/share/Steam/steamapps/common/Proton 11.0" \
   STARCRAFT_PREFIX="$HOME/.deepinwine/Starcraft-wine11" ./starcraft/run-starcraft.sh
 
-# 图标或桌面项异常
+# 硬件方案只读体检与渲染设备确认
+./starcraft/run-starcraft-hw.sh --status
+STARCRAFT_WINEDEBUG=-all VK_LOADER_DEBUG=driver,info \
+  timeout 25 ./starcraft/run-starcraft-hw.sh 2>&1 | grep 'Virtio-GPU Venus (LISUAN'
+
+# 图标或桌面项异常 / 切换启动器
 ./starcraft/fix-starcraft-desktop.sh --status
+./starcraft/fix-starcraft-desktop.sh --soft   # 回退软件渲染
 ```
 
 常见现象：
@@ -144,4 +182,7 @@ STARCRAFT_PROTON_DIR="$HOME/.local/share/Steam/steamapps/common/Proton 11.0" \
 | 窗口仍是 640×480 | 实际用的还是 deepin-wine5，或 `STARCRAFT_WINE` 覆盖了默认 | 检查 `--status` 里的 Wine 运行时；不要用 WM 强改状态掩盖 |
 | 桌面图标显示为空白 | 图标缓存未刷新或 `Icon=` 被覆盖 | 重跑 `fix-starcraft-desktop.sh`，检查 `gio info` 的 trusted 标记 |
 | 鼠标不跟手 / 点选错位 | Spark 前缀带 Windows 指针加速，叠加 Wine 全屏 XWayland 指针 warp | 关闭游戏后跑 `./starcraft/fix-starcraft-mouse.sh`，再启动对比；`--uninstall` 可还原 |
+| 硬件启动器报 Venus 服务端未就绪 | `l4d2-venus.service` 未 active 或 socket 不存在 | 查 `journalctl --user -u l4d2-venus`；启动器不会自动拉起服务 |
+| 硬件启动器报缺 zink / virtio ICD | 32 位 Mesa 驱动或 Vulkan ICD 被移除 | 检查 `/usr/lib/i386-linux-gnu/dri/zink_dri.so` 与 `/usr/share/vulkan/icd.d/virtio_icd.json` |
+| new WoW64 前缀弹 Data File Error | 1998 年 DirectDraw 与 Wine 11 新 WoW64 不兼容 | 不要用新前缀；用默认 `~/.deepinwine/Starcraft-wine11` 走 zink + Venus |
 | 游戏崩溃 | 不要用看门狗掩盖 | 按 `.codebuddy/rules/崩溃处理约定.md` 取证（保留日志、core、journalctl） |
