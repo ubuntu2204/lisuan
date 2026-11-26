@@ -79,7 +79,28 @@ PipeWire 取帧不稳定（多次 25–50 s 超时），按 `.codebuddy/rules/Wa
 - 脚本只改已有 `.desktop` 的 `Icon` / `Exec` 两行，改前生成 `.bak`；
   `--uninstall` 恢复备份或删除新建项，并移除生成的图标。
 
-## 4. 验收状态（2026-11-26 实测）
+## 4. 鼠标不跟手（2026-11-26）
+
+Spark 原前缀的 `HKCU\Control Panel\Mouse` 带 Windows 指针加速
+（`MouseSpeed=1`、`MouseThreshold1=6`、`MouseThreshold2=10`）。Wine 11
+全屏 XWayland 下，游戏收到的鼠标位移先经过 Wine 的指针加速，再叠加
+指针 warp/回中，表现为光标跟不上手、点选与边缘卷屏错位。
+
+修复只作用于独立前缀 `~/.deepinwine/Starcraft-wine11`：
+
+```bash
+./starcraft/fix-starcraft-mouse.sh             # 幂等关闭指针加速
+./starcraft/fix-starcraft-mouse.sh --status    # 只读体检
+./starcraft/fix-starcraft-mouse.sh --uninstall # 从 Mouse.reg.bak 还原
+```
+
+备份在 `~/.local/share/starcraft/mouse-fix/Mouse.reg.bak`；不改宿主
+libinput、系统驱动、Steam 全局配置，也不做看门狗/自动重启。
+
+> 该修复解决的是“光标位移与手不一致”。如果连菜单箭头和画面都整体卡顿，
+> 那更可能是 `llvmpipe` 软件渲染帧率问题，不在本脚本范围内。
+
+## 5. 验收状态（2026-11-26 实测）
 
 - Wine 5.0（旧方案）：窗口 640×480，`Alt+Enter` 送达但无效；
   `DisplayMode=0/1/2`、WM fullscreen、改窗口尺寸全部无效 → 判定为
@@ -90,9 +111,10 @@ PipeWire 取帧不稳定（多次 25–50 s 超时），按 `.codebuddy/rules/Wa
   「Wine 11 已直接创建全屏窗口，无需 Alt+Enter」。`DisplayMode` 保持原值 2。
 - 隔离：Wine 11 前缀与原 Spark 前缀分开；砺算驱动与 Steam 客户端未改动。
 - 桌面入口与图标：由 `./starcraft/fix-starcraft-desktop.sh --status` 自检。
+- 鼠标（2026-11-26）：独立前缀的指针加速三项已设为 0，`fix-starcraft-mouse.sh --status` 为 3/3 OK；修复后 40 秒受控启动仍直接出现 `Brood War` 全屏窗口，无崩溃、无残留游戏进程。
 - 限制：全屏时 ScreenCast 抓帧可能超时，不作为失败判据（见第 2 节）。
 
-## 5. 排障速查
+## 6. 排障速查
 
 ```bash
 # 只读体检（Wine 运行时、主程序、前缀、窗口工具）
@@ -121,4 +143,5 @@ STARCRAFT_PROTON_DIR="$HOME/.local/share/Steam/steamapps/common/Proton 11.0" \
 | 首次启动复制前缀很慢 | 从 Spark 前缀复制约 450 MB，只做一次 | 等待完成；不要重复点击桌面图标 |
 | 窗口仍是 640×480 | 实际用的还是 deepin-wine5，或 `STARCRAFT_WINE` 覆盖了默认 | 检查 `--status` 里的 Wine 运行时；不要用 WM 强改状态掩盖 |
 | 桌面图标显示为空白 | 图标缓存未刷新或 `Icon=` 被覆盖 | 重跑 `fix-starcraft-desktop.sh`，检查 `gio info` 的 trusted 标记 |
+| 鼠标不跟手 / 点选错位 | Spark 前缀带 Windows 指针加速，叠加 Wine 全屏 XWayland 指针 warp | 关闭游戏后跑 `./starcraft/fix-starcraft-mouse.sh`，再启动对比；`--uninstall` 可还原 |
 | 游戏崩溃 | 不要用看门狗掩盖 | 按 `.codebuddy/rules/崩溃处理约定.md` 取证（保留日志、core、journalctl） |

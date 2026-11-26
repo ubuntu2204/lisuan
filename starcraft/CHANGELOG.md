@@ -1,5 +1,17 @@
 # 星际争霸目录变更记录
 
+## 2026.11.26 — 鼠标不跟手：关闭前缀指针加速
+
+- 根因：Spark 原前缀 `HKCU\Control Panel\Mouse` 带 Windows 指针加速
+  （`MouseSpeed=1`、`MouseThreshold1=6`、`MouseThreshold2=10`）；Wine 11
+  全屏 XWayland 下与指针 warp/回中叠加，光标位移被放大/压缩，表现为
+  “不跟手”、点选和边缘卷屏错位。与 7G100 显卡驱动无关。
+- 新增 `starcraft/fix-starcraft-mouse.sh`：只把独立前缀三项 REG_SZ 改为 0，
+  改前导出 `Mouse.reg.bak`，幂等、提供 `--status` / `--uninstall`；
+  不改宿主 libinput、系统驱动或 Steam 全局配置，不做守护/自动重启。
+- 验证：修复前 status 三项均非 0；修复后 3/3=0；40 秒受控启动出现
+  `Brood War` 全屏窗口，无崩溃、无残留 `starcraft.exe`。
+
 ## 2026.11.26 — 全屏改用 Proton 11 的 Wine 11
 
 - 根因：Spark 包 deepin-wine5（Wine 5.0）的 DirectDraw 全屏依赖 XRandR 切
