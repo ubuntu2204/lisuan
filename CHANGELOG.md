@@ -22,6 +22,7 @@
 | `minion-masters/` | [`minion-masters/CHANGELOG.md`](minion-masters/CHANGELOG.md) |
 | `packaging/` | [`packaging/CHANGELOG.md`](packaging/CHANGELOG.md) |
 | `steam/` | [`steam/CHANGELOG.md`](steam/CHANGELOG.md) |
+| `starcraft/` | [`starcraft/CHANGELOG.md`](starcraft/CHANGELOG.md) |
 | `underlords/` | [`underlords/CHANGELOG.md`](underlords/CHANGELOG.md) |
 | `war3/` | [`war3/CHANGELOG.md`](war3/CHANGELOG.md) |
 
@@ -33,6 +34,15 @@
 > `tests/test-dreamina-install.sh` 一并撤销。`11/` 复用的图标提取器改为同目录副本。
 
 ---
+
+## 2026.11.26 — 星际争霸 1.08 全屏改用 Proton 11 Wine 11
+
+Spark 包 deepin-wine5（Wine 5.0）在 XWayland 下无法用 XRandR 切换分辨率，
+`Alt+Enter` 虽送达游戏但不触发显示模式切换，窗口固定 640×480。启动器改为
+默认调用 Proton 11 的 Wine 11，并在首次运行时把原前缀复制到独立的
+`~/.deepinwine/Starcraft-wine11`；实测游戏直接以 1920×1080 全屏窗口启动，
+无需模拟按键。驱动、Steam 客户端、原前缀和游戏二进制均未改动。详见
+[`starcraft/CHANGELOG.md`](starcraft/CHANGELOG.md)。
 
 ## 2026.10.06 — 全部游戏/应用文档新增「至砺算：」章节
 
