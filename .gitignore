@@ -48,6 +48,15 @@ cube/CubeSetup_v4.1.2.1.exe
 # 获取方式同上：官网安装包解包，仓库只保留脚本与文档。
 cube/E92FDE8/
 
+# ---- 星际争霸 1.08：厂商游戏相关目录，仅本机保留 ----
+starcraft/
+
+# ---- 星际争霸 1 重制版：厂商专有游戏文件，仅本机运行 ----
+# 来源与版本见 starcraft-remastered/README.md；仓库只保留安装/启动脚本。
+starcraft-remastered/game/
+starcraft-remastered/game.install.*/
+starcraft-remastered/runtime.*
+
 # ---- 本地诊断草稿区：构建日志、探针、解包的厂商源码等，整体不入库 ----
 _work/
 
