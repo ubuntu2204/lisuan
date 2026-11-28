@@ -25,14 +25,6 @@ def iter_windows(window):
 
 def window_title(window):
     try:
-        name = window.get_wm_name()
-        if isinstance(name, bytes):
-            name = name.decode(errors="replace")
-        if name:
-            return name
-    except Exception:
-        pass
-    try:
         atom = window.display.get_atom("_NET_WM_NAME")
         prop = window.get_full_property(atom, X.AnyPropertyType)
         if prop and prop.value:
@@ -41,7 +33,13 @@ def window_title(window):
             return str(prop.value)
     except Exception:
         pass
-    return ""
+    try:
+        name = window.get_wm_name()
+        if isinstance(name, bytes):
+            name = name.decode(errors="replace")
+        return name or ""
+    except Exception:
+        return ""
 
 
 def is_viewable(window):

@@ -93,7 +93,7 @@ right headers.
 
 ## 仓库结构
 
-按**主题**分为 9 个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）。
+按**主题**分为多个目录（每个目录内自带脚本与文档，不再区分 `scripts/` `docs/`）。
 每个游戏/应用文档开头都有 **「至砺算：」** 一节——写给砺算官方研发，说明"官方实现什么，
 本目录的 workaround 即可退役"；这是本项目的主要读者视角。
 
@@ -110,6 +110,7 @@ right headers.
 | `audio/` | 显卡音频 | 7G100 伴生 HDA（`4c54:5010`）绑 `snd_hda_intel` 的 INTx 修复、开机自绑、BAR0 诊断探针；根因与证据见 [`audio/README.md`](./audio/README.md) |
 | `doubao/` | 豆包 Windows 客户端 | 官方 2.32.6 在 Wine 11（Proton 11.0）下的安装/启动/排障；托盘菜单「关一次即永久失效」的反编译定案；根因与证据见 [`doubao/README.md`](./doubao/README.md) |
 | `war3/` | 魔兽争霸 III（1.24 冰封王座） | 32 位 War3 在 7G100 上跑通：必须改用 **32 位 llvmpipe ICD**（继承 64 位 gf ICD 会 `eip=0x35800000` 崩溃），并禁止同一 wine 前缀并发实例（否则弹 `was unable to initialize`）；含启动器、桌面入口与存档目录可写修复；见 [`war3/README.md`](./war3/README.md) |
+| `world-of-warships/` | 战舰世界 | Proton 11 + DXVK 2.3 + gf 容器兼容垫片；含 `setup-wows-gf.sh`、`run-wows-gf.sh`、`uninstall-wows-gf.sh` 与 shim 源码，游戏本体/厂商库不入库；港口约 77 FPS、CPU 约 134%；见 [`world-of-warships/README.md`](./world-of-warships/README.md) |
 
 其余：`tests/`（离线测试）、`_work/`（本机诊断草稿，**非交付物**）。
 

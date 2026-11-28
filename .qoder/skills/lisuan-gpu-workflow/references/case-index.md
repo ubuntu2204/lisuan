@@ -56,6 +56,19 @@
 | `_work/list_windows.py` | 窗口枚举与映射状态检查 |
 | `tests/` | 仓库健康、脚本语法与状态检测测试 |
 
+## World of Warships（AppID 552990）
+
+| 项目 | 实测结果 |
+| --- | --- |
+| 运行时 | `~/.local/share/worldofwarships-gf-accel/` |
+| 项目脚本 | `world-of-warships/setup-wows-gf.sh`、`run-wows-gf.sh`、`uninstall-wows-gf.sh` |
+| 源码 | `world-of-warships/assets/`，不含游戏、DXVK DLL 或厂商 `.so` |
+| DXVK | 2.3 DLL 放在 `World of Warships/bin/13533378/bin64/`，避免 Proton 覆盖前缀副本 |
+| libSC | shim `init_real()` 先 `dlopen(libSC.so, RTLD_GLOBAL)`，再加载真实 gf ICD |
+| Steam | `localconfig.vdf` 已持久化 gf LaunchOptions |
+| 验收 | 港口约 77 FPS；CPU 约 134%；llvmpipe 线程 0；DXVK 识别 7G100 |
+| 边界 | 已验证港口，未逐项验收战斗场景 |
+
 ## 桌面快捷方式
 
 - 使用 `xdg-user-dir DESKTOP` 查询真实桌面目录。

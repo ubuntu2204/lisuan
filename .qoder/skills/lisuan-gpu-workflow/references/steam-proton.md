@@ -93,6 +93,8 @@ grep -E 'libSC|libvulkan_gf|gf_shim' /proc/<pid>/maps
 
 若 `libSC.so` 未加载，在真实 ICD 初始化前显式 `dlopen(..., RTLD_GLOBAL)` 或通过 `LD_PRELOAD` 预加载。仅设置一个可能被覆盖的 `LD_LIBRARY_PATH` 不算完成。
 
+《战舰世界》实测：只在 shim 中加 RPATH 仍不足以让驱动后续 `dlopen` 找到 `libSC.so`；在 `init_real()` 中先 `dlopen("<runtime>/lib/libSC.so", RTLD_NOW | RTLD_GLOBAL)`，再加载 `libvulkan_gf.so`，才成功创建设备并进入港口。
+
 ### 4.4 环境变量
 
 同时覆盖：
