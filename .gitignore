@@ -61,7 +61,11 @@ starcraft-remastered/runtime.*
 _work/
 
 # ---- Qoder / IDE 本地数据 ----
-.qoder/
+# settings.json 等本机配置不入库；skills/ 是项目级技能，需随仓库分发。
+.qoder/*
+!.qoder/skills/
+!.qoder/skills/**
+.qoder/skills/**/__pycache__/
 
 # ---- CodeBuddy 本地数据 ----
 # settings.json 是本机插件启用列表，属个人配置，不入库。
